@@ -57,3 +57,16 @@ class DeviceAppStopAckPacket extends DeviceAppPacket
     bool result;
     string reason;
 }
+
+class DeviceAppChangeMecHostPacket extends DeviceAppPacket
+{
+    unsigned int requestNumber;
+    string newMehIpAddress;
+    int newMehPort;
+}
+
+class DeviceAppChangeMecHostAckPacket extends DeviceAppPacket
+{
+    bool result;
+    unsigned int requestNumber;
+}

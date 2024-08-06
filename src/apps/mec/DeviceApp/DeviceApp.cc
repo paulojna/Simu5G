@@ -210,6 +210,32 @@ void DeviceApp::handleUALCMPMessage()
                 }
                 break;
             }
+            case APPCREATED:
+            {   
+                if(response->getCode() == 200)
+                {
+                    // UALCMP is asking for us to change the ip
+                    nlohmann::json jsonBody =  nlohmann::json::parse(UALCMPMessage->getBody());
+                    std::string newMehIp = jsonBody["newMehIp"];
+                    std::string newMehPort = jsonBody["newMehPort"];
+                    std::string appContextId = jsonBody["appContextId"];
+
+                    // send the new ip and port to the UE app
+                    inet::Packet* packet = new inet::Packet("DeviceAppChangeMecHostPacket");
+                    auto changeMeh = inet::makeShared<DeviceAppChangeMecHostPacket>();
+                    changeMeh->setType(MEH_CHANGE);
+                    changeMeh->setNewMehIpAddress(newMehIp.c_str());
+                    changeMeh->setNewMehPort(atoi(newMehPort.c_str()));
+                    //changeMeh->setNewContextId(appContextId.c_str());
+                    changeMeh->setChunkLength(inet::B(2+newMehIp.size()+newMehPort.size()+appContextId.size()+3));
+                    changeMeh->addTagIfAbsent<inet::CreationTimeTag>()->setCreationTime(simTime());
+                    packet->insertAtBack(changeMeh);
+
+                    ueAppSocket_.sendTo(packet, ueAppAddress, ueAppPort);
+                    appState = UPDATING;
+                    return;
+                }
+            }
 
             case DELETING:
             {
@@ -273,9 +299,44 @@ void DeviceApp::handleUALCMPMessage()
                 throw cRuntimeError("DeviceApp::handleUALCMPMessage() - appstate IDLE. No messages should arrive from the UALCMP");
         }
     }
+    else if((UALCMPMessage->getType() == REQUEST))
+    {
+        EV << "DeviceApp::handleUALCMPMessage - REQUEST" << endl;
+
+        HttpRequestMessage * response = dynamic_cast<HttpRequestMessage*>(UALCMPMessage);
+
+        nlohmann::json jsonBody =  nlohmann::json::parse(response->getBody());
+
+        EV << "DeviceApp::handleUALCMPMessage - body: " << jsonBody.dump() << endl;
+
+        //std::string appContextUri = response->getUri();
+        std::string newMehIp = jsonBody["newMehIp"];
+        int newMehPort = jsonBody["newMehPort"];
+        unsigned int packetRequestNumber = jsonBody["requestNumber"];
+
+        EV << "DeviceApp::handleUALCMPMessage - request to change MEH ip to: " << newMehIp << " and port to: " << newMehPort << endl;
+
+        inet::Packet* packet = new inet::Packet("DeviceAppChangeMecHostPacket");
+        auto changeMeh = inet::makeShared<DeviceAppChangeMecHostPacket>();
+        changeMeh->setType(MEH_CHANGE);
+        changeMeh->setNewMehIpAddress(newMehIp.c_str());
+        changeMeh->setNewMehPort(newMehPort);
+        changeMeh->setRequestNumber(packetRequestNumber);
+        changeMeh->setChunkLength(inet::B(2+newMehIp.size()+3));
+        changeMeh->addTagIfAbsent<inet::CreationTimeTag>()->setCreationTime(simTime());
+        packet->insertAtBack(changeMeh);
+
+        ueAppSocket_.sendTo(packet, ueAppAddress, ueAppPort);
+
+        appState = UPDATING;
+
+        EV << "DeviceApp::handleUALCMPMessage - AppState changed to UPDATING" << endl;
+
+        return;
+    }
     else
     {
-        // TODO implement subscriptions
+        EV << "DeviceApp::handleUALCMPMessage - ERROR - message type not recognized" << endl;
         return;
     }
 
@@ -505,6 +566,10 @@ void DeviceApp::socketDataArrived(UdpSocket *socket, Packet *pk)
     {
         sendStopAppContext(pkt);
     }
+    else if(strcmp(pkt->getType(), ACK_MEH_CHANGE) == 0)
+    {
+        sendAckMehChange(pkt);
+    } 
 
 }
 
@@ -552,6 +617,41 @@ void DeviceApp::socketPeerClosed(inet::TcpSocket *socket)
        }
 
 }
+
+void DeviceApp::sendAckMehChange(inet::Ptr<const DeviceAppPacket> pk)
+{
+    auto ackPk = dynamicPtrCast<const DeviceAppChangeMecHostAckPacket>(pk);
+    if(ackPk == nullptr)
+        throw cRuntimeError("DeviceApp::sendAckMehChange - DeviceAppChangeMecHostPacket is null");
+
+    // check if the change was successful
+    if(ackPk->getResult() == false)
+    {
+        EV << "DeviceApp::sendAckMehChange: Device App received a negative ack from the UE Request App" << endl;
+        appState = APPCREATED;
+        return;
+    }
+
+    EV << "DeviceApp::sendAckMehChange: Device App received confirmation of the change by the UE Request App" << endl;
+    EV << "DeviceApp::sendAckMehChange: new MEH ip: " << ackPk->getResult() << " new MEH port: " << ackPk->getRequestNumber() << endl;
+
+    // convert the received packet (ackPk) in nohmann json
+    nlohmann::json jsonBody;
+    jsonBody["type"] = ackPk->getType();
+    jsonBody["result"] = ackPk->getResult();
+    jsonBody["requestNumber"] = ackPk->getRequestNumber();
+
+    if(UALCMPSocket_.getState() == inet::TcpSocket::CONNECTED && appState == UPDATING)
+    {
+        std::string host = UALCMPSocket_.getRemoteAddress().str()+":"+std::to_string(UALCMPSocket_.getRemotePort());
+        Http::sendPostRequest(&UALCMPSocket_, jsonBody.dump().c_str(), host.c_str(), "/example/dev_app/v1/meh_change");
+        appState = APPCREATED;
+        EV << "DeviceApp::sendAckMehChange: AppState changed to APPCREATED" << endl;
+    }
+
+    return;
+}
+
 void DeviceApp::socketClosed(inet::TcpSocket *socket) {}
 void DeviceApp::socketFailure(inet::TcpSocket *socket, int code) {}
 

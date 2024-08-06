@@ -22,5 +22,8 @@
 #define INFO_MECAPP "MecAppInfo"
 #define INFO_UEAPP "UEAppInfo"
 
+#define MEH_CHANGE "MehChange"
+#define ACK_MEH_CHANGE "MehChangeAck"
+
 
 #endif /* CORENETWORK_NODES_MEC_MEPLATFORM_MECAPPPACKET_TYPES_H_ */

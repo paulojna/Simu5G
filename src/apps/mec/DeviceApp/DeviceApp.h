@@ -17,6 +17,7 @@
 #include "inet/transportlayer/contract/udp/UdpSocket.h"
 #include "inet/transportlayer/contract/tcp/TcpSocket.h"
 #include "DeviceAppMessages/DeviceAppPacket_m.h"
+#include "nodes/mec/UALCMP/UALCMPMessages/UALCMPMessages_m.h"
 
 namespace simu5g {
 
@@ -89,6 +90,7 @@ class DeviceApp : public omnetpp::cSimpleModule, public inet::TcpSocket::ICallba
         virtual void handleUALCMPMessage();
         void sendStartAppContext(inet::Ptr<const DeviceAppPacket> pk);
         void sendStopAppContext(inet::Ptr<const DeviceAppPacket> pk);
+        void sendAckMehChange(inet::Ptr<const DeviceAppPacket> pk);
 
         virtual void connectToUALCMP();
 

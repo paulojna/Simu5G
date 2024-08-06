@@ -51,7 +51,7 @@ UALCMPApp::UALCMPApp()
     supportedQueryParams_.insert("app_contexts");
     scheduledSubscription = false;
     mecOrchestrator_ = nullptr;
-    requestSno = 0;
+    requestSno = 1;
     subscriptionId_ = 0;
     subscriptions_.clear();
 }
@@ -124,7 +124,12 @@ void UALCMPApp::handleMessageWhenUp(cMessage *msg)
         {
             handleDeleteContextAppAckMessage(lcmMsg);
         }
-
+        else if(strcmp(lcmMsg->getType(), UPDATE_MEH_IP) == 0)
+        {
+            EV << "UALCMPApp::handleMessageWhenUp - UPDATE_MEH_IP message received" << endl;
+            handleUpdateMEHIpMessage(lcmMsg);
+            // it has to find the socket in the socketMap -> can do it with socket->getRemoteAddress().str().c_str() and compare it with the ueAddress that we receive from the MEO 
+        }
         pendingRequests.erase(lcmMsg->getRequestId());
         delete msg;
 
@@ -134,6 +139,40 @@ void UALCMPApp::handleMessageWhenUp(cMessage *msg)
     {
         MecServiceBase::handleMessageWhenUp(msg);
 
+    }
+}
+
+void UALCMPApp::handleUpdateMEHIpMessage(UALCMPMessage *msg)
+{
+    UpdateMEHMessage* updateMehIp = check_and_cast<UpdateMEHMessage*>(msg);
+    std::string ueAddress = updateMehIp->getUeIpAddress();
+    std::string newMehIp = updateMehIp->getNewMehIpAddress();
+    int newMehPort = updateMehIp->getNewMehPort();
+    unsigned int request = updateMehIp->getRequestNumber();
+
+    // find the socket in the socketMap
+    auto it = socketMap.getMap().begin();
+    for(; it != socketMap.getMap().end(); ++it)
+    {
+        inet::TcpSocket *socket = check_and_cast_nullable<inet::TcpSocket *>(it->second);
+        if(socket->getRemoteAddress().str().c_str() == ueAddress)
+        {
+            EV << "UALCMPApp::handleUpdateMEHIpMessage - found the socket for the device app in: " << socket->getRemoteAddress().str().c_str() << " that needs to reconnect in " << newMehIp << ":" << newMehPort << endl;
+            // send the new MEH IP to the device app through a POST request
+            nlohmann::json jsonRequestBody;
+            jsonRequestBody["newMehIp"] = newMehIp;
+            jsonRequestBody["newMehPort"] = newMehPort;
+            jsonRequestBody["requestNumber"] = request;
+            std::string body = jsonRequestBody.dump();
+
+            const char *uri = "/example/dev_app/v1/meh_change";
+
+            std::string host = ueAddress+":"+std::to_string(socket->getRemotePort());
+
+            Http::sendPostRequest(socket, body.c_str(), host.c_str(), uri);
+
+            return;
+        }
     }
 }
 
@@ -355,6 +394,29 @@ void UALCMPApp::handlePOSTRequest(const HttpRequestMessage *currentRequestMessag
         {
             Http::send400Response(socket); // bad body JSON
         }
+    }
+    else if(uri.compare(baseUriSubscriptions_+"/meh_change") == 0)
+    {
+        // we need to send this to the MEO
+        EV << "UALCMPApp::handlePOSTRequest - MEH change request" << endl;
+        nlohmann::json jsonBody;
+        try
+        {
+            jsonBody = nlohmann::json::parse(body); // get the JSON structure
+        }
+        catch(nlohmann::detail::parse_error e)
+        {
+            throw cRuntimeError("UALCMPApp::handlePOSTRequest - %s", e.what());
+            return;
+        }
+        unsigned int requestNumber = jsonBody["requestNumber"];
+        EV << "UALCMPApp::handlePOSTRequest - MEH change request - body: " << requestNumber << endl;
+        // make a message of type UpdateMEHAckMessage to send to the MEO
+        UpdateMEHAckMessage * updateMeh = new UpdateMEHAckMessage();
+        updateMeh->setType(ACK_UPDATE_MEH_IP);
+        updateMeh->setRequestNumber(requestNumber);
+        updateMeh->setSucess(jsonBody["result"]);
+        send(updateMeh, "toMecOrchestrator");
     }
     else
     {

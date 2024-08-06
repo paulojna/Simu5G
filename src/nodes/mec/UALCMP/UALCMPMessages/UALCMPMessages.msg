@@ -48,3 +48,17 @@ message DeleteContextAppAckMessage extends UALCMPMessage
     bool success;
 	int contextId;
 }
+
+message UpdateMEHMessage extends UALCMPMessage
+{
+	string ueIpAddress;
+	unsigned int requestNumber;
+	string newMehIpAddress;
+	int newMehPort;
+}
+
+message UpdateMEHAckMessage extends UALCMPMessage
+{
+	unsigned int requestNumber;
+	bool sucess;
+}

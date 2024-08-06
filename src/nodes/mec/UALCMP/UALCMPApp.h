@@ -77,7 +77,8 @@ class UALCMPApp: public MecServiceBase
      */
     void handleCreateContextAppAckMessage(UALCMPMessage *msg);
     void handleDeleteContextAppAckMessage(UALCMPMessage *msg);
-
+    
+    void handleUpdateMEHIpMessage(UALCMPMessage *msg);
 
     /*
      * Method used to parse the body of POST requests for the instantiation of MEC apps.

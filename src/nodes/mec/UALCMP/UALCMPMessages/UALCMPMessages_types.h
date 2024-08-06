@@ -21,4 +21,7 @@
 #define UDATE_CONTEXT_APP       "UpdateContextApp"
 #define ACK_UDATE_CONTEXT_APP   "UpdateContextAppAck"
 
+#define UPDATE_MEH_IP       "UpdateMehIp"
+#define ACK_UPDATE_MEH_IP   "UpdateMehIpAck"
+
 #endif /* NODES_MEC_LCMPROXY_LCMPROXYMESSAGES_LCMPROXYMESSAGES_TYPES_H_ */
