@@ -27,6 +27,15 @@ simple VirtualisationInfrastructureManager
         int mp1Port = default(10021);
         string scheduling @enum(segregation,fair) = default("segregation");
 
+        @signal[Ram];
+        @statistic[Ram](title="RAM"; unit="GB"; source="Ram"; record=stats, vector);
+        
+        @signal[CPU];
+        @statistic[CPU](title="CPU"; unit="MIPS"; source="CPU"; record=stats, vector);
+        
+        @signal[Disk];
+        @statistic[Disk](title="Disk"; unit="TB"; source="Disk"; record=stats, vector);
+
     gates:
         input virtualisationManagerIn;
         output virtualisationManagerOut;

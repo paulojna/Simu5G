@@ -52,6 +52,11 @@ void VirtualisationInfrastructureManager::initialize(int stage)
     allocatedRam = 0.0;
     allocatedDisk = 0.0;
     allocatedCPU = 0.0;
+
+    Ram_ = registerSignal("Ram");
+    Disk_ = registerSignal("Disk");
+    CPU_ = registerSignal("CPU");
+
     printResources();
 
     const char *schedulingMode = par("scheduling").stringValue();

@@ -123,6 +123,10 @@ class VirtualisationInfrastructureManager : public cSimpleModule
    double allocatedDisk;
    double allocatedCPU;
 
+   simsignal_t CPU_;
+   simsignal_t Ram_;
+   simsignal_t Disk_;
+
    SchedulingMode scheduling; // SEGREGATION or FAIR_SHARING
 
     public:
@@ -198,6 +202,10 @@ class VirtualisationInfrastructureManager : public cSimpleModule
             EV << "VirtualisationInfrastructureManager::printResources - allocated Ram (B): " << allocatedRam  << " / " << maxRam << endl;
             EV << "VirtualisationInfrastructureManager::printResources - allocated Disk (B): " << allocatedDisk << " / " << maxDisk << endl;
             EV << "VirtualisationInfrastructureManager::printResources - allocated CPU (MIPS): " << allocatedCPU << " / " << maxCPU << endl;
+
+            emit(Ram_, allocatedRam);
+            emit(Disk_, allocatedDisk);
+            emit(CPU_, allocatedCPU);
         }
 
     protected:
