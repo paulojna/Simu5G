@@ -240,7 +240,7 @@ void LocationService::handleGETRequest(const HttpRequestMessage *currentRequestM
         //look for query parameters
         if(!params.empty())
         {
-            
+            //do nothing we are not dealing with params
         }
         else
         {
