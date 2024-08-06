@@ -145,6 +145,45 @@ nlohmann::ordered_json LocationResource::toJson() const {
 return userList;
 }
 
+nlohmann::ordered_json LocationResource::getCellPosition(MacCellId cellId) const
+{
+    nlohmann::ordered_json val;
+    std::map<MacCellId, CellInfo *>::const_iterator it = eNodeBs_.find(cellId);
+    if(it != eNodeBs_.end()){
+        inet::Coord  position = LocationUtils::getCoordinates(it->second->getMacCellId());
+        val["x"] = position.getX();
+        val["y"] = position.getY();
+        val["z"] = position.getZ();
+    }
+    else
+    {
+        std::string notFound = "AccessPointId: " + std::to_string(cellId) + " Not found.";
+        val["x"] = notFound;
+        val["y"] = notFound;
+        val["z"] = notFound;
+    }
+    return val;
+}
+
+nlohmann::ordered_json LocationResource::toJsonAccessPoints() const {
+    nlohmann::ordered_json val;
+    nlohmann::ordered_json cellArray;
+    nlohmann::ordered_json cellList;
+
+    std::map<MacCellId, CellInfo *>::const_iterator it = eNodeBs_.begin();
+
+    for(; it != eNodeBs_.end() ; ++it){
+        EV << "LocationResource::toJsonAccessPoints() - cell: " << it->second->getMacCellId() << endl;
+        val["cellId"] = it->second->getMacCellId();
+        val["position"] = getCellPosition(it->second->getMacCellId());
+        cellArray.push_back(val);
+    }    
+
+    cellList["cellList"] = cellArray;
+    
+    return cellList;
+}
+
 //
 nlohmann::ordered_json LocationResource::toJsonUe(std::vector<inet::Ipv4Address>& uesID) const {
 	nlohmann::ordered_json val ;

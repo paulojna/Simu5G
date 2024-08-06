@@ -49,6 +49,8 @@ class LocationResource : public AttributeBase
 		nlohmann::ordered_json toJsonCell(std::vector<MacCellId>& cellsID) const;
 		nlohmann::ordered_json toJsonUe(std::vector<inet::Ipv4Address>& uesID) const;
 		nlohmann::ordered_json toJson(std::vector<MacNodeId>& cellsID, std::vector<inet::Ipv4Address>& uesID) const;
+		nlohmann::ordered_json toJsonAccessPoints() const;
+		nlohmann::ordered_json getCellPosition(MacCellId cellId) const;
 
 	protected:
 		//better mappa <cellID, Cellinfo>

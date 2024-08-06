@@ -18,6 +18,8 @@
 
 #include "nodes/mec/MECPlatform/MECServices/LocationService/LocationService.h"
 #include "nodes/mec/MECPlatform/MECServices/LocationService/resources/CircleNotificationSubscription.h"
+#include "nodes/mec/MECPlatform/MECServices/LocationService/resources/UsersDensityNotificationSubscription.h"
+#include "nodes/mec/MECPlatform/MECServices/LocationService/resources/UsersListNotificationSubscription.h"
 #include "nodes/mec/utils/httpUtils/httpUtils.h"
 #include "nodes/mec/MECPlatform/MECServices/packets/AperiodicSubscriptionTimer.h"
 #include "common/utils/utils.h"
@@ -232,6 +234,21 @@ void LocationService::handleGETRequest(const HttpRequestMessage *currentRequestM
             return;
         }
     }
+    else if (uri.compare(baseUriQueries_+"/accessPoints") == 0 )
+    {
+        std::string params = currentRequestMessageServed->getParameters();
+        //look for query parameters
+        if(!params.empty())
+        {
+            
+        }
+        else
+        {
+            EV << "LocationService::handleGETRequest - toJsonAccessPoints()" << endl;
+            Http::send200Response(socket, LocationResource_.toJsonAccessPoints().dump(0).c_str());
+            return;
+        }
+    }
     else if (uri.compare(baseSubscriptionLocation_) == 0) // return the list of the subscriptions
     {
         // TODO implement list of subscriptions
@@ -316,6 +333,109 @@ void LocationService::handlePOSTRequest(const HttpRequestMessage *currentRequest
             delete newSubscription;
             return;
         }
+    }
+    else if(uri.compare(baseUriSubscriptions_+"/users/density") == 0){
+        /*
+            Goal of this subscription is to verify from time to time if new users are 
+            being detected by the Location Service connected to a set of BSs. If so, 
+            a notification is sent to the MEC App with the updated number of users by BS. 
+        */
+        nlohmann::json jsonBody;
+        try
+        {
+            jsonBody = nlohmann::json::parse(body); // get the JSON structure
+        }
+        catch(nlohmann::detail::parse_error e)
+        {
+            std::cout << "LocationService::handlePOSTRequest" << e.what() << "\n" << body << std::endl;
+            // body is not correctly formatted in JSON, manage it
+            Http::send400Response(socket); // bad body JSON
+            return;
+        }
+
+        UsersDensityNotificationSubscription* newSubscription = new UsersDensityNotificationSubscription(subscriptionId_, socket , baseSubscriptionLocation_,  eNodeB_); 
+        bool res = newSubscription->fromJson(jsonBody);
+        //correct subscription post
+        if(res)
+        {
+            EV << serviceName_ << " - correct subscription created!" << endl;
+            // add resource url and send back the response
+            nlohmann::ordered_json response = jsonBody;
+            std::string resourceUrl = newSubscription->getResourceUrl();
+            response["usersDensityNotificationSubscription"]["resourceURL"] = resourceUrl;
+            std::pair<std::string, std::string> p("Location: ", resourceUrl);
+            Http::send201Response(socket, response.dump(2).c_str(), p);
+
+            subscriptions_[subscriptionId_] = newSubscription;
+
+            if(newSubscription->getCheckImmediate())
+            {
+                EventNotification *event = newSubscription->handleSubscription();
+                if(event != nullptr)
+                    newSubscriptionEvent(event);
+            }
+
+            //start timer
+            subscriptionTimer_->insertSubId(subscriptionId_);
+            if(!subscriptionTimer_->isScheduled())
+                scheduleAt(simTime() + subscriptionTimer_->getPeriod(), subscriptionTimer_);
+            subscriptionId_ ++;
+        }
+        else
+        {
+            delete newSubscription;
+            return;
+        }
+
+    }
+    else if(uri.compare(baseUriSubscriptions_+"/users/list") == 0){
+        nlohmann::json jsonBody;
+        try
+        {
+            jsonBody = nlohmann::json::parse(body); // get the JSON structure
+        }
+        catch(nlohmann::detail::parse_error e)
+        {
+            std::cout << "LocationService::handlePOSTRequest" << e.what() << "\n" << body << std::endl;
+            // body is not correctly formatted in JSON, manage it
+            Http::send400Response(socket); // bad body JSON
+            return;
+        }
+
+        UsersListNotificationSubscription* newSubscription = new UsersListNotificationSubscription(subscriptionId_, socket , baseSubscriptionLocation_,  eNodeB_); 
+        bool res = newSubscription->fromJson(jsonBody);
+        //correct subscription post
+        if(res)
+        {
+            EV << serviceName_ << " - correct subscription created!" << endl;
+            // add resource url and send back the response
+            nlohmann::ordered_json response = jsonBody;
+            std::string resourceUrl = newSubscription->getResourceUrl();
+            response["usersListNotificationSubscription"]["resourceURL"] = resourceUrl;
+            std::pair<std::string, std::string> p("Location: ", resourceUrl);
+            Http::send201Response(socket, response.dump(2).c_str(), p);
+
+            subscriptions_[subscriptionId_] = newSubscription;
+
+            if(newSubscription->getCheckImmediate())
+            {
+                EventNotification *event = newSubscription->handleSubscription();
+                if(event != nullptr)
+                    newSubscriptionEvent(event);
+            }
+
+            //start timer
+            subscriptionTimer_->insertSubId(subscriptionId_);
+            if(!subscriptionTimer_->isScheduled())
+                scheduleAt(simTime() + subscriptionTimer_->getPeriod(), subscriptionTimer_);
+            subscriptionId_ ++;
+        }
+        else
+        {
+            delete newSubscription;
+            return;
+        }
+    
     }
     else
     {
