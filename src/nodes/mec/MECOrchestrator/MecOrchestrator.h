@@ -26,6 +26,9 @@
 #include "nodes/mec/MECPlatform/MEAppPacket_Types.h"
 #include "nodes/mec/MECPlatform/MEAppPacket_m.h"
 
+//Ravens Controller Updates
+#include "apps/mec/RavensApps/RavensControllerUpdatePacket_m.h"
+
 #include "nodes/mec/MECOrchestrator/ApplicationDescriptor/ApplicationDescriptor.h"
 
 namespace simu5g {
@@ -56,6 +59,13 @@ struct mecAppMapEntry
 
 };
 
+struct standByElement
+{
+    unsigned int request;
+    cModule* mecpm;
+    int mecUeAppID; 
+};
+
 class UALCMPMessage;
 class MECOrchestratorMessage;
 class SelectionPolicyBase;
@@ -79,9 +89,14 @@ class MecOrchestrator : public cSimpleModule
     friend class MecServiceSelectionBased;
     friend class AvailableResourcesSelectionBased;
     friend class MecHostSelectionBased;
+    friend class LocationSelectionBased;
 
+    friend class ReactionOnUpdate;
+    friend class RemoveOnExit;
+    friend class MigrateOnChange;
 
     SelectionPolicyBase* mecHostSelectionPolicy_;
+    ReactionOnUpdate* reactionOnUpdate_;
 
     //------------------------------------
     //Binder module
@@ -96,6 +111,11 @@ class MecOrchestrator : public cSimpleModule
     //key = contextId - value mecAppMapEntry
     std::map<int, mecAppMapEntry> meAppMap;
     std::map<std::string, ApplicationDescriptor> mecApplicationDescriptors_;
+
+    unsigned int requestCounter;
+    std::map<unsigned int, standByElement> standByList;
+
+    std::map<std::string, std::pair<std::string, std::string>> userMEHMap;
 
     int contextIdCounter;
 
@@ -126,6 +146,8 @@ class MecOrchestrator : public cSimpleModule
 
         void handleUALCMPMessage(cMessage* msg);
 
+        void handleMehChangeAck(UALCMPMessage*);
+
         // handling CREATE_CONTEXT_APP type
         // it selects the most suitable MEC host and calls the method of its MEC platform manager to require
         // the MEC app instantiation
@@ -135,11 +157,14 @@ class MecOrchestrator : public cSimpleModule
         // it calls the method of the MEC platform manager of the MEC host where the MEC app has been deployed
         // to delete the MEC app
         void stopMECApp(UALCMPMessage*);
+        void stopMECApp(unsigned int ref);
 
 
         // sending ACK_CREATE_CONTEXT_APP or ACK_DELETE_CONTEXT_APP
         void sendCreateAppContextAck(bool result, unsigned int requestSno, int contextId = -1);
         void sendDeleteAppContextAck(bool result, unsigned int requestSno, int contextId = -1);
+
+        void sendMehChangeRequest(std::string ueAddress, std::string newMehId, int newPort, unsigned int requestNumber);
 
         /*
          * This method selects the most suitable MEC host where to deploy the MEC app.

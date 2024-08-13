@@ -27,10 +27,17 @@
 #include "nodes/mec/MECOrchestrator/mecHostSelectionPolicies/MecServiceSelectionBased.h"
 #include "nodes/mec/MECOrchestrator/mecHostSelectionPolicies/AvailableResourcesSelectionBased.h"
 #include "nodes/mec/MECOrchestrator/mecHostSelectionPolicies/MecHostSelectionBased.h"
+#include "nodes/mec/MECOrchestrator/mecHostSelectionPolicies/LocationSelectionBased.h"
 
+#include "nodes/mec/MECOrchestrator/reactionOnUpdateStrategies/RemoveOnExit.h"
+#include "nodes/mec/MECOrchestrator/reactionOnUpdateStrategies/MigrateOnChange.h"
+
+#include "apps/mec/RavensApps/RavensControllerUpdatePacket_m.h"
 
 //emulation debug
 #include <iostream>
+
+#define USERS_UPDATE 7
 
 namespace simu5g {
 
@@ -41,6 +48,8 @@ MecOrchestrator::MecOrchestrator()
     meAppMap.clear();
     mecApplicationDescriptors_.clear();
     mecHostSelectionPolicy_ = nullptr;
+    userMEHMap.clear();
+    reactionOnUpdate_ = nullptr;
 }
 
 void MecOrchestrator::initialize(int stage)
@@ -59,12 +68,23 @@ void MecOrchestrator::initialize(int stage)
         mecHostSelectionPolicy_ = new AvailableResourcesSelectionBased(this);
     else if(!strcmp(par("selectionPolicy"), "MecHostBased"))
             mecHostSelectionPolicy_ = new MecHostSelectionBased(this, par("mecHostIndex"));
+    else if(!strcmp(par("selectionPolicy"), "LocationBased"))
+        mecHostSelectionPolicy_ = new LocationSelectionBased(this);
     else
         throw cRuntimeError("MecOrchestrator::initialize - Selection policy %s not present!" , par("selectionPolicy").stringValue());
+
+    if(!strcmp(par("reactionStrategy"), "RemoveOnExit"))
+        reactionOnUpdate_ = new RemoveOnExit(this);
+    else if(!strcmp(par("reactionStrategy"), "MigrateOnChange"))
+        reactionOnUpdate_ = new MigrateOnChange(this);
+    else
+        throw cRuntimeError("MecOrchestrator::initialize - Reaction on update strategy %s not present!" , par("reactionOnUpdateStrategy").stringValue());
 
     onboardingTime = par("onboardingTime").doubleValue();
     instantiationTime = par("instantiationTime").doubleValue();
     terminationTime = par("terminationTime").doubleValue();
+
+    requestCounter = 0;
 
     getConnectedMecHosts();
     onboardApplicationPackages();
@@ -98,6 +118,25 @@ void MecOrchestrator::handleMessage(cMessage *msg)
         handleUALCMPMessage(msg);
     }
 
+    else if(msg->arrivedOn("fromRavensController"))
+    {
+        EV << "MecOrchestrator::handleMessage fromRavensController - "  << msg->getName() << endl;
+
+        inet::Packet* packet = check_and_cast<inet::Packet*>(msg);
+        auto received_packet = packet->peekAtFront<RavensControllerUpdatePacket>();
+        std::vector<UserMEHUpdate> UserMEHUpdatedList_toPrint;
+        if(received_packet->getType() == USERS_UPDATE){
+            auto usersUpdate = packet->peekAtFront<UserMEHUpdatedListMessage>();
+            UserMEHUpdatedList_toPrint = usersUpdate->getUeMehList();
+            for(auto user : UserMEHUpdatedList_toPrint){
+                EV << "RavensControllerApp::socketDataArrived - user address: " << user.getAddress() << " last MEH: " << user.getLastMEHId() << " new MEH: " << user.getNewMEHId() << endl;
+                userMEHMap[user.getAddress()] = std::make_pair(user.getAddress(), user.getNewMEHId());
+                reactionOnUpdate_->reactOnUpdate(user);
+                EV << "RavensControllerApp::socketDataArrived - reactOnUpdate done!" << endl;
+            }
+        }
+    }
+
     delete msg;
     return;
 
@@ -114,6 +153,66 @@ void MecOrchestrator::handleUALCMPMessage(cMessage* msg)
     /* Handling DELETE_CONTEXT_APP */
     else if(!strcmp(lcmMsg->getType(), DELETE_CONTEXT_APP))
         stopMECApp(lcmMsg);
+
+    /* Handling confirmation of MEH change*/
+    else if(!strcmp(lcmMsg->getType(), ACK_UPDATE_MEH_IP))
+        handleMehChangeAck(lcmMsg);
+    
+    else
+        throw cRuntimeError("MecOrchestrator::handleUALCMPMessage - Message type %s not recognized", lcmMsg->getType());
+
+}
+
+void MecOrchestrator::handleMehChangeAck(UALCMPMessage* msg)
+{
+    EV << "MecOrchestrator::handleMehChangeAck - processing..." << endl;
+    UpdateMEHAckMessage* mehChangeAck = check_and_cast<UpdateMEHAckMessage*>(msg);
+
+    unsigned int request = mehChangeAck->getRequestNumber();
+    bool result = mehChangeAck->getSucess();
+
+    EV << "MecOrchestrator::handleMehChangeAck - MEH change request ["<< request << "] result: " << result << endl;
+
+    if(result)
+    {
+        EV << "MecOrchestrator::handleMehChangeAck - MEH change request "<< request << " successfully processed" << endl;
+    
+        // now we need to check the requestNumber is in the standByList, if so we need to stop the app and remove the entry from the standByList
+        if(standByList.find(request) != standByList.end())
+        {
+            standByElement element = standByList[request];
+            int mecUeAppId = element.mecUeAppID;
+
+            MecPlatformManager* mecpm = check_and_cast<MecPlatformManager*>(element.mecpm);
+
+            DeleteAppMessage* deleteAppMsg = new DeleteAppMessage();
+            deleteAppMsg->setUeAppID(mecUeAppId);
+
+            bool isTerminated;
+            isTerminated =  mecpm->terminateMEApp(deleteAppMsg);
+            
+            if(isTerminated)
+            {
+                EV << "MecOrchestrator::handleMehChangeAck - mec Application with mecUeAppId ["<< element.mecUeAppID << "] removed"<< endl;
+                std::cout << "MigrateOnChange" << endl;
+                standByList.erase(mehChangeAck->getRequestNumber());
+                EV << "MecOrchestrator::handleMehChangeAck - standByList entry removed" << endl;
+            }
+            else
+            {
+                EV << "MecOrchestrator::handleMehChangeAck - something went wrong during MEC app termination"<< endl;
+            
+            }
+        }
+        else
+        {
+            EV << "MecOrchestrator::handleMehChangeAck - standByList entry with request number "<< request << " not found" << endl;
+        }
+    }
+    else
+    {
+        EV << "MecOrchestrator::handleMehChangeAck - MEH change request ["<< mehChangeAck->getRequestNumber() << "] failed" << endl;
+    }
 }
 
 void MecOrchestrator::startMECApp(UALCMPMessage* msg)
@@ -350,6 +449,19 @@ void MecOrchestrator::stopMECApp(UALCMPMessage* msg){
     double processingTime = terminationTime;
     scheduleAt(simTime() + processingTime, mecoMsg);
 
+}
+
+void MecOrchestrator::sendMehChangeRequest(std::string ueAddress, std::string newMehId, int newPort, unsigned int requestNumber)
+{
+    EV << "MecOrchestrator::sendMehChangeRequest - sending MEH change request to UALCMP" << endl;
+    UpdateMEHMessage *mehChangeRequest = new UpdateMEHMessage();
+    mehChangeRequest->setType(UPDATE_MEH_IP);
+    mehChangeRequest->setUeIpAddress(ueAddress.c_str());
+    mehChangeRequest->setNewMehIpAddress(newMehId.c_str());
+    mehChangeRequest->setNewMehPort(newPort);
+    mehChangeRequest->setRequestNumber(requestNumber);
+
+    send(mehChangeRequest, "toUALCMP");
 }
 
 void MecOrchestrator::sendDeleteAppContextAck(bool result, unsigned int requestSno, int contextId)
