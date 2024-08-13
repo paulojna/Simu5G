@@ -1,5 +1,7 @@
 #include "AccessPointData.h"
 
+namespace simu5g {
+
 AccessPointData::AccessPointData(){
     this->accessPointId = "";
     this->accessPointLocation = NodeLocation();
@@ -26,4 +28,6 @@ std::string AccessPointData::getAccessPointId() const{
 
 NodeLocation AccessPointData::getAccessPointLocation() const{
     return this->accessPointLocation;
+}
+
 }

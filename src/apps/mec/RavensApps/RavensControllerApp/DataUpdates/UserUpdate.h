@@ -3,6 +3,8 @@
 
 #include <string>
 
+namespace simu5g {
+
 class UserUpdate
 {
     protected:
@@ -17,4 +19,5 @@ class UserUpdate
         const std::string& getAddress();
 };
 
+}
 #endif /* _USERUPDATE_H_ */

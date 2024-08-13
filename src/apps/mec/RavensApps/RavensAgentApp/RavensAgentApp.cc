@@ -13,6 +13,8 @@
 
 #include <map>
 
+namespace simu5g {
+
 using namespace inet;
 Define_Module(RavensAgentApp);
 
@@ -540,4 +542,6 @@ void RavensAgentApp::setRetrievalInterval(simtime_t interval)
 std::string RavensAgentApp::getMecHostId()
 {
     return mecHostId;
+}
+
 }

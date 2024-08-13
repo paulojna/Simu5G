@@ -5,6 +5,8 @@
 #include "UserLocation.h"
 #include "AccessPointData.h"
 
+namespace simu5g {
+
 class UserData
 {
     protected:
@@ -34,6 +36,8 @@ class UserData
 
          
 };  
+
+}
 
 #endif /* _USERDATA_H_ */
 

@@ -1,6 +1,8 @@
 #include "UserLocation.h"
 #include <math.h>
 
+namespace simu5g {
+
 UserLocation::UserLocation(): NodeLocation(0, 0, 0){
     this->bearing = 0;
     this->horizontalSpeed = 0;
@@ -31,4 +33,4 @@ void UserLocation::setHorizontalSpeed(long newHorizontalSpeed){
     this->horizontalSpeed = newHorizontalSpeed;
 }
 
-
+}

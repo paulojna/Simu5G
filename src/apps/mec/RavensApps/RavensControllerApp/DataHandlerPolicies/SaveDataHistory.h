@@ -7,6 +7,8 @@
 #include <iostream>
 #include <string>
 
+namespace simu5g {
+
 using namespace omnetpp;
 
 //class RavensControllerApp;
@@ -20,5 +22,7 @@ class SaveDataHistory : public DataHandlerPolicyBase
         SaveDataHistory(RavensControllerApp* controllerApp, std::string path);
         virtual ~SaveDataHistory();
 };
+
+}
 
 #endif /* "RAVENS_CONTROLLER_APP_SAVEDATAHISTORY_H_" */

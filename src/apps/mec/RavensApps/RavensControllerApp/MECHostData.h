@@ -13,6 +13,8 @@
     Simple structure to hold the data of a host, including Access Points and Users and the last time it was updated
 */
 
+namespace simu5g {
+
 class MECHostData {
     private:
         std::string hostId;
@@ -45,5 +47,7 @@ class MECHostData {
         void setUsers(const std::map<std::string, UserData>& users);
         void setLastUpdated(omnetpp::simtime_t lastUpdated);
 };
+
+}
 
 #endif /* _MECHOSTDATA_H_ */

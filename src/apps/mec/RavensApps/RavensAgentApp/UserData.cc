@@ -1,6 +1,8 @@
 #include "UserData.h"
 #include <math.h>
 
+namespace simu5g {
+
 UserData::UserData(){
     this->address = "";
     this->accessPointId = "";
@@ -50,4 +52,6 @@ double UserData::getDistanceToAP() const{
 // method that calculates the eculedean distance between the user and a given x,y point
 double UserData::calculateDistanceToAP(long x_AP, long y_AP, long x_UE, long y_UE){
     return sqrt(pow(x_AP - x_UE, 2) + pow(y_AP - y_UE, 2));
+}
+
 }

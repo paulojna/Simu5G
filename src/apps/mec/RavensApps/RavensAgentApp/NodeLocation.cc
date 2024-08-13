@@ -1,6 +1,8 @@
 #include "NodeLocation.h"
 #include <math.h>
 
+namespace simu5g {
+
 NodeLocation::NodeLocation(){
     this->x = 0;
     this->y = 0;
@@ -39,4 +41,6 @@ void NodeLocation::setY(long newY){
 
 void NodeLocation::setZ(long newZ){
     this->z = newZ;
+}
+
 }

@@ -7,10 +7,11 @@
 #include "DataHandlerPolicies/SaveDataHistory.h"
 #include "DataHandlerPolicies/NotifyOnDataChange.h"
 
+#define USERS_UPDATE 7
+
+namespace simu5g {
 
 Define_Module(RavensControllerApp);
-
-#define USERS_UPDATE 7
 
 RavensControllerApp::RavensControllerApp(){
     dataHandlerPolicy_ = nullptr;
@@ -283,7 +284,7 @@ void RavensControllerApp::socketErrorArrived(inet::UdpSocket *socket, inet::Indi
     EV << "RavensControllerApp::socketErrorArrived - socket error arrived" << endl;
 }
 
-
+}
 
 
 

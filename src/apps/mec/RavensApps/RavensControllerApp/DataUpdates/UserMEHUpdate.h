@@ -1,7 +1,8 @@
 #ifndef USERMEHUPDATE_H
 #define USERMEHUPDATE_H
-
 #include <string>
+
+namespace simu5g {
 
 class UserMEHUpdate
 {
@@ -25,5 +26,7 @@ class UserMEHUpdate
         const std::string& getNewMEHId() const;
         const std::string& getAddress() const;
 };
+
+}
 
 #endif // USERMEHUPDATE_H

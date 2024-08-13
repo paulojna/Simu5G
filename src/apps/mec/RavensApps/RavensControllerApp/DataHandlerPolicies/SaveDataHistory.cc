@@ -1,5 +1,7 @@
 #include "SaveDataHistory.h"
 
+namespace simu5g {
+
 SaveDataHistory::SaveDataHistory(RavensControllerApp* controllerApp, std::string path):DataHandlerPolicyBase(controllerApp)
 {
     std::string name = path+std::to_string(getEnvir()->getConfigEx()->getActiveRunNumber())+"_data_history.csv";
@@ -40,4 +42,6 @@ inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const UsersInfoSnapsh
 SaveDataHistory::~SaveDataHistory()
 {
     csvFile.close();
+}
+
 }

@@ -24,6 +24,8 @@
 #include <iostream>
 #include <fstream>
 
+namespace simu5g {
+
 using namespace omnetpp;
 
 struct mecHostNetworkData
@@ -90,5 +92,7 @@ class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket:
         ~RavensControllerApp();
     
 };
+
+}
 
 #endif

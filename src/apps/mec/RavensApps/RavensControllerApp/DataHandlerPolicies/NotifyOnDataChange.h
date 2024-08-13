@@ -7,6 +7,8 @@
 
 // class RavensControllerApp;
 
+namespace simu5g {
+
 struct ueStanbyElement
 {
     const std::string ue_reference;
@@ -33,6 +35,6 @@ class NotifyOnDataChange : public DataHandlerPolicyBase
         virtual ~NotifyOnDataChange(){}
 };
 
-
+}
 
 #endif /* "RAVENS_CONTROLLER_APP_NOTIFYONDATACHANGE_H_" */

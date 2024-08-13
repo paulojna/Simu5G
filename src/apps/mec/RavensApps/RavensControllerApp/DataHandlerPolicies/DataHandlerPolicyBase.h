@@ -3,6 +3,8 @@
 
 #include "../RavensControllerApp.h"
 
+namespace simu5g {
+
 using namespace omnetpp;
 
 class RavensControllerApp;
@@ -21,5 +23,7 @@ class DataHandlerPolicyBase
         DataHandlerPolicyBase(RavensControllerApp* controllerApp) { controllerApp_ = controllerApp; }
         virtual ~DataHandlerPolicyBase() {}
 };
+
+}
 
 #endif /* RAVENS_CONTROLLER_APP_DATAHANDLERPOLICYBASE_H_ */

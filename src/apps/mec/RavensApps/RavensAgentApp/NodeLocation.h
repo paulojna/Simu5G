@@ -1,6 +1,8 @@
 #ifndef _NODE_LOCATION_H_
 #define _NODE_LOCATION_H_
 
+namespace simu5g {
+
 class NodeLocation {
     private:
         long x;
@@ -27,5 +29,6 @@ class NodeLocation {
         void setY(long newY);
         void setZ(long newZ);
 };
+}
 
 #endif /* _NODE_LOCATION_H_ */

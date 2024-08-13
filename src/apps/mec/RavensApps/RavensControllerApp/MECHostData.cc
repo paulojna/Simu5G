@@ -1,5 +1,8 @@
 #include "MECHostData.h"
 
+
+namespace simu5g {
+
 using namespace omnetpp;
 
 
@@ -70,4 +73,4 @@ int MECHostData::getPort() const{
     return this->port;
 }
 
-
+}

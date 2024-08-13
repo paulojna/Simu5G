@@ -3,6 +3,8 @@
 
 #include "NodeLocation.h"
 
+namespace simu5g {
+
 class UserLocation: public NodeLocation {
     private:
         long bearing;
@@ -24,5 +26,7 @@ class UserLocation: public NodeLocation {
         void setBearing(long newBearing);
         void setHorizontalSpeed(long newHorizontalSpeed);
 };
+
+}
 
 #endif /* _USERLOCATION_H_ */

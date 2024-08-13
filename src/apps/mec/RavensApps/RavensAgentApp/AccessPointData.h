@@ -4,6 +4,8 @@
 #include "NodeLocation.h"
 #include <string>
 
+namespace simu5g {
+
 class AccessPointData {
     private:
         std::string accessPointId;
@@ -25,5 +27,7 @@ class AccessPointData {
         void setAccessPointId(const std::string& accessPointId);
         void setAccessPointLocation(const NodeLocation& accessPointLocation);
 };
+
+}
 
 #endif /* _ACCESSPOINTDATA_H_ */

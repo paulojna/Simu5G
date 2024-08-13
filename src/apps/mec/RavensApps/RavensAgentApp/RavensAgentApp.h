@@ -28,6 +28,8 @@
 
 #include "../RavensLinkPacket_m.h"
 
+namespace simu5g {
+
 using namespace std;
 
 using namespace omnetpp;
@@ -105,5 +107,7 @@ public:
 
     std::string getMecHostId();
 };
+
+}
 
 #endif

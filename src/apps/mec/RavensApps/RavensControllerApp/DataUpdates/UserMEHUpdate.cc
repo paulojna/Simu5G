@@ -1,5 +1,7 @@
 #include "UserMEHUpdate.h"
 
+namespace simu5g {
+
 UserMEHUpdate::UserMEHUpdate(){
     this->address = "";
     this->lastMEHId = "";
@@ -38,4 +40,6 @@ const std::string& UserMEHUpdate::getNewMEHId() const{
 
 const std::string& UserMEHUpdate::getAddress() const{
     return address;
+}
+
 }

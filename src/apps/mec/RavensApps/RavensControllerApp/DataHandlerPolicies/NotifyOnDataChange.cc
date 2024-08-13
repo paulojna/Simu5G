@@ -5,6 +5,8 @@
 
 #define USERS_UPDATE 7
 
+namespace simu5g {
+
 NotifyOnDataChange::NotifyOnDataChange(RavensControllerApp *controllerApp, int treshold) : DataHandlerPolicyBase(controllerApp)
 {
     stanby_treshold_ = treshold;
@@ -177,4 +179,6 @@ void NotifyOnDataChange::addUserUpdate(UserMEHUpdate &update)
     // if the user is not in the list, add it
     controllerApp_->userUpdates.push_back(update);
     EV << "NotifyOnDataChange::addUserUpdate - user " << update.getAddress() << " added to the userUpdates list" << endl;
+}
+
 }
