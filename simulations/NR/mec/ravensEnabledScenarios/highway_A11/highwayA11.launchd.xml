@@ -1,0 +1,5 @@
+<launch>
+  <copy file="highwayA11.net.xml"/>
+  <copy file="highwayA11.rou.xml"/>
+  <copy file="highwayA11.sumocfg" type="config"/>
+</launch>

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2023-09-27 19:40:49 by Eclipse SUMO netedit Version 1.16.0
+-->
+
+<routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/routes_file.xsd">
+    <!-- VTypes -->
+    <vType id="slow" maxSpeed="30.00" color="green" decel="4.0" speedDev="0.3" speedFactor="1.2"/>
+    <vType id="normal" maxSpeed="35.00" color="yellow" decel="4.0" speedDev="0.3" speedFactor="1.2"/>
+    <vType id="sport" maxSpeed="40.00" color="red" decel="4.0" speedDev="0.3" speedFactor="1.2"/>
+
+    <!-- Brg <-> Gmr constant flows -->
+    <flow id="slow_brg_gmr" type="slow" begin="0.00" departLane="first" departSpeed="random" from="1089949569" to="1093403775" end="3600.00" vehsPerHour="25.00"/>
+    <flow id="slow_gmr_brg" type="slow" begin="0.00" departLane="first" departSpeed="random" from="95794934" to="538544553" end="3600.00" vehsPerHour="25.00"/> 
+    
+    <flow id="normal_brg_gmr" type="normal" begin="0.00" departLane="first" departSpeed="random" from="1089949569" to="1093403775" end="3600.00" number="137"/>
+    <flow id="normal_gmr_brg" type="normal" begin="0.00" departLane="first" departSpeed="random" from="95794934" to="538544553" end="3600.00" number="137"/>
+    
+    <!-- Brg <-> Gmr constant flows -->
+    <flow id="sport_brg_gmr" type="sport" begin="0.00" departLane="best" departSpeed="random" from="1089949569" to="1093403775" end="3600.00" vehsPerHour="25.00"/>
+    <flow id="sport_gmr_brg" type="sport" begin="0.00" departLane="best" departSpeed="random" from="95794934" to="538544553" end="3600.00" vehsPerHour="25.00"/>
+</routes>
