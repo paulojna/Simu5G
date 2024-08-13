@@ -11,7 +11,7 @@ namespace simu5g {
 class RemoveOnExit : public ReactionOnUpdate
 {
   protected:
-    virtual void reactOnUpdate(const UserMEHUpdate&) override;
+    virtual void reactOnUpdate(const simu5g::UserMEHUpdate&) override;
   public:
     RemoveOnExit(MecOrchestrator* mecOrchestrator):ReactionOnUpdate(mecOrchestrator){}
     virtual ~RemoveOnExit(){}

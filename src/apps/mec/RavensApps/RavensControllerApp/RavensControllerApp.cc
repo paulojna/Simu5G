@@ -243,7 +243,7 @@ void RavensControllerApp::calculateAvgNetworkData(){
         host.second.avgLostPackets.clear();
 
         //print the calculated values
-        std::cout << " RavensControllerApp::calculateAvgNetworkData - host: " << host.first << " avgRTT: " << host.second.lastAvgRTT << " avgLostPackets: " << host.second.lastAvgLostPackets << endl;    
+        //std::cout << " RavensControllerApp::calculateAvgNetworkData - host: " << host.first << " avgRTT: " << host.second.lastAvgRTT << " avgLostPackets: " << host.second.lastAvgLostPackets << endl;
         std::cout << simTime() << " - RavensControllerApp::calculateAvgNetworkData - host: " << host.first << " avgRTT: " << host.second.lastAvgRTT << " avgLostPackets: " << host.second.lastAvgLostPackets << endl;
     }
 

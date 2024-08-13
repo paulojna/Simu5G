@@ -44,7 +44,7 @@ namespace simu5g {
 
 class HttpBaseMessage;
 
-enum State {IDLE, START, APPCREATED, CREATING, DELETING};
+enum State {IDLE, START, APPCREATED, CREATING, DELETING, UPDATING};
 
 
 class DeviceApp : public omnetpp::cSimpleModule, public inet::TcpSocket::ICallback, public inet::UdpSocket::ICallback

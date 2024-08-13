@@ -37,9 +37,9 @@
 //emulation debug
 #include <iostream>
 
-#define USERS_UPDATE 7
-
 namespace simu5g {
+
+#define USERS_UPDATE 7
 
 Define_Module(MecOrchestrator);
 
@@ -88,7 +88,6 @@ void MecOrchestrator::initialize(int stage)
 
     getConnectedMecHosts();
     onboardApplicationPackages();
-
 }
 
 void MecOrchestrator::handleMessage(cMessage *msg)
@@ -277,7 +276,10 @@ void MecOrchestrator::startMECApp(UALCMPMessage* msg)
 
     const ApplicationDescriptor& desc = it->second;
 
-    cModule* bestHost = mecHostSelectionPolicy_->findBestMecHost(desc);
+    inet::L3Address ueAddress = inet::L3AddressResolver().resolve(contAppMsg->getUeIpAddress());
+
+    cModule* bestHost = mecHostSelectionPolicy_->findBestMecHost(desc, ueAddress);
+
 
     if(bestHost != nullptr)
     {

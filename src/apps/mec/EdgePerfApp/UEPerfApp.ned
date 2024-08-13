@@ -1,4 +1,4 @@
-ackage simu5g.apps.mec.EdgePerfApp;
+package simu5g.apps.mec.EdgePerfApp;
 
 import inet.applications.contract.IApp;
 
@@ -27,12 +27,12 @@ simple UEPerfApp like IApp
         int tos = default(-1); // if not -1, set the Type Of Service (IPv4) / Traffic Class (IPv6) field of sent packets to this value
         
         //autoscheduling infos
-        double period @unit("s") = default(0.01s);
+        double period @unit("s") = default(0.5s);
         double timeout @unit("s") = default(1s);
         double startTime @unit("s") = default(0s); 
         double stopTime @unit("s") = default(120s);
                 
-        string mecAppName = default("MecResponseApp");
+        string mecAppName = default("MECPerfApp");
 
         string controllerAddress = default("");
         int controllerPort = default(5001);

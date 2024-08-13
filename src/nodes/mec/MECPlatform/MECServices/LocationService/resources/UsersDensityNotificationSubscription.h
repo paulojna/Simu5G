@@ -16,7 +16,7 @@ class UsersDensityNotificationSubscription: public SubscriptionBase
 {
     public:
         UsersDensityNotificationSubscription();
-        UsersDensityNotificationSubscription(unsigned int subId, inet::TcpSocket *socket , const std::string& baseResLocation,  std::set<omnetpp::cModule*>& eNodeBs);
+        UsersDensityNotificationSubscription(unsigned int subId, inet::TcpSocket *socket, const std::string& baseResLocation,  std::set<omnetpp::cModule*, simu5g::utils::cModule_LessId>& eNodeBs);
         virtual ~UsersDensityNotificationSubscription();
 
         virtual void sendSubscriptionResponse() override;

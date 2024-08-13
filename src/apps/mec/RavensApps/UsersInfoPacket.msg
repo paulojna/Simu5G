@@ -13,10 +13,10 @@
 // along with this program.  If not, see http://www.gnu.org/licenses/.
 // 
 
-namespace simu5g;
-
 import inet.common.INETDefs;
 import inet.common.packet.chunk.Chunk;
+
+namespace simu5g;
 
 class UsersInfoPacket extends inet::FieldsChunk{
     int type;

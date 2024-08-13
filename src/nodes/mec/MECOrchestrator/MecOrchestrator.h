@@ -69,6 +69,7 @@ struct standByElement
 class UALCMPMessage;
 class MECOrchestratorMessage;
 class SelectionPolicyBase;
+class ReactionOnUpdate;
 
 //
 // This module implements the MEC orchestrator of a MEC system.

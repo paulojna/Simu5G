@@ -15,7 +15,7 @@
 
 namespace simu5g {
 
-cModule* MecServiceSelectionBased::findBestMecHost(const ApplicationDescriptor& appDesc)
+cModule* MecServiceSelectionBased::findBestMecHost(const ApplicationDescriptor& appDesc, inet::L3Address ueAddress)
 {
     EV << "MecServiceSelectionBased::findBestMecHost - finding best MecHost..." << endl;
     cModule* bestHost = nullptr;

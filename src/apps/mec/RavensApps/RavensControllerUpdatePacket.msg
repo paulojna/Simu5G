@@ -13,17 +13,17 @@
 // along with this program.  If not, see http://www.gnu.org/licenses/.
 // 
 
-namespace simu5g;
-
 import inet.common.INETDefs;
 import inet.common.packet.chunk.Chunk;
 
 cplusplus {{
     #include "RavensControllerApp/DataUpdates/UserMEHUpdate.h"
-    typedef std::vector<UserMEHUpdate> UserMEHUpdatedList;
+    typedef std::vector<::simu5g::UserMEHUpdate> UserMEHUpdatedList;
 }};
 
 class UserMEHUpdatedList { @existingClass; };
+
+namespace simu5g;
 
 class RavensControllerUpdatePacket extends inet::FieldsChunk{
     int type;

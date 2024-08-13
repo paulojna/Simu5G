@@ -27,6 +27,6 @@ class UserMEHUpdate
         const std::string& getAddress() const;
 };
 
-}
+} // namespace simu5g
 
 #endif // USERMEHUPDATE_H

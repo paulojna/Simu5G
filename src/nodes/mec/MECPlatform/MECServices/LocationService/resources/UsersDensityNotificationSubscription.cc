@@ -17,7 +17,7 @@ UsersDensityNotificationSubscription::UsersDensityNotificationSubscription()
     firstNotificationSent = false;
 }
 
-UsersDensityNotificationSubscription::UsersDensityNotificationSubscription(unsigned int subId, inet::TcpSocket *socket , const std::string& baseResLocation,  std::set<cModule*>& eNodeBs):
+UsersDensityNotificationSubscription::UsersDensityNotificationSubscription(unsigned int subId, inet::TcpSocket *socket, const std::string& baseResLocation,  std::set<omnetpp::cModule*, simu5g::utils::cModule_LessId>& eNodeBs):
 SubscriptionBase(subId,socket,baseResLocation, eNodeBs){
     binder = getBinder();
     baseResLocation_+= "users/density";

@@ -104,7 +104,7 @@ void MECPerfApp::finish()
     }
 }
 
-double MECReMECPerfAppsponseApp::scheduleNextMsg(cMessage *msg)
+double MECPerfApp::scheduleNextMsg(cMessage *msg)
 {
     return MecAppBase::scheduleNextMsg(msg);
 }

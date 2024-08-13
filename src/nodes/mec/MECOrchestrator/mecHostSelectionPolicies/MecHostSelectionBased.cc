@@ -20,7 +20,7 @@ MecHostSelectionBased::MecHostSelectionBased(MecOrchestrator* mecOrchestrator, i
     mecHostIndex_ = index;
 }
 
-cModule* MecHostSelectionBased::findBestMecHost(const ApplicationDescriptor& appDesc)
+cModule* MecHostSelectionBased::findBestMecHost(const ApplicationDescriptor& appDesc, inet::L3Address ueAddress)
 {
     EV << "MecHostSelectionBased::findBestMecHost - finding best MecHost..." << endl;
     cModule* bestHost = nullptr;

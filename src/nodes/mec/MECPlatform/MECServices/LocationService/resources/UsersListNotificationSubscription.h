@@ -14,7 +14,7 @@ class UsersListNotificationSubscription: public SubscriptionBase
 {
     public:
         UsersListNotificationSubscription();
-        UsersListNotificationSubscription(unsigned int subId, inet::TcpSocket *socket , const std::string& baseResLocation,  std::set<omnetpp::cModule*>& eNodeBs);
+        UsersListNotificationSubscription(unsigned int subId, inet::TcpSocket *socket , const std::string& baseResLocation,  std::set<omnetpp::cModule*, simu5g::utils::cModule_LessId>& eNodeBs);
         virtual ~UsersListNotificationSubscription();
 
         virtual void sendSubscriptionResponse() override;

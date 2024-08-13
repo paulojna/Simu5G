@@ -13,20 +13,20 @@
 // along with this program.  If not, see http://www.gnu.org/licenses/.
 // 
 
-namespace simu5g;
-
 import inet.common.INETDefs;
 import inet.common.packet.chunk.Chunk;
 
 cplusplus {{
     #include "RavensAgentApp/AccessPointData.h"
     #include "RavensAgentApp/UserData.h"
-    typedef std::vector<AccessPointData> AccessPointList;
-    typedef std::map<std::string, UserData> UsersMap;
+    typedef std::vector<::simu5g::AccessPointData> AccessPointList;
+    typedef std::map<std::string, ::simu5g::UserData> UsersMap;
 }};
 
 class AccessPointList { @existingClass; };
 class UsersMap { @existingClass; };
+
+namespace simu5g;
 
 class RavensLinkPacket extends inet::FieldsChunk{
     int type; 
