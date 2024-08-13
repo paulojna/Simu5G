@@ -1,7 +1,7 @@
 {
-"appDid" : "RESPONSEMECAPP",
-"appName" : "MECResponseApp",
-"appProvider" : "simu5g.apps.mec.MecRequestResponseApp.MECResponseApp",
+"appDid" : "MECPERFAPP",
+"appName" : "MECPerfApp",
+"appProvider" : "simu5g.apps.mec.EdgePerfApp.MECPerfApp",
 "appInfoName" : "appInfoName_",
 "appDescription" : "appDescription_",
 "virtualComputeDescriptor" :{
