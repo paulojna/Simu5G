@@ -14,7 +14,7 @@ NotifyOnDataChange::NotifyOnDataChange(RavensControllerApp *controllerApp, int t
     EV << "NotifyOnDataChange::NotifyOnDataChange - max_iterations = " << max_iterations << endl;
 }
 
-inet::Packet *NotifyOnDataChange::handleDataMessage(inet::Ptr<const UsersInfoSnapshotMessage> received_packet)
+inet::Packet *NotifyOnDataChange::handleDataMessage(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet)
 {
     /*
         This strategy aims to fill the userUpdates list and update the hostsData map at the RavensControllerApp.

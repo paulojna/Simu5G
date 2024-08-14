@@ -10,7 +10,7 @@ SaveDataHistory::SaveDataHistory(RavensControllerApp* controllerApp, std::string
     EV << "SaveDataHistory::SaveDataHistory - file created in" << name << endl;
 }
 
-inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const UsersInfoSnapshotMessage> received_packet)
+inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet)
 {
     // it might be a good idea to return a message anyway since we don't know what the future holds
     inet::Packet* pck = nullptr;

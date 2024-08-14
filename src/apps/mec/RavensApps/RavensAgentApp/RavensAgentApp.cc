@@ -102,8 +102,8 @@ void RavensAgentApp::established(int connId)
 void RavensAgentApp::sendJoinNetworkRequest()
 {
     EV << "RavensAgentApp::sendJoinNetworkRequest - Sending Join Network Request" << endl;
-    inet::Packet* packet = new inet::Packet("JoinNetworkRequestMessage");
-    auto request = inet::makeShared<JoinNetworkRequestMessage>();
+    inet::Packet* packet = new inet::Packet("RavensLinkJoinNetworkRequestMessage");
+    auto request = inet::makeShared<RavensLinkJoinNetworkRequestMessage>();
     request->setChunkLength(B(500));
     request->setType(JOIN_NETWORK_REQUEST);
     request->setRequestId(0);
@@ -117,8 +117,8 @@ void RavensAgentApp::sendJoinNetworkRequest()
 void RavensAgentApp::sendAPList()
 {
     EV << "RavensAgentApp::sendAPList - Sending AP List" << endl;
-    inet::Packet* packet = new inet::Packet("InfrastructureDetailsMessage");
-    auto request = inet::makeShared<InfrastructureDetailsMessage>();
+    inet::Packet* packet = new inet::Packet("RavensLinkInfrastructureDetailsMessage");
+    auto request = inet::makeShared<RavensLinkInfrastructureDetailsMessage>();
     request->setChunkLength(B(500));
     request->setType(INFRAESTRUCTURE_DETAILS);
     request->setRequestId(0);
@@ -133,8 +133,8 @@ void RavensAgentApp::sendUsersInfoSnapshot()
 {
     // get the information available on the users map and send it to the controller using the message type USER_INFO_SNAPSHOT
     EV << "RavensAgentApp::sendUsersInfoSnapshot - Sending User Info Snapshot" << endl;
-    inet::Packet* packet = new inet::Packet("UsersInfoSnapshotMessage");
-    auto request = inet::makeShared<UsersInfoSnapshotMessage>();
+    inet::Packet* packet = new inet::Packet("RavensLinkUsersInfoSnapshotMessage");
+    auto request = inet::makeShared<RavensLinkUsersInfoSnapshotMessage>();
     request->setChunkLength(B(500));
     request->setType(USERS_INFO_SNAPSHOT);
     request->setRequestId(localSnapshotCounter);
@@ -419,7 +419,7 @@ void RavensAgentApp::handleProcessedMessage(cMessage *msg)
             else if(received_packet->getType() == INFRAESTRUCTURE_DETAILS_ACK)
             {
                 EV << "RavensAgentApp::handleProcessedMessage - INFRAESTRUCTURE_DETAILS received" << endl;
-                auto infrastructureDetailsAck = packet->peekAtFront<InfrastructureDetailsMessageAck>();
+                auto infrastructureDetailsAck = packet->peekAtFront<RavensLinkInfrastructureDetailsMessageAck>();
                 EV << "RavensAgentApp::handleProcessedMessage - Rate received: " << infrastructureDetailsAck->getRate() << endl;
                 simtime_t interval = infrastructureDetailsAck->getRate();
                 // convert to int

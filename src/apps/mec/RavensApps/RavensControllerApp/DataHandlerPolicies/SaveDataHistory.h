@@ -17,7 +17,7 @@ class SaveDataHistory : public DataHandlerPolicyBase
 {
     protected:
         std::ofstream csvFile;
-        virtual inet::Packet* handleDataMessage(inet::Ptr<const UsersInfoSnapshotMessage> received_packet) override;
+        virtual inet::Packet* handleDataMessage(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet) override;
     public:
         SaveDataHistory(RavensControllerApp* controllerApp, std::string path);
         virtual ~SaveDataHistory();

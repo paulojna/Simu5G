@@ -161,5 +161,4 @@ network highwayA11
         gnb2.x2++ <--> Eth10G <--> gnb3.x2++;
         gnb3.x2++ <--> Eth10G <--> gnb4.x2++;
         gnb4.x2++ <--> Eth10G <--> gnb5.x2++;
-
 }

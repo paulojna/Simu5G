@@ -389,6 +389,8 @@ void UEPerfApp::handleUeTimeoutMessage(UeTimeoutMessage* msg)
         //remove the packet from the map
         ueRequestMap.erase(it);
     }
+
+    delete msg;
 }
 
 void UEPerfApp::printLostMessages()

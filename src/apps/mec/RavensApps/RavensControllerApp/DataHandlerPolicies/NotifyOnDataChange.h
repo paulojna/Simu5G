@@ -28,7 +28,7 @@ class NotifyOnDataChange : public DataHandlerPolicyBase
         int stanby_treshold_;
         int max_iterations;
         std::map<std::string, ueStanbyElement> standby;
-        virtual inet::Packet* handleDataMessage(inet::Ptr<const UsersInfoSnapshotMessage> received_packet) override;
+        virtual inet::Packet* handleDataMessage(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet) override;
     public:
         NotifyOnDataChange(RavensControllerApp* controllerApp, int treshold);
         void addUserUpdate(UserMEHUpdate &update);

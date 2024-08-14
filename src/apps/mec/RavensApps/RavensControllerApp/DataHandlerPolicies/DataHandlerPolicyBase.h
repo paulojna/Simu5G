@@ -17,7 +17,7 @@ class DataHandlerPolicyBase
     protected:
         RavensControllerApp* controllerApp_;
         // = 0 indicates pure virtual function with no implementation in the base class
-        virtual inet::Packet* handleDataMessage(inet::Ptr<const UsersInfoSnapshotMessage> received_packet) = 0;
+        virtual inet::Packet* handleDataMessage(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet) = 0;
 
     public:
         DataHandlerPolicyBase(RavensControllerApp* controllerApp) { controllerApp_ = controllerApp; }

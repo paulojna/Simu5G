@@ -34,24 +34,24 @@ class RavensLinkPacket extends inet::FieldsChunk{
     simtime_t timeStamp;
 }
 
-class JoinNetworkRequestMessage extends RavensLinkPacket
+class RavensLinkJoinNetworkRequestMessage extends RavensLinkPacket
 {
 	string mecHostId;
 }
 
-class InfrastructureDetailsMessage extends RavensLinkPacket
+class RavensLinkInfrastructureDetailsMessage extends RavensLinkPacket
 {
     string mecHostId;
     AccessPointList APList;
 }
 
-class InfrastructureDetailsMessageAck extends RavensLinkPacket
+class RavensLinkInfrastructureDetailsMessageAck extends RavensLinkPacket
 {
     int infoType;
     int rate;
 }
 
-class UsersInfoSnapshotMessage extends RavensLinkPacket
+class RavensLinkUsersInfoSnapshotMessage extends RavensLinkPacket
 {
     string mecHostId;
     UsersMap users;

@@ -59,7 +59,7 @@ void RavensControllerApp::initialize(int stage){
 
     calculateAvg_ = new cMessage("calculateAvgNetworkData");
 
-    ravensLinkPacketFilter.setPattern("Ravens*");
+    ravensLinkPacketFilter.setPattern("RavensLink*");
     uePacketFilter.setPattern("User*");
 
     scheduleAt(simTime() + snapshot_starting_time_, new cMessage("sendSnapshot"));
@@ -146,7 +146,7 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
         if(received_packet->getType() == JOIN_NETWORK_REQUEST)
         {
             //cast the packet from RavensLinkPacket to the specific type of packet
-            auto joinNetworkRequest = packet->peekAtFront<JoinNetworkRequestMessage>();
+            auto joinNetworkRequest = packet->peekAtFront<RavensLinkJoinNetworkRequestMessage>();
 
             EV << "RavensControllerApp::socketDataArrived - join network request received" << endl;
             //fill the hostsData map with the new host. Key and MecHostid in the MECHostData object are the same
@@ -172,7 +172,7 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
         {   
             EV << "RavensControllerApp::socketDataArrived - infrastructure details received" << endl;
 
-            auto infrastructureDetails = packet->peekAtFront<InfrastructureDetailsMessage>();
+            auto infrastructureDetails = packet->peekAtFront<RavensLinkInfrastructureDetailsMessage>();
             
             //get the APList from the message and print it to the console
             std::vector<AccessPointData> apList = infrastructureDetails->getAPList();
@@ -203,11 +203,11 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
         }
         else if(received_packet->getType() == USERS_INFO_SNAPSHOT)
         {
-            auto usersInfoSnapshot = packet->peekAtFront<UsersInfoSnapshotMessage>();
+            auto usersInfoSnapshot = packet->peekAtFront<RavensLinkUsersInfoSnapshotMessage>();
             EV << "RavensControllerApp::socketDataArrived - users info snapshot received from MEC host: " << usersInfoSnapshot->getMecHostId() << " with a number of users of " << usersInfoSnapshot->getUsers().size() << endl;
 
             //call the data handler policy
-            inet::Packet* response = dataHandlerPolicy_->handleDataMessage(packet->peekAtFront<UsersInfoSnapshotMessage>());
+            inet::Packet* response = dataHandlerPolicy_->handleDataMessage(packet->peekAtFront<RavensLinkUsersInfoSnapshotMessage>());
         }
     }
     else if(uePacketFilter.matches(packet))
@@ -264,8 +264,8 @@ void RavensControllerApp::sendJoinNetworkAck(inet::UdpSocket *socket, inet::L3Ad
 
 void RavensControllerApp::sendInfrastructureDetailsAck(inet::UdpSocket *socket, inet::L3Address remoteAddress, int port){
     EV << "RavensControllerApp::sendInfrastructureDetailsAck - sending infrastructure details ack" << endl;
-    inet::Packet* packet = new inet::Packet("InfrastructureDetailsAckMessage");
-    auto request = inet::makeShared<InfrastructureDetailsMessageAck>();
+    inet::Packet* packet = new inet::Packet("RavensLinkInfrastructureDetailsAckMessage");
+    auto request = inet::makeShared<RavensLinkInfrastructureDetailsMessageAck>();
     request->setChunkLength(inet::B(500));
     request->setType(INFRAESTRUCTURE_DETAILS_ACK);
     request->setRequestId(0);

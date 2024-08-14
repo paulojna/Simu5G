@@ -108,6 +108,10 @@ void MecOrchestrator::handleMessage(cMessage *msg)
             else if( strcmp(meoMsg->getType(), DELETE_CONTEXT_APP) == 0)
                 sendDeleteAppContextAck(meoMsg->getSuccess(), meoMsg->getRequestId(), meoMsg->getContextId());
         }
+        else if(strcmp(msg->getName(), "UpdateFromRAVENS") == 0)
+        {
+            EV << "I'm going to do something here" << endl;
+        }
     }
 
     // handle message from the LCM proxy
@@ -394,6 +398,11 @@ void MecOrchestrator::startMECApp(UALCMPMessage* msg)
         scheduleAt(simTime() + processingTime, msg);
     }
 
+}
+
+void MecOrchestrator::stopMECApp(unsigned int ref)
+{
+    EV << "MeccOrchestrator::stopMECApp - processing... ref: "<< ref << " to stop the correspondent app on the meh" << endl;
 }
 
 void MecOrchestrator::stopMECApp(UALCMPMessage* msg){
