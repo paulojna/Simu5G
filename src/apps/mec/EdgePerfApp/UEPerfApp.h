@@ -28,7 +28,7 @@ class UEPerfApp: public cSimpleModule
     int requestPacketSize_;
     double requestPeriod_;
     double requestTimeout_;
-    unsigned int lostPackets_;
+    unsigned int lostPackets_; 
 
     simtime_t start_;
     simtime_t end_;
@@ -52,6 +52,8 @@ class UEPerfApp: public cSimpleModule
 
     // map to store the UE Requests while they are not confirmed
     std::map<unsigned int, inet::Ptr<RequestResponseAppPacket>> ueRequestMap;
+    std::vector<UeTimeoutMessage*> ueTimeoutMsgs;
+    std::vector<cMessage*> ueRequestMsgs;
     std::list<double> avgRTT;
 
     //scheduling
@@ -61,6 +63,7 @@ class UEPerfApp: public cSimpleModule
     cMessage *unBlockingMsg_; //it prevents to stop the send/response pattern if msg gets lost
     cMessage *printLostMessages_;
 
+    UeTimeoutMessage *sendRequestTimeout_;
 
     // signals for statistics
     simsignal_t processingTime_;
@@ -102,12 +105,9 @@ class UEPerfApp: public cSimpleModule
     // --- Functions to interact with the MECPlatooningApp --- //
     void sendRequest();
     void recvResponse(cMessage* msg);
-    void printLostMessages();
 
     void setMecAppAddress(inet::L3Address newAddress);
     void setMecAppPort(int newPort);
-
-    void sendNetworkUpdates();
 
 };
 

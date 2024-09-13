@@ -36,7 +36,6 @@ protected:
 
     cMessage* currentRequestfMsg_;
     cMessage* processingTimer_;
-    cMessage* retryMessage_;
 
     int retryAttempt;
 

@@ -9,10 +9,10 @@ simple RavensControllerApp like IApp
     parameters:
         @class("RavensControllerApp");
         string mode = default("NotifyOnDataChange"); // available modes: "NotifyOnDataChange" and "SaveDataHistory"
-        int treshold = default(10);
-        int snapshot_frequency = default(4); 
+        int treshold = default(30);
+        int snapshot_frequency = default(3); 
         int snapshot_starting_time = default(4);
-        string path = default("../highwayA11/results/"); // path to save the data
+        string path = default("../highwayA11_1to1/results/"); // path to save the data
         
         int bufferTime = default(3); // timeout for the handler to know if the data is to be sent or not 
 

@@ -246,6 +246,8 @@ void MECResponseApp::doComputation()
 {
     processingTime_ = vim->calculateProcessingTime(mecAppId, uniform(minInstructions_, maxInstructions_));
     EV << "time " << processingTime_ << endl;
+    if(processingTimer_->isScheduled())
+        cancelEvent(processingTimer_);
     scheduleAt(simTime()+ processingTime_, processingTimer_);
 }
 

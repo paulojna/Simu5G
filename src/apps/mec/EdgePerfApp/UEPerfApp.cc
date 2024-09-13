@@ -30,9 +30,6 @@ UEPerfApp::~UEPerfApp()
     cancelAndDelete(selfStart_);
     cancelAndDelete(selfStop_);
     cancelAndDelete(unBlockingMsg_);
-    cancelAndDelete(sendRequest_);
-    // clean all the structures
-    //ueRequestMap.clear();
 }
 
 void UEPerfApp::initialize(int stage)
@@ -75,7 +72,6 @@ void UEPerfApp::initialize(int stage)
     selfStop_ = new cMessage("selfStop");
     sendRequest_ = new cMessage("sendRequest");
     unBlockingMsg_ = new cMessage("unBlockingMsg");
-    printLostMessages_ = new cMessage("printLostMessages");
 
     //starting UERequestApp
     simtime_t startTime = par("startTime");
@@ -114,8 +110,6 @@ void UEPerfApp::handleMessage(cMessage *msg)
             UeTimeoutMessage *timeout_msg = check_and_cast<UeTimeoutMessage*>(msg);
             handleUeTimeoutMessage(timeout_msg);
         }
-        else if(!strcmp(msg->getName(), "printLostMessages"))
-            printLostMessages();
         else
             throw cRuntimeError("UEPerfApp::handleMessage - \tWARNING: Unrecognized self message");
     }
@@ -164,7 +158,21 @@ void UEPerfApp::handleMessage(cMessage *msg)
 
 void UEPerfApp::finish()
 {
-    //std::cout << "UERequestApp with deviceApp ip" << deviceAppAddress_ <<  " had " << lostPacketNumber << "  lost packets." << std::endl;
+    std::cout << simTime() << " - UEPerfApp with deviceApp ip " << deviceAppAddress_ <<  " finished!" << std::endl;
+    for(auto it = ueRequestMsgs.begin(); it != ueRequestMsgs.end(); it++)
+    {
+        if((*it)->isScheduled())
+            cancelAndDelete(*it);
+    }
+    ueRequestMsgs.clear();
+    for(auto it_timeout = ueTimeoutMsgs.begin(); it_timeout != ueTimeoutMsgs.end(); it_timeout++)
+    {
+        if((*it_timeout)->isScheduled())
+            cancelAndDelete(*it_timeout);
+    }
+
+    // remove every element in the ueTimeoutMap
+    ueTimeoutMsgs.clear();
 }
 
 void UEPerfApp::sendStartMECRequestApp()
@@ -185,7 +193,6 @@ void UEPerfApp::sendStartMECRequestApp()
 
     //rescheduling
     scheduleAt(simTime() + 0.5, selfStart_);
-    scheduleAt(simTime() + 1, printLostMessages_);
 }
 
 void UEPerfApp::sendStopMECRequestApp()
@@ -216,16 +223,38 @@ void UEPerfApp::sendStopMECRequestApp()
 
 void UEPerfApp::handleChangeMecHost(cMessage* msg)
 {
-    EV << "UEPerfApp::handleChangeMecHost - Received " << MEH_CHANGE <<" type RequestPacket\n";
-
     inet::Packet* packet = check_and_cast<inet::Packet*>(msg);
     auto pkt = packet->peekAtFront<DeviceAppChangeMecHostPacket>();
 
+    EV << "UEPerfApp::handleChangeMecHost - Received " << MEH_CHANGE <<" type RequestPacket\n";
+    std::cout << simTime() << " - UEPerfApp::handleChangeMecHost from UE with ip " << deviceAppAddress_ << " - Received " << MEH_CHANGE <<" type RequestPacket to change to ip "<< pkt->getNewMehIpAddress() <<"\n";
+
+    // run through the ueRequestMsgs vector and cancelAndDelete every message
+    for(auto it = ueRequestMsgs.begin(); it != ueRequestMsgs.end(); it++)
+    {
+        if((*it)->isScheduled())
+            cancelAndDelete(*it);
+    }
+
+    // clean vector
+    ueRequestMsgs.clear();
+
+    // cancel event of every sendRequestTimeout_ message in the ueTimeoutMap
+    for(auto it_timeout = ueTimeoutMsgs.begin(); it_timeout != ueTimeoutMsgs.end(); it_timeout++)
+    {
+        if((*it_timeout)->isScheduled())
+            cancelAndDelete(*it_timeout);
+    }
+
+    // remove every element in the ueTimeoutMap
+    ueTimeoutMsgs.clear();
+
     setMecAppAddress(L3AddressResolver().resolve(pkt->getNewMehIpAddress()));
     setMecAppPort(pkt->getNewMehPort());
+
+    sendRequest();
     
     EV << "UEPerfApp::handleChangeMecHost - Received " << pkt->getType() << " type RequestPacket. New mecApp instance is at: "<< mecAppAddress_<< ":" << mecAppPort_ << endl;
-
     // Later add the check on the new mecAppAddress_ and mecAppPort_ and send an ack with false if something went wrong.
     // For now we assume that the new mecAppAddress_ and mecAppPort_ were correctly changed.
 
@@ -301,13 +330,19 @@ void UEPerfApp::sendRequest()
     ueRequestMap[sno_] = req;
     pkt->insertAtBack(req);
 
-    UeTimeoutMessage *msg = new UeTimeoutMessage("UeTiemoutMessage");
-    msg->setSno(sno_);
+    sendRequestTimeout_ = new UeTimeoutMessage("UeTiemoutMessage");
+    sendRequestTimeout_->setSno(sno_);
+    ueTimeoutMsgs.push_back(sendRequestTimeout_);
 
     socket.sendTo(pkt, mecAppAddress_ , mecAppPort_);
 
+    //schedule the next request
+    sendRequest_ = new cMessage("sendRequest");
+    // add that to the map
+    ueRequestMsgs.push_back(sendRequest_);
+
     scheduleAt(simTime() + requestPeriod_, sendRequest_);
-    scheduleAt(simTime() + requestTimeout_, msg);
+    scheduleAt(simTime() + requestTimeout_, sendRequestTimeout_);
     EV<<"UEPerfApp::sendRequest() - Request sent and stored on stanby with sno [" << sno_ << "]" << endl;
 }
 
@@ -349,6 +384,8 @@ void UEPerfApp::recvResponse(cMessage* msg)
         avgRTT.push_back(simTime().dbl() - res->getRequestSentTimestamp().dbl());
         ueRequestMap.erase(it);
     }else{
+        EV << "UEPerfApp::recvResponse - Received a response with sno [" << res->getSno() << "] that is not in the map" << endl;
+        delete packet;
         return;
     }
 
@@ -390,41 +427,16 @@ void UEPerfApp::handleUeTimeoutMessage(UeTimeoutMessage* msg)
         ueRequestMap.erase(it);
     }
 
+    //remove the ueTimeoutMessage from the vector ueTimeoutMsgs
+    auto it_timeout = std::find(ueTimeoutMsgs.begin(), ueTimeoutMsgs.end(), msg);
+    if(it_timeout != ueTimeoutMsgs.end())
+    {
+        ueTimeoutMsgs.erase(it_timeout);
+    }
+
     delete msg;
 }
 
-void UEPerfApp::printLostMessages()
-{
-    EV << "UEPerfApp::printLostMessages - Lost packets: " << lostPackets_ << endl;
-    emit(lostMessages_, lostPackets_);
-    sendNetworkUpdates();
-    lostPackets_ = 0;
-    int frequency = 5*requestTimeout_;
-    scheduleAt(simTime() + frequency, printLostMessages_);
-}
-
-void UEPerfApp::sendNetworkUpdates()
-{
-    // average of the avgRTT list
-    double avgRTT_ = 0;
-    for(auto it = avgRTT.begin(); it != avgRTT.end(); it++)
-        avgRTT_ += *it;
-    avgRTT_ /= avgRTT.size();
-    avgRTT.clear();
-
-    inet::Packet* packet = new inet::Packet("UsersNetworkInfoPacket");
-    auto network_info = inet::makeShared<UsersNetworkInfoPacket>();
-    // add the string "mecHost" and the mehosId in one string
-    std::string mehId = "mecHost" + std::to_string(mehostId_);
-    network_info->setChunkLength(inet::B(20));
-    network_info->setMecHostId(mehId.c_str());
-    network_info->setLostPackets(lostPackets_);
-    network_info->setAvgRTT(avgRTT_);
-    packet->insertAtBack(network_info);
-    socket.sendTo(packet,controllerAddress_,controllerPort);
-
-    EV << "UEPerfApp::sendNetworkUpdates - Sent network info to controller: " << lostPackets_ << " lost packets, " << avgRTT_ << " avg RTT" << endl;
-}
 
 void UEPerfApp::setMecAppAddress(L3Address mecAppAddress)
 {

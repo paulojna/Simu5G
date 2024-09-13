@@ -32,7 +32,7 @@ MECPerfApp::MECPerfApp(): MecAppBase()
 
 MECPerfApp::~MECPerfApp()
 {
-    delete currentRequestfMsg_;
+    cancelAndDelete(currentRequestfMsg_);
     cancelAndDelete(processingTimer_);
 }
 
@@ -56,7 +56,6 @@ void MECPerfApp::initialize(int stage)
     packetSize_ = par("responsePacketSize");
 
     processingTimer_  = new cMessage("computeMsg");
-    retryMessage_ = new cMessage("retryMsg");
 
     minInstructions_ = par("minInstructions");
     maxInstructions_ = par("maxInstructions");
@@ -97,10 +96,9 @@ void MECPerfApp::handleProcessedMessage(cMessage *msg)
 void MECPerfApp::finish()
 {
     MecAppBase::finish();
-    EV << "MECPerfApp::finish()" << endl;
     if (gate("socketOut")->isConnected()) {
-
-
+        //close gate
+        gate("socketOut")->disconnect();
     }
 }
 
@@ -114,21 +112,15 @@ void MECPerfApp::handleSelfMessage(cMessage *msg)
     if(!strcmp(msg->getName(), "computeMsg"))
     {
         sendResponse();
-    }else if(!strcmp(msg->getName(), "retryMsg"))
-    {
-        handleRequest(currentRequestfMsg_);
     }
 }
 
 void MECPerfApp::handleRequest(cMessage* msg)
 {
-    //currentProcessedMsg_ = nullptr;
     EV << "MECPerfApp::handleRequest" << endl;
-    // this method pretends to perform some computation after having
-    //.request some info to the RNI
+    
     //if(currentRequestfMsg_  != nullptr)
-        
-        // throw cRuntimeError("MECResponseApp::handleRequest - currentRequestfMsg_ not null!");
+    //    throw cRuntimeError("MECResponseApp::handleRequest - currentRequestfMsg_ not null!");
 
     msgArrived_ = simTime();
     currentRequestfMsg_ = msg;
@@ -142,14 +134,12 @@ void MECPerfApp::handleStopRequest(cMessage* msg)
     EV << "MECPerfApp::handleStopRequest" << endl;
     serviceSocket_->close();
 }
+
 void MECPerfApp::sendResponse()
 {
     inet::Packet* packet = check_and_cast<inet::Packet*>(currentRequestfMsg_);
     ueAppAddress = packet->getTag<L3AddressInd>()->getSrcAddress();
     ueAppPort  = packet->getTag<L4PortInd>()->getSrcPort();
-
-    // do it sooner
-    currentRequestfMsg_ = nullptr;
 
     auto req = packet->removeAtFront<RequestResponseAppPacket>();
     req->setType(MECAPP_RESPONSE);
@@ -166,7 +156,7 @@ void MECPerfApp::sendResponse()
 
     //clean current request
     delete packet;
-    // currentRequestfMsg_ = nullptr;
+    currentRequestfMsg_ = nullptr;
     msgArrived_ = 0;
     processingTime_ = 0;
     getRequestArrived_ = 0;
@@ -260,6 +250,7 @@ void MECPerfApp::handleServiceMessage(int connId)
             EV << "MECPerfApp::handleServiceMessage - response with HTTP code:  " << rspMsg->getCode() << endl;
         }
     }
+
 }
 
 void MECPerfApp::doComputation()
