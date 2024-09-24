@@ -26,21 +26,27 @@ MECPerfApp::MECPerfApp(): MecAppBase()
 {
     mp1Socket_ = nullptr;
     serviceSocket_ = nullptr;
-    currentRequestfMsg_ = nullptr;
     processingTimer_ = nullptr;
+    numberOfRequests_ = 0;
 }
 
 MECPerfApp::~MECPerfApp()
 {
-    cancelAndDelete(currentRequestfMsg_);
+    // clean up requestQueue
+    while(!requestQueue_.empty())
+    {
+        delete requestQueue_.front();
+        requestQueue_.pop();
+    }
+    removeSocket(mp1Socket_);
+    removeSocket(serviceSocket_);
+    
     cancelAndDelete(processingTimer_);
 }
 
 void MECPerfApp::initialize(int stage)
 {
     MecAppBase::initialize(stage);
-
-    retryAttempt = 0;
 
     // avoid multiple initializations
     if (stage != inet::INITSTAGE_APPLICATION_LAYER)
@@ -70,6 +76,8 @@ void MECPerfApp::initialize(int stage)
 
     mecHostId = stoi(mecHostName);
 
+    //std::cout << "MECPerfApp::initialize - mecHostId: " << mecHostId << std::endl;
+
     connect(mp1Socket_, mp1Address, mp1Port);
 }
 
@@ -84,7 +92,6 @@ void MECPerfApp::handleProcessedMessage(cMessage *msg)
                 handleRequest(msg);
             else if(req->getType() == UEAPP_STOP)
                 handleStopRequest(msg);
-
             else
                 throw cRuntimeError("MECPerfApp::handleProcessedMessage - Type not recognized!");
             return;
@@ -95,10 +102,11 @@ void MECPerfApp::handleProcessedMessage(cMessage *msg)
 
 void MECPerfApp::finish()
 {
+    //std::cout << "APP IN MECHOST " << mecHost->getName() << " FINISHED" << std::endl;
     MecAppBase::finish();
-    if (gate("socketOut")->isConnected()) {
-        //close gate
-        gate("socketOut")->disconnect();
+    if(gate("socketOut")->isConnected())
+    {
+        
     }
 }
 
@@ -117,15 +125,21 @@ void MECPerfApp::handleSelfMessage(cMessage *msg)
 
 void MECPerfApp::handleRequest(cMessage* msg)
 {
-    EV << "MECPerfApp::handleRequest" << endl;
+    // create new requestInfo
+    requestInfo* reqInfo = new requestInfo();
+    reqInfo->msgArrivedInfo_ = simTime();
+    reqInfo->requestMsg_ = msg;
+    requestQueue_.push(reqInfo);
+    //std::cout << simTime() << " - Request Received! Size of requestQueue: " << requestQueue_.size() << std::endl;
+    if(requestQueue_.size() == 1)
+    {
+        sendGetRequest();
+    }
+    else
+    {
+        return;
+    }
     
-    //if(currentRequestfMsg_  != nullptr)
-    //    throw cRuntimeError("MECResponseApp::handleRequest - currentRequestfMsg_ not null!");
-
-    msgArrived_ = simTime();
-    currentRequestfMsg_ = msg;
-    sendGetRequest();
-    getRequestSent_ = simTime();
 }
 
 
@@ -137,17 +151,17 @@ void MECPerfApp::handleStopRequest(cMessage* msg)
 
 void MECPerfApp::sendResponse()
 {
-    inet::Packet* packet = check_and_cast<inet::Packet*>(currentRequestfMsg_);
+    inet::Packet* packet = check_and_cast<inet::Packet*>(requestQueue_.front()->requestMsg_);
     ueAppAddress = packet->getTag<L3AddressInd>()->getSrcAddress();
     ueAppPort  = packet->getTag<L4PortInd>()->getSrcPort();
 
     auto req = packet->removeAtFront<RequestResponseAppPacket>();
     req->setType(MECAPP_RESPONSE);
     req->setMecHostId(mecHostId);
-    req->setRequestArrivedTimestamp(msgArrived_);
-    req->setServiceResponseTime(getRequestArrived_ - getRequestSent_);
+    req->setRequestArrivedTimestamp(requestQueue_.front()->msgArrivedInfo_);
+    req->setServiceResponseTime(requestQueue_.front()->getRequestArrivedInfo_ - requestQueue_.front()->getRequestSentInfo_);
     req->setResponseSentTimestamp(simTime());
-    req->setProcessingTime(processingTime_);
+    req->setProcessingTime(requestQueue_.front()->processingTimeInfo_);
     req->setChunkLength(B(packetSize_));
     inet::Packet* pkt = new inet::Packet("ResponseAppPacket");
     pkt->insertAtBack(req);
@@ -156,11 +170,13 @@ void MECPerfApp::sendResponse()
 
     //clean current request
     delete packet;
-    currentRequestfMsg_ = nullptr;
-    msgArrived_ = 0;
-    processingTime_ = 0;
-    getRequestArrived_ = 0;
-    getRequestSent_ = 0;
+    delete requestQueue_.front();
+    requestQueue_.pop();
+    //std::cout << simTime() << " - We poped a request from the queue! Size of requestQueue: " << requestQueue_.size() << std::endl;
+    if(!requestQueue_.empty())
+    {
+        sendGetRequest();
+    }
 }
 
 void MECPerfApp::handleHttpMessage(int connId)
@@ -240,7 +256,7 @@ void MECPerfApp::handleServiceMessage(int connId)
         if (rspMsg->getCode() == 200) // in response to a successful GET request
         {
             EV << "MECPerfApp::handleServiceMessage - response 200 from Socket with Id [" << connId << "]" << endl;
-            getRequestArrived_ = simTime();
+            requestQueue_.front()->getRequestArrivedInfo_ = simTime();
             EV << "response time " << getRequestArrived_ - getRequestSent_ << endl;
             doComputation();
         }
@@ -256,9 +272,7 @@ void MECPerfApp::handleServiceMessage(int connId)
 void MECPerfApp::doComputation()
 {
     processingTime_ = vim->calculateProcessingTime(mecAppId, uniform(minInstructions_, maxInstructions_));
-    EV << "time " << processingTime_ << endl;
-    if(processingTimer_->isScheduled())
-        cancelEvent(processingTimer_);
+    requestQueue_.front()->processingTimeInfo_ = processingTime_;   
     scheduleAt(simTime()+ processingTime_, processingTimer_);
 }
 
@@ -272,6 +286,8 @@ void MECPerfApp::sendGetRequest()
         EV << "MECPerfApp::requestLocation(): uri: " << uri.str() << endl;
         std::string host = serviceSocket_->getRemoteAddress().str() + ":" + std::to_string(serviceSocket_->getRemotePort());
         Http::sendGetRequest(serviceSocket_, host.c_str(), uri.str().c_str());
+        // save the time when the request was sent into the oldest request in the queue
+        requestQueue_.front()->getRequestSentInfo_ = simTime();
     }
     else {
         EV << "MECPerfApp::sendGetRequest(): Location Service not connected" << endl;
@@ -298,7 +314,7 @@ void MECPerfApp::established(int connId)
 void MECPerfApp::socketClosed(inet::TcpSocket *sock)
 {
     EV << "MECPerfApp::socketClosed" << endl;
-    std::cout << "MECPerfApp::socketClosed with sockId " << sock->getSocketId() << std::endl;
+    //std::cout << "MECPerfApp::socketClosed with sockId " << sock->getSocketId() << std::endl;
     if(mp1Socket_!= nullptr && sock->getSocketId() == mp1Socket_->getSocketId()){
         removeSocket(sock);
         mp1Socket_ = nullptr;

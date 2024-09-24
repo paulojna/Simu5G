@@ -29,7 +29,26 @@ UEPerfApp::~UEPerfApp()
 {
     cancelAndDelete(selfStart_);
     cancelAndDelete(selfStop_);
-    cancelAndDelete(unBlockingMsg_);
+
+    // run through ueRequestMsgs and ueTimeoutMsgs and delete or cancel them
+    for(auto & ueRequestMsg : ueRequestMsgs)
+    {
+        // if they are schedule messages, cancel them, otherwise delete them
+        if(ueRequestMsg->requestMsg->isScheduled())
+            cancelAndDelete(ueRequestMsg->requestMsg);
+        else
+            delete ueRequestMsg->requestMsg;
+        delete ueRequestMsg;
+    }
+
+    for(auto & ueTimeoutMsg : ueTimeoutMsgs)
+    {
+        // if they are schedule messages, cancel them, otherwise delete them
+        if(ueTimeoutMsg->isScheduled())
+            cancelAndDelete(ueTimeoutMsg);
+        else
+            delete ueTimeoutMsg;
+    }
 }
 
 void UEPerfApp::initialize(int stage)
@@ -70,13 +89,11 @@ void UEPerfApp::initialize(int stage)
     //initializing the auto-scheduling messages
     selfStart_ = new cMessage("selfStart");
     selfStop_ = new cMessage("selfStop");
-    sendRequest_ = new cMessage("sendRequest");
-    unBlockingMsg_ = new cMessage("unBlockingMsg");
 
     //starting UERequestApp
     simtime_t startTime = par("startTime");
     EV << "UEPerfApp::initialize - starting sendStartMEWarningAlertApp() in " << startTime << " seconds " << endl;
-    scheduleAt(simTime() + 9, selfStart_);
+    scheduleAt(simTime() + 10, selfStart_);
 
     //testing
     EV << "UEPerfApp::initialize - binding to port: local:" << localPort_ << " , dest:" << deviceAppPort_ << endl;
@@ -100,12 +117,23 @@ void UEPerfApp::handleMessage(cMessage *msg)
     if (msg->isSelfMessage())
     {
         if(!strcmp(msg->getName(), "selfStart"))
+        {
+            EV << "UEPerfApp::handleMessage - \tStarting the UEPerfApp" << endl;
             sendStartMECRequestApp();
+        }
         else if(!strcmp(msg->getName(), "selfStop"))
+        {
+            EV << "UEPerfApp::handleMessage - \tStopping the UEPerfApp" << endl;
             sendStopApp();
+        }
         else if(!strcmp(msg->getName(), "sendRequest"))
+        {
+            EV << "UEPerfApp::handleMessage - \tSending a new request with IP " << deviceAppAddress_ << endl;
             sendRequest();
-        else if(!strcmp(msg->getName(), "UeTiemoutMessage")){
+        } 
+        else if(!strcmp(msg->getName(), "UeTimeoutMessage"))
+        {
+            EV << "UEPerfApp::handleMessage - \tHandling a timeout message" << endl;
             // check if the message is in the map, if it is, increment the lost packet counter and/or send data to a vec file, if not, do nothing
             UeTimeoutMessage *timeout_msg = check_and_cast<UeTimeoutMessage*>(msg);
             handleUeTimeoutMessage(timeout_msg);
@@ -159,20 +187,6 @@ void UEPerfApp::handleMessage(cMessage *msg)
 void UEPerfApp::finish()
 {
     std::cout << simTime() << " - UEPerfApp with deviceApp ip " << deviceAppAddress_ <<  " finished!" << std::endl;
-    for(auto it = ueRequestMsgs.begin(); it != ueRequestMsgs.end(); it++)
-    {
-        if((*it)->isScheduled())
-            cancelAndDelete(*it);
-    }
-    ueRequestMsgs.clear();
-    for(auto it_timeout = ueTimeoutMsgs.begin(); it_timeout != ueTimeoutMsgs.end(); it_timeout++)
-    {
-        if((*it_timeout)->isScheduled())
-            cancelAndDelete(*it_timeout);
-    }
-
-    // remove every element in the ueTimeoutMap
-    ueTimeoutMsgs.clear();
 }
 
 void UEPerfApp::sendStartMECRequestApp()
@@ -210,11 +224,6 @@ void UEPerfApp::sendStopMECRequestApp()
 
     socket.sendTo(packet, deviceAppAddress_, deviceAppPort_);
 
-    if(sendRequest_->isScheduled())
-    {
-        cancelEvent(sendRequest_);
-    }
-
     //rescheduling
     if(selfStop_->isScheduled())
         cancelEvent(selfStop_);
@@ -227,34 +236,15 @@ void UEPerfApp::handleChangeMecHost(cMessage* msg)
     auto pkt = packet->peekAtFront<DeviceAppChangeMecHostPacket>();
 
     EV << "UEPerfApp::handleChangeMecHost - Received " << MEH_CHANGE <<" type RequestPacket\n";
-    std::cout << simTime() << " - UEPerfApp::handleChangeMecHost from UE with ip " << deviceAppAddress_ << " - Received " << MEH_CHANGE <<" type RequestPacket to change to ip "<< pkt->getNewMehIpAddress() <<"\n";
-
-    // run through the ueRequestMsgs vector and cancelAndDelete every message
-    for(auto it = ueRequestMsgs.begin(); it != ueRequestMsgs.end(); it++)
-    {
-        if((*it)->isScheduled())
-            cancelAndDelete(*it);
-    }
-
-    // clean vector
-    ueRequestMsgs.clear();
-
-    // cancel event of every sendRequestTimeout_ message in the ueTimeoutMap
-    for(auto it_timeout = ueTimeoutMsgs.begin(); it_timeout != ueTimeoutMsgs.end(); it_timeout++)
-    {
-        if((*it_timeout)->isScheduled())
-            cancelAndDelete(*it_timeout);
-    }
-
-    // remove every element in the ueTimeoutMap
-    ueTimeoutMsgs.clear();
+    std::cout << simTime() << " - UEPerfApp::handleChangeMecHost from UE with ip " << deviceAppAddress_ << " - Received " << MEH_CHANGE <<" type RequestPacket to change to ip "<< pkt->getNewMehIpAddress() << " with port " << pkt->getNewMehPort() << "\n";
 
     setMecAppAddress(L3AddressResolver().resolve(pkt->getNewMehIpAddress()));
     setMecAppPort(pkt->getNewMehPort());
 
-    sendRequest();
+    //sendRequest();
     
     EV << "UEPerfApp::handleChangeMecHost - Received " << pkt->getType() << " type RequestPacket. New mecApp instance is at: "<< mecAppAddress_<< ":" << mecAppPort_ << endl;
+    //std::cout << simTime() << "UEPerfApp::handleChangeMecHost - Received " << pkt->getType() << " type RequestPacket. New mecApp instance is at: "<< mecAppAddress_<< ":" << mecAppPort_ << endl;
     // Later add the check on the new mecAppAddress_ and mecAppPort_ and send an ack with false if something went wrong.
     // For now we assume that the new mecAppAddress_ and mecAppPort_ were correctly changed.
 
@@ -268,6 +258,8 @@ void UEPerfApp::handleChangeMecHost(cMessage* msg)
     ack_packet->insertAtBack(ack);
 
     socket.sendTo(ack_packet, deviceAppAddress_, deviceAppPort_);
+
+    delete packet;
 }
 
 void UEPerfApp::handleAckStartMECRequestApp(cMessage* msg)
@@ -288,7 +280,7 @@ void UEPerfApp::handleAckStartMECRequestApp(cMessage* msg)
             scheduleAt(simTime() + stopTime, selfStop_);
             EV << "UEPerfApp::handleAckStartMECRequestApp - Starting sendStopMECRequestApp() in " << stopTime << " seconds " << endl;
         }
-        //send the first reuqest to the MEC app
+        //send the first request to the MEC app
         sendRequest();
     }
     else
@@ -323,27 +315,32 @@ void UEPerfApp::sendRequest()
     inet::Packet* pkt = new inet::Packet("RequestResponseAppPacket");
     auto req = inet::makeShared<RequestResponseAppPacket>();
     req->setType(UEAPP_REQUEST);
-    req->setSno(sno_++);
+    req->setSno(sno_);
     req->setRequestSentTimestamp(simTime());
     req->setChunkLength(inet::B(requestPacketSize_));
     req->addTagIfAbsent<inet::CreationTimeTag>()->setCreationTime(simTime());
     ueRequestMap[sno_] = req;
     pkt->insertAtBack(req);
 
-    sendRequestTimeout_ = new UeTimeoutMessage("UeTiemoutMessage");
-    sendRequestTimeout_->setSno(sno_);
-    ueTimeoutMsgs.push_back(sendRequestTimeout_);
+    UeTimeoutMessage *sendRequestTimeout = new UeTimeoutMessage("UeTimeoutMessage");
+    sendRequestTimeout->setSno(sno_);
+    cMessage* request = new cMessage("sendRequest");
 
     socket.sendTo(pkt, mecAppAddress_ , mecAppPort_);
 
-    //schedule the next request
-    sendRequest_ = new cMessage("sendRequest");
-    // add that to the map
-    ueRequestMsgs.push_back(sendRequest_);
-
-    scheduleAt(simTime() + requestPeriod_, sendRequest_);
-    scheduleAt(simTime() + requestTimeout_, sendRequestTimeout_);
     EV<<"UEPerfApp::sendRequest() - Request sent and stored on stanby with sno [" << sno_ << "]" << endl;
+    //std::cout << "UEPerfApp::sendRequest() - Request sent and stored on stanby with sno [" << sno_ << "]" << std::endl;
+
+    scheduleAt(simTime() + requestPeriod_, request); // next request
+    scheduleAt(simTime() + requestTimeout_, sendRequestTimeout); // timeout
+
+    // add to the set requestMsgQueue_
+    requestMsg* reqMsg = new requestMsg();
+    reqMsg->requestMsg = request;
+    reqMsg->sno = sno_;
+    ueRequestMsgs.push_back(reqMsg);
+    ueTimeoutMsgs.push_back(sendRequestTimeout);
+    sno_++;
 }
 
 
@@ -381,10 +378,12 @@ void UEPerfApp::recvResponse(cMessage* msg)
     auto it = ueRequestMap.find(res->getSno());
     if(it != ueRequestMap.end())
     {
-        avgRTT.push_back(simTime().dbl() - res->getRequestSentTimestamp().dbl());
-        ueRequestMap.erase(it);
-    }else{
+        it = ueRequestMap.erase(it);
+    }
+    else
+    {
         EV << "UEPerfApp::recvResponse - Received a response with sno [" << res->getSno() << "] that is not in the map" << endl;
+        //std::cout << "entramos aqui" << std::endl;
         delete packet;
         return;
     }
@@ -421,19 +420,17 @@ void UEPerfApp::handleUeTimeoutMessage(UeTimeoutMessage* msg)
     auto it = ueRequestMap.find(msg->getSno());
     if(it != ueRequestMap.end())
     {
-        //increment the lost packet counter 
-        lostPackets_++;
         //remove the packet from the map
         ueRequestMap.erase(it);
     }
 
-    //remove the ueTimeoutMessage from the vector ueTimeoutMsgs
+    
     auto it_timeout = std::find(ueTimeoutMsgs.begin(), ueTimeoutMsgs.end(), msg);
     if(it_timeout != ueTimeoutMsgs.end())
     {
-        ueTimeoutMsgs.erase(it_timeout);
-    }
-
+        ueTimeoutMsgs.erase(it_timeout); // Remove the pointer from the vector
+    } 
+    
     delete msg;
 }
 

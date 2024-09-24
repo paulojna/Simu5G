@@ -19,6 +19,12 @@ namespace simu5g {
 
 using namespace omnetpp;
 
+struct requestMsg
+{
+    cMessage *requestMsg;
+    unsigned int sno;
+};
+
 class UEPerfApp: public cSimpleModule
 {
     //communication to device app and mec app
@@ -53,8 +59,7 @@ class UEPerfApp: public cSimpleModule
     // map to store the UE Requests while they are not confirmed
     std::map<unsigned int, inet::Ptr<RequestResponseAppPacket>> ueRequestMap;
     std::vector<UeTimeoutMessage*> ueTimeoutMsgs;
-    std::vector<cMessage*> ueRequestMsgs;
-    std::list<double> avgRTT;
+    std::vector<requestMsg*> ueRequestMsgs; 
 
     //scheduling
     cMessage *selfStart_;
@@ -63,7 +68,7 @@ class UEPerfApp: public cSimpleModule
     cMessage *unBlockingMsg_; //it prevents to stop the send/response pattern if msg gets lost
     cMessage *printLostMessages_;
 
-    UeTimeoutMessage *sendRequestTimeout_;
+    //UeTimeoutMessage *sendRequestTimeout_;
 
     // signals for statistics
     simsignal_t processingTime_;

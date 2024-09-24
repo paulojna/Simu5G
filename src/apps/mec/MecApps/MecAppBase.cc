@@ -38,13 +38,9 @@ MecAppBase::MecAppBase()
 MecAppBase::~MecAppBase()
 {
     std::cout << "MecAppBase::~MecAppBase()" << std::endl;
-    if(sendTimer != nullptr)
-    {
-        if(sendTimer->isSelfMessage())
-            cancelAndDelete(sendTimer);
-        else
-            delete sendTimer;
-    }
+    cancelAndDelete(sendTimer);
+
+    packetQueue_.clear();
 
     sockets_.deleteSockets();
 
@@ -158,6 +154,7 @@ void MecAppBase::handleMessage(cMessage *msg)
                     scheduleAt(simTime()+time, msg);
                 }
             }
+            //delete procMsg;
         }
         else
         {
@@ -269,6 +266,7 @@ void MecAppBase::socketPeerClosed(TcpSocket *socket_)
 void MecAppBase::socketClosed(TcpSocket *socket)
 {
     EV_INFO << "MecAppBase::socketClosed" << endl;
+    std::cout << "MecAppBase::socketClosed with sockId " << socket->getSocketId() << std::endl;
 }
 
 void MecAppBase::socketFailure(TcpSocket *sock, int code)
@@ -296,11 +294,12 @@ TcpSocket* MecAppBase::addNewSocket()
 void MecAppBase::removeSocket(inet::TcpSocket* tcpSock)
 {
     HttpMessageStatus* msgStatus = (HttpMessageStatus *) tcpSock->getUserData();
-    std::cout << "Deleting httpMessages in socket with sockId " << tcpSock->getSocketId() << std::endl;
+    //std::cout << "Deleting httpMessages in socket with sockId " << tcpSock->getSocketId() << std::endl;
     while(!msgStatus->httpMessageQueue.isEmpty())
     {
         std::cout << "Deleting httpMessages message" << std::endl;
-        delete msgStatus->httpMessageQueue.pop();
+        delete msgStatus->httpMessageQueue.front();
+        msgStatus->httpMessageQueue.pop();      
     }
     if(msgStatus->currentMessage != nullptr )
         delete msgStatus->currentMessage;
@@ -308,12 +307,14 @@ void MecAppBase::removeSocket(inet::TcpSocket* tcpSock)
     {
         cancelAndDelete(msgStatus->processMsgTimer);
     }
+    delete msgStatus;
     delete sockets_.removeSocket(tcpSock);
 }
 
 void MecAppBase::finish()
 {
     EV << "MecAppBase::finish()" << endl;
+
 //    if(serviceSocket_.getState() == inet::TcpSocket::CONNECTED)
 //        serviceSocket_.close();
 //    if(mp1Socket_.getState() == inet::TcpSocket::CONNECTED)

@@ -19,6 +19,15 @@ namespace simu5g {
 #define UEAPP_STOP 2
 #define UEAPP_ACK_STOP 3
 
+struct requestInfo
+{
+    simtime_t msgArrivedInfo_;
+    simtime_t getRequestSentInfo_;
+    simtime_t getRequestArrivedInfo_;
+    double processingTimeInfo_;
+    omnetpp::cMessage* requestMsg_;
+};
+
 class MECPerfApp : public MecAppBase
 {
 protected:
@@ -29,6 +38,9 @@ protected:
     int localUePort_;
 
     int mecHostId;
+
+    int numberOfRequests_;
+    std::queue<requestInfo*> requestQueue_;
 
     bool processing_;
 
