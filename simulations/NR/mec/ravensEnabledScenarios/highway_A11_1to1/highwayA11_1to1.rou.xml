@@ -5,9 +5,9 @@
 
 <routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/routes_file.xsd">
     <!-- VTypes -->
-    <vType id="slow" maxSpeed="37.00" color="green" decel="4.0" speedDev="0.3" speedFactor="1.2"/>
-    <vType id="normal" maxSpeed="40.00" color="yellow" decel="4.0" speedDev="0.3" speedFactor="1.2"/>
-    <vType id="sport" maxSpeed="43.00" color="red" decel="4.0" speedDev="0.3" speedFactor="1.2"/>
+    <vType id="slow" minSpeed= "20.00" maxSpeed="37.00" color="green" decel="4.0" speedDev="0.3" speedFactor="1.2"/>
+    <vType id="normal" minSpeed= "20.00" maxSpeed="40.00" color="yellow" decel="4.0" speedDev="0.3" speedFactor="1.2"/>
+    <vType id="sport" minSpeed= "20.00" maxSpeed="43.00" color="red" decel="4.0" speedDev="0.3" speedFactor="1.2"/>
 
     <!-- Brg <-> Gmr constant flows -->
     <flow id="slow_brg_gmr" type="slow" begin="0.00" departLane="first" departSpeed="random" from="1089949569" to="1093403775" end="3600.00" vehsPerHour="25.00"/>
