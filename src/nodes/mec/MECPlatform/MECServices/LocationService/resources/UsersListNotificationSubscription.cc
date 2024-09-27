@@ -242,7 +242,7 @@ void UsersListNotificationSubscription::sendNotification(EventNotification *even
         ueInfoList.push_back(ueInfo);
     }
 
-    if(ueInfoList.size() > 1)
+    if(ueInfoList.size() >= 1)
         val["userInfoList"] = ueInfoList;
     else
         val["userInfo"] = ueInfoList[0];

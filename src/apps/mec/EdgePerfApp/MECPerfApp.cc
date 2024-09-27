@@ -32,16 +32,28 @@ MECPerfApp::MECPerfApp(): MecAppBase()
 
 MECPerfApp::~MECPerfApp()
 {
-    // clean up requestQueue
-    while(!requestQueue_.empty())
+
+    cancelAndDelete(currentProcessedMsg_);
+    
+    cancelAndDelete(processingTimer_);
+
+     while(!requestQueue_.empty())
     {
+        cancelAndDelete(requestQueue_.front()->requestMsg_);
         delete requestQueue_.front();
         requestQueue_.pop();
     }
-    removeSocket(mp1Socket_);
+    
+    ueAppSocket_.destroy();
+
     removeSocket(serviceSocket_);
     
-    cancelAndDelete(processingTimer_);
+    //if(serviceSocket_->getState() == inet::TcpSocket::CONNECTED)
+    //    serviceSocket_->close();
+
+    std::cout << "APP IN MECHOST " << mecHost->getName() << " FINISHED" << std::endl;
+
+    
 }
 
 void MECPerfApp::initialize(int stage)
@@ -102,11 +114,12 @@ void MECPerfApp::handleProcessedMessage(cMessage *msg)
 
 void MECPerfApp::finish()
 {
-    //std::cout << "APP IN MECHOST " << mecHost->getName() << " FINISHED" << std::endl;
     MecAppBase::finish();
     if(gate("socketOut")->isConnected())
     {
-        
+        serviceSocket_->close();
+        ueAppSocket_.close();
+        std::cout << simTime() << " - MECPerfApp::finish - serviceSocket_ state" << serviceSocket_->getState() << std::endl;
     }
 }
 
@@ -165,8 +178,14 @@ void MECPerfApp::sendResponse()
     req->setChunkLength(B(packetSize_));
     inet::Packet* pkt = new inet::Packet("ResponseAppPacket");
     pkt->insertAtBack(req);
-
-    ueAppSocket_.sendTo(pkt, ueAppAddress, ueAppPort);
+    
+    if(ueAppSocket_.getState() != inet::UdpSocket::CLOSED)
+        ueAppSocket_.sendTo(pkt, ueAppAddress, ueAppPort);
+    else
+    {
+        EV << "MECPerfApp::sendResponse - socket is not connected" << endl;
+        return;
+    }
 
     //clean current request
     delete packet;
@@ -285,6 +304,7 @@ void MECPerfApp::sendGetRequest()
         uri << "/example/location/v2/queries/users"; //TODO filter the request to get less data
         EV << "MECPerfApp::requestLocation(): uri: " << uri.str() << endl;
         std::string host = serviceSocket_->getRemoteAddress().str() + ":" + std::to_string(serviceSocket_->getRemotePort());
+        //std::cout << "MECPerfApp::sendGetRequest"<< std::endl;    
         Http::sendGetRequest(serviceSocket_, host.c_str(), uri.str().c_str());
         // save the time when the request was sent into the oldest request in the queue
         requestQueue_.front()->getRequestSentInfo_ = simTime();
@@ -323,7 +343,7 @@ void MECPerfApp::socketClosed(inet::TcpSocket *sock)
     {
         EV <<"Service socket closed" << endl;
         removeSocket(sock);
-        sendStopAck();
+        //sendStopAck();
     }
 
 }

@@ -121,6 +121,26 @@ void LocationService::handleMessage(cMessage *msg)
     MecServiceBase::handleMessage(msg);
 }
 
+void LocationService::socketClosed(inet::TcpSocket *socket)
+{
+    std::cout << "LocationService::socketClosed" << std::endl;
+    MecServiceBase::socketClosed(socket);
+    // remove subscription from the timer
+    if(currentSubscriptionServed_ != nullptr)
+    {
+        int subId = currentSubscriptionServed_->getSubId();
+        if(subscriptions_.find(subId) != subscriptions_.end())
+        {
+            subscriptions_.erase(subId);
+            subscriptionTimer_->removeSubId(subId);
+            if(subscriptionTimer_->getSubIdSetSize() == 0 && subscriptionTimer_->isScheduled())
+                cancelEvent(subscriptionTimer_);
+        }
+        delete currentSubscriptionServed_;
+        currentSubscriptionServed_ = nullptr;
+    }
+}
+
 void LocationService::handleGETRequest(const HttpRequestMessage *currentRequestMessageServed, inet::TcpSocket* socket)
 {
     EV_INFO << "LocationService::handleGETRequest" << endl;
@@ -143,6 +163,7 @@ void LocationService::handleGETRequest(const HttpRequestMessage *currentRequestM
     // check it is a GET for a query or a subscription
     if(uri.compare(baseUriQueries_+"/users") == 0 ) //queries
     {
+        //std::cout << "LocationService::handleGetRequest" << endl;
         std::string params = currentRequestMessageServed->getParameters();
         //look for query parameters
         if(!params.empty())
@@ -205,7 +226,8 @@ void LocationService::handleGETRequest(const HttpRequestMessage *currentRequestM
 
             }
 
-            //send response
+            //send response 
+
             if(!ues.empty() && !cellIds.empty())
             {
                 EV <<"LocationService::handleGETReques - toJson(cellIds, ues) " << endl;
@@ -229,6 +251,11 @@ void LocationService::handleGETRequest(const HttpRequestMessage *currentRequestM
         }
         else
         { //no query params
+            if(socket == nullptr || socket->getState() == inet::TcpSocket::PEER_CLOSED)
+            {
+                std::cout << "LocationService::handleGETRequest - socket is nullptr" << std::endl;
+                return;
+            }
             EV <<"LocationService::handleGETReques - toJson() " << endl;
             Http::send200Response(socket,LocationResource_.toJson().dump(0).c_str());
             return;

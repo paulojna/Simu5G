@@ -22,12 +22,12 @@ simple UEPerfApp like IApp
         int deviceAppPort = default(4000); // ipAddress of the DeviceApp
         string deviceAppAddress; // port of the DeviceApp
                 
-        int requestPacketSize = default(10);
+        int requestPacketSize = default(300);
         
         int tos = default(-1); // if not -1, set the Type Of Service (IPv4) / Traffic Class (IPv6) field of sent packets to this value
         
         //autoscheduling infos
-        double period @unit("s") = default(0.5s);
+        double period @unit("s") = default(0.1s);
         double timeout @unit("s") = default(1s);
         double startTime @unit("s") = default(0s); 
         double stopTime @unit("s") = default(120s);

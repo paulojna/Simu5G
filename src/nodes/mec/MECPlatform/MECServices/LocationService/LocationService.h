@@ -60,7 +60,9 @@ class LocationService: public MecServiceBase
     virtual void handlePOSTRequest(const HttpRequestMessage *currentRequestMessageServed, inet::TcpSocket* socket)   override;
     virtual void handlePUTRequest(const HttpRequestMessage *currentRequestMessageServed, inet::TcpSocket* socket)    override;
     virtual void handleDELETERequest(const HttpRequestMessage *currentRequestMessageServed, inet::TcpSocket* socket) override;
+    
 
+    virtual void socketClosed(inet::TcpSocket *socket) override;
     /*
      * This method is called for every element in the subscriptions_ queue.
      */

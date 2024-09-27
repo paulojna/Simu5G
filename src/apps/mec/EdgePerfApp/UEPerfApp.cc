@@ -235,8 +235,8 @@ void UEPerfApp::handleChangeMecHost(cMessage* msg)
     inet::Packet* packet = check_and_cast<inet::Packet*>(msg);
     auto pkt = packet->peekAtFront<DeviceAppChangeMecHostPacket>();
 
-    EV << "UEPerfApp::handleChangeMecHost - Received " << MEH_CHANGE <<" type RequestPacket\n";
-    std::cout << simTime() << " - UEPerfApp::handleChangeMecHost from UE with ip " << deviceAppAddress_ << " - Received " << MEH_CHANGE <<" type RequestPacket to change to ip "<< pkt->getNewMehIpAddress() << " with port " << pkt->getNewMehPort() << "\n";
+    EV << simTime() <<" - UEPerfApp::handleChangeMecHost - Received " << MEH_CHANGE <<" type RequestPacket\n";
+    //std::cout << simTime() << " - UEPerfApp::handleChangeMecHost from UE with ip " << deviceAppAddress_ << " - Received " << MEH_CHANGE <<" type RequestPacket to change to ip "<< pkt->getNewMehIpAddress() << " with port " << pkt->getNewMehPort() << "\n";
 
     setMecAppAddress(L3AddressResolver().resolve(pkt->getNewMehIpAddress()));
     setMecAppPort(pkt->getNewMehPort());
@@ -311,7 +311,7 @@ void UEPerfApp::handleAckStopMECRequestApp(cMessage* msg)
 
 void UEPerfApp::sendRequest()
 {
-    EV << "UEPerfApp::sendRequest()" << endl;
+    EV << simTime() << " - UEPerfApp::sendRequest() to " << mecAppAddress_ << " with port " << mecAppPort_ << endl;
     inet::Packet* pkt = new inet::Packet("RequestResponseAppPacket");
     auto req = inet::makeShared<RequestResponseAppPacket>();
     req->setType(UEAPP_REQUEST);
@@ -371,7 +371,7 @@ void UEPerfApp::sendStopApp()
 
 void UEPerfApp::recvResponse(cMessage* msg)
 {
-    EV << "UEPerfApp::recvResponse" << endl;
+    EV << "Car with IP " << deviceAppAddress_ << " UEPerfApp::recvResponse" << endl;
     inet::Packet* packet = check_and_cast<inet::Packet*>(msg);
     auto res = packet->peekAtFront<RequestResponseAppPacket>();
 

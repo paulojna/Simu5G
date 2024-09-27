@@ -268,6 +268,7 @@ void MecServiceBase::socketAvailable(inet::TcpSocket *socket, inet::TcpAvailable
 
 void MecServiceBase::socketClosed(inet::TcpSocket *socket)
 {
+    std::cout << "MecServiceBase::socketClosed - socket closed" << std::endl;
 //    if (operationalState == State::STOPPING_OPERATION && threadSet.empty() && !serverSocket.isOpen())
 //        startActiveOperationExtraTimeOrFinish(par("stopOperationExtraTime"));
 }

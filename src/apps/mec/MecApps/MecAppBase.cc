@@ -37,10 +37,7 @@ MecAppBase::MecAppBase()
 
 MecAppBase::~MecAppBase()
 {
-    std::cout << "MecAppBase::~MecAppBase()" << std::endl;
-    cancelAndDelete(sendTimer);
-
-    packetQueue_.clear();
+    std::cout << "MecAppBase::~MecAppBase()" << std::endl; 
 
     sockets_.deleteSockets();
 
@@ -154,7 +151,6 @@ void MecAppBase::handleMessage(cMessage *msg)
                     scheduleAt(simTime()+time, msg);
                 }
             }
-            //delete procMsg;
         }
         else
         {
@@ -266,7 +262,6 @@ void MecAppBase::socketPeerClosed(TcpSocket *socket_)
 void MecAppBase::socketClosed(TcpSocket *socket)
 {
     EV_INFO << "MecAppBase::socketClosed" << endl;
-    std::cout << "MecAppBase::socketClosed with sockId " << socket->getSocketId() << std::endl;
 }
 
 void MecAppBase::socketFailure(TcpSocket *sock, int code)
@@ -298,8 +293,7 @@ void MecAppBase::removeSocket(inet::TcpSocket* tcpSock)
     while(!msgStatus->httpMessageQueue.isEmpty())
     {
         std::cout << "Deleting httpMessages message" << std::endl;
-        delete msgStatus->httpMessageQueue.front();
-        msgStatus->httpMessageQueue.pop();      
+        delete msgStatus->httpMessageQueue.pop();     
     }
     if(msgStatus->currentMessage != nullptr )
         delete msgStatus->currentMessage;
@@ -307,7 +301,6 @@ void MecAppBase::removeSocket(inet::TcpSocket* tcpSock)
     {
         cancelAndDelete(msgStatus->processMsgTimer);
     }
-    delete msgStatus;
     delete sockets_.removeSocket(tcpSock);
 }
 
