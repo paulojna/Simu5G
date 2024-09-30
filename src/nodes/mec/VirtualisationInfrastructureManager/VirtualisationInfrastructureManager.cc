@@ -439,7 +439,7 @@ bool VirtualisationInfrastructureManager::terminateMEApp(DeleteAppMessage* msg)
         int serviceIndex = mecAppMap[key].serviceIndex;
 
         // TODO manage gates me app to at
-
+    
         virtualisationInfr->gate("meAppOut", index)->getPreviousGate()->disconnect();
         virtualisationInfr->gate("meAppIn", index)->disconnect();
 

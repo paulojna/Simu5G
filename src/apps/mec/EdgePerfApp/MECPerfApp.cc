@@ -11,6 +11,9 @@
 #include "inet/networklayer/common/L3AddressTag_m.h"
 #include "inet/transportlayer/common/L4PortTag_m.h"
 
+// include IPv4Header class
+#include "inet/networklayer/ipv4/Ipv4Header_m.h"
+
 #include <fstream>
 #include "MECPerfApp.h"
 
@@ -43,8 +46,6 @@ MECPerfApp::~MECPerfApp()
         delete requestQueue_.front();
         requestQueue_.pop();
     }
-    
-    ueAppSocket_.destroy();
 
     removeSocket(serviceSocket_);
     
@@ -69,6 +70,7 @@ void MECPerfApp::initialize(int stage)
     localUePort_ = par("localUePort");
     ueAppSocket_.setOutputGate(gate("socketOut"));
     ueAppSocket_.bind(localUePort_);
+    ueAppSocket_.setDscp(8);
     processing_ = false;
 
     packetSize_ = par("responsePacketSize");
@@ -118,7 +120,6 @@ void MECPerfApp::finish()
     if(gate("socketOut")->isConnected())
     {
         serviceSocket_->close();
-        ueAppSocket_.close();
         std::cout << simTime() << " - MECPerfApp::finish - serviceSocket_ state" << serviceSocket_->getState() << std::endl;
     }
 }
@@ -168,7 +169,7 @@ void MECPerfApp::sendResponse()
     ueAppAddress = packet->getTag<L3AddressInd>()->getSrcAddress();
     ueAppPort  = packet->getTag<L4PortInd>()->getSrcPort();
 
-    auto req = packet->removeAtFront<RequestResponseAppPacket>();
+    auto req = packet->removeAtFront<RequestResponseAppPacket>(); 
     req->setType(MECAPP_RESPONSE);
     req->setMecHostId(mecHostId);
     req->setRequestArrivedTimestamp(requestQueue_.front()->msgArrivedInfo_);
