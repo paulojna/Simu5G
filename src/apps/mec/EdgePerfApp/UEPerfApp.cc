@@ -274,7 +274,7 @@ void UEPerfApp::handleChangeMecHost(cMessage* msg)
     // convert ackDelay to cMessage
     cMessage *ack_delay = new cMessage("AckDelay");
     ack_delay->setContextPointer(ack_packet);
-    scheduleAt(simTime() + 1.5, ack_delay);
+    scheduleAt(simTime() + 3, ack_delay);
 
     delete packet;
 }

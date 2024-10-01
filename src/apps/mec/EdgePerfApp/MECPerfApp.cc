@@ -47,6 +47,8 @@ MECPerfApp::~MECPerfApp()
         requestQueue_.pop();
     }
 
+    requestQueue_ = std::queue<requestInfo*>();
+
     removeSocket(serviceSocket_);
     
     //if(serviceSocket_->getState() == inet::TcpSocket::CONNECTED)

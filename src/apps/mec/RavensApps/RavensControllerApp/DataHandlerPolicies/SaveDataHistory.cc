@@ -7,7 +7,9 @@ SaveDataHistory::SaveDataHistory(RavensControllerApp* controllerApp, std::string
     std::string name = path+std::to_string(getEnvir()->getConfigEx()->getActiveRunNumber())+"_data_history.csv";
     csvFile.open(name, std::ios::out | std::ios::trunc);
     csvFile << "Timestamp,LastUpdated,MecHostId,AccessPointId,UEId,x,y,z,Speed,Bearing,DistanceToAccessPoint" << endl;
+    csvFile.flush();
     EV << "SaveDataHistory::SaveDataHistory - file created in" << name << endl;
+    std::cout << "SaveDataHistory::SaveDataHistory - file created in" << name << endl;
 }
 
 inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet)
@@ -29,11 +31,13 @@ inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkUsers
         if(users.size() == 0){
             // we want to send the information to the csv anyway but without the users
             csvFile << std::to_string(simTime().dbl()) << "," << std::to_string(it->second.getLastUpdated().dbl()) << "," << it->second.getHostId() << ",0,0,0,0,0,0,0,0" << endl;
+            csvFile.flush();
             continue;
         }
         for (auto u_it = users.begin(); u_it != users.end(); u_it++)
         {
             csvFile << std::to_string(simTime().dbl()) << "," << std::to_string(it->second.getLastUpdated().dbl()) << "," << it->second.getHostId() << "," << u_it->second.getAccessPointId() << "," << u_it->first << "," << std::to_string(u_it->second.getCurrentLocation().getX()) << "," << std::to_string(u_it->second.getCurrentLocation().getY()) << "," << std::to_string(u_it->second.getCurrentLocation().getZ()) << "," << std::to_string(u_it->second.getCurrentLocation().getHorizontalSpeed()) << "," << std::to_string(u_it->second.getCurrentLocation().getBearing()) << "," << std::to_string(u_it->second.getDistanceToAP()) << endl;
+            csvFile.flush();
         }
     }
     return pck;

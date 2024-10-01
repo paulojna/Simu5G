@@ -13,6 +13,8 @@ src/Makefile
 precompiled_*.h.*
 **/__pycache__
 
+*.csv
+
 # output and result files
 .settings/
 .ccls-cache/
