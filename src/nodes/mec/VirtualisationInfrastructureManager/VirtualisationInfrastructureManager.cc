@@ -82,9 +82,6 @@ void VirtualisationInfrastructureManager::initialize(int stage)
     if(virtualisationInfr == nullptr)
         throw cRuntimeError("VirtualisationInfrastructureManager::initialize - mecHost.maxMECApps parameter!");
 
-    packetCollector = virtualisationInfr->getSubmodule("pc");
-    packetCollectorIndex = 0;
-
     // register MEC addresses to the Binder
     inet::L3Address mecHostAddress = inet::L3AddressResolver().resolve(virtualisationInfr->getFullPath().c_str());
     inet::L3Address gtpAddress = inet::L3AddressResolver().resolve(mecHost->getSubmodule("upf_mec")->getFullPath().c_str());
@@ -93,8 +90,7 @@ void VirtualisationInfrastructureManager::initialize(int stage)
 
     virtualisationInfr->setGateSize("meAppOut", maxMECApps);
     virtualisationInfr->setGateSize("meAppIn", maxMECApps);
-    packetCollector->setGateSize("in", maxMECApps);
-
+    
     mecPlatform = mecHost->getSubmodule("mecPlatform");
 
     mp1Address_ = mecHostAddress.toIpv4();
@@ -444,13 +440,8 @@ bool VirtualisationInfrastructureManager::terminateMEApp(DeleteAppMessage* msg)
 
         // TODO manage gates me app to at
     
+        // the following code will disconnect the at.out[x] gate and it will return nulltptr from now on
         virtualisationInfr->gate("meAppOut", index)->getPreviousGate()->disconnect();
-        // connect it to the pc module
-
-        cGate* newPcInGate = packetCollector->gate("in", packetCollectorIndex);
-        packetCollectorIndex++;
-        virtualisationInfr->gate("meAppOut", index)->getPreviousGate()->connectTo(newPcInGate);
-
         virtualisationInfr->gate("meAppIn", index)->disconnect();
 
         if(serviceIndex >= 0)

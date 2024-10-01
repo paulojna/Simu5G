@@ -20,7 +20,6 @@ import inet.networklayer.common.InterfaceTable;
 import inet.networklayer.contract.INetworkLayer;
 import inet.transportlayer.tcp.Tcp;
 import inet.transportlayer.udp.Udp;
-import simu5g.nodes.mec.VirtualisationInfrastructure.PacketCollector;
 
 //#
 //# VirtualisationInfrastructure
@@ -127,12 +126,6 @@ module VirtualisationInfrastructure
         nl: MessageDispatcher {
             parameters:
                 @display("p=550,446;b=600,5,,,,1");
-        }
-
-        // module that will dynamically create connections to the loose at gates to collect late/lost packets
-        pc: PacketCollector {
-            parameters: 
-                @display("p=550,596");
         }
 
     connections allowunconnected:

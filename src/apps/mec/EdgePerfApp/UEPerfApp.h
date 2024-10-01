@@ -25,6 +25,12 @@ struct requestMsg
     unsigned int sno;
 };
 
+struct ackMsg
+{
+    unsigned int sno;
+    inet::Packet* ack_packet;
+};
+
 class UEPerfApp: public cSimpleModule
 {
     //communication to device app and mec app

@@ -138,6 +138,11 @@ void UEPerfApp::handleMessage(cMessage *msg)
             UeTimeoutMessage *timeout_msg = check_and_cast<UeTimeoutMessage*>(msg);
             handleUeTimeoutMessage(timeout_msg);
         }
+        else if(!strcmp(msg->getName(), "AckDelay"))
+        {
+            inet::Packet *packet_to_send = static_cast<inet::Packet*>(msg->getContextPointer());
+            socket.sendTo(packet_to_send, deviceAppAddress_, deviceAppPort_);
+        }
         else
             throw cRuntimeError("UEPerfApp::handleMessage - \tWARNING: Unrecognized self message");
     }
@@ -257,7 +262,19 @@ void UEPerfApp::handleChangeMecHost(cMessage* msg)
     ack->setChunkLength(inet::B(2));
     ack_packet->insertAtBack(ack);
 
-    socket.sendTo(ack_packet, deviceAppAddress_, deviceAppPort_);
+    //socket.sendTo(ack_packet, deviceAppAddress_, deviceAppPort_);
+
+    //delete packet;
+
+    // schedule an ack message to be sent to the device app in 3 seconds
+    //AckDelay *ackDelay = new AckDelay("AckDelay");
+    //ackDelay->setSno(pkt->getRequestNumber());
+
+
+    // convert ackDelay to cMessage
+    cMessage *ack_delay = new cMessage("AckDelay");
+    ack_delay->setContextPointer(ack_packet);
+    scheduleAt(simTime() + 1.5, ack_delay);
 
     delete packet;
 }

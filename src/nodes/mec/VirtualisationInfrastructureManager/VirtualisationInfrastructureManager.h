@@ -82,11 +82,6 @@ class VirtualisationInfrastructureManager : public cSimpleModule
     cModule* mecPlatform;
     cModule* virtualisationInfr;
 
-
-    // module to receive packets that got lost and arrived after a MEC App termination
-    cModule* packetCollector;
-    unsigned int packetCollectorIndex;
-
     //------------------------------------
     std::string interfaceTableModule;
     inet::InterfaceTable* interfaceTable;

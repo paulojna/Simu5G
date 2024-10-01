@@ -52,7 +52,7 @@ MECPerfApp::~MECPerfApp()
     //if(serviceSocket_->getState() == inet::TcpSocket::CONNECTED)
     //    serviceSocket_->close();
 
-    std::cout << "APP IN MECHOST " << mecHost->getName() << " FINISHED" << std::endl;
+    //std::cout << "APP IN MECHOST " << mecHost->getName() << " FINISHED" << std::endl;
 
     
 }
@@ -120,7 +120,7 @@ void MECPerfApp::finish()
     if(gate("socketOut")->isConnected())
     {
         serviceSocket_->close();
-        std::cout << simTime() << " - MECPerfApp::finish - serviceSocket_ state" << serviceSocket_->getState() << std::endl;
+        //std::cout << simTime() << " - MECPerfApp::finish - serviceSocket_ state" << serviceSocket_->getState() << std::endl;
     }
 }
 
