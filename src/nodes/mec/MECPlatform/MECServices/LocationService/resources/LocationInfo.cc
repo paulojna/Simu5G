@@ -54,6 +54,8 @@ nlohmann::ordered_json LocationInfo::toJson() const
         inet::Coord North(0,1,0);
         inet::Coord temp(speed_); // this method is const and angle() does not.
         double angle = temp.angle(North);
+        // convert angle to degrees
+        angle = angle * 180 / M_PI;
 
         val["velocity"]["velocityType"] = 1;
         val["velocity"]["bearing"] = (speed_.x >= 0? angle : 360-angle);

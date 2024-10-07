@@ -13,8 +13,14 @@
     <flow id="slow_brg_gmr" type="slow" begin="0.00" departLane="first" departSpeed="random" from="1089949569" to="1093403775" end="3600.00" vehsPerHour="25.00"/>
     <flow id="slow_gmr_brg" type="slow" begin="0.00" departLane="first" departSpeed="random" from="95794934" to="538544553" end="3600.00" vehsPerHour="25.00"/> 
     
-    <flow id="normal_brg_gmr" type="normal" begin="0.00" departLane="first" departSpeed="random" from="1089949569" to="1093403775" end="3600.00" number="100"/>
-    <flow id="normal_gmr_brg" type="normal" begin="0.00" departLane="first" departSpeed="random" from="95794934" to="538544553" end="3600.00" number="100"/>
+    <flow id="normal_brg_gmr" type="normal" begin="0.00" departLane="first" departSpeed="random" from="1089949569" to="1093403775" end="1200.00" number="25"/>
+    <flow id="normal_gmr_brg" type="normal" begin="0.00" departLane="first" departSpeed="random" from="95794934" to="538544553" end="1200.00" number="25"/>
+
+    <flow id="normal_brg_gmr_1" type="normal" begin="1200.00" departLane="first" departSpeed="random" from="1089949569" to="1093403775" end="2400.00" number="75"/>
+    <flow id="normal_gmr_brg_1" type="normal" begin="1200.00" departLane="first" departSpeed="random" from="95794934" to="538544553" end="2400.00" number="75"/>
+
+    <flow id="normal_brg_gmr_2" type="normal" begin="2400.00" departLane="first" departSpeed="random" from="1089949569" to="1093403775" end="3600.00" number="25"/>
+    <flow id="normal_gmr_brg_2" type="normal" begin="2400.00" departLane="first" departSpeed="random" from="95794934" to="538544553" end="3600.00" number="25"/>
     
     <!-- Brg <-> Gmr constant flows -->
     <flow id="sport_brg_gmr" type="sport" begin="0.00" departLane="best" departSpeed="random" from="1089949569" to="1093403775" end="3600.00" vehsPerHour="25.00"/>

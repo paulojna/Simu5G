@@ -363,9 +363,10 @@ void RavensAgentApp::handleLSMessage(int connId)
                     EV << "X" << endl;
                     long x = user["userInfo"]["locationInfo"]["x"];
                     long y = user["userInfo"]["locationInfo"]["y"];
+                    long z = user["userInfo"]["locationInfo"]["z"];
                     long bearing = user["userInfo"]["locationInfo"]["velocity"]["bearing"];
                     long speed = user["userInfo"]["locationInfo"]["velocity"]["horizontalSpeed"];
-                    UserLocation userLocation = UserLocation(x, y, 0, bearing, speed);
+                    UserLocation userLocation = UserLocation(x, y, z, bearing, speed);
                     UserData userData = UserData(address, apData, userLocation);
                     users[address] = userData;
                 }
