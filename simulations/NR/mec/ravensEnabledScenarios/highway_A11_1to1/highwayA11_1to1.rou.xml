@@ -5,24 +5,31 @@
 
 <routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/routes_file.xsd">
     <!-- VTypes -->
-    <vType id="slow" minSpeed= "13.00" maxSpeed="35.00" color="green" decel="4.0" speedDev="0.1" speedFactor="1.0"/>
-    <vType id="normal" minSpeed= "13.00" maxSpeed="40.00" color="yellow" decel="4.0" speedDev="0.3" speedFactor="1.2"/>
-    <vType id="sport" minSpeed= "13.00" maxSpeed="45.00" color="red" decel="4.0" speedDev="0.1" speedFactor="1.0"/>
+     <!-- Slow vehicles: max speed of 80 km/h, min speed of 50 km/h -->
+    <vType id="slow" accel="1.0" decel="2.0" sigma="0.5" length="5" maxSpeed="36.00" speedFactor="normc(0.80,0.1,0.4,1)"/>
+   
+    <!-- Medium vehicles: max speed of 130 km/h, min speed of 50 km/h -->
+    <vType id="normal" accel="2.0" decel="3.0" sigma="0.5" length="5" maxSpeed="40.00" speedFactor="normc(0.80,0.2,0.5,1)"/>
+    
+    <!-- Speedy vehicles: max speed of 160 km/h, min speed of 50 km/h -->
+    <vType id="sport" accel="2.5" decel="4.0" sigma="0.5" length="5" maxSpeed="44.00" speedFactor="normc(0.85,0.1,0.45,1)"/>
+    
 
     <!-- Brg <-> Gmr constant flows -->
-    <flow id="slow_brg_gmr" type="slow" begin="0.00" departLane="first" departSpeed="random" from="1089949569" to="1093403775" end="3600.00" vehsPerHour="25.00"/>
-    <flow id="slow_gmr_brg" type="slow" begin="0.00" departLane="first" departSpeed="random" from="95794934" to="538544553" end="3600.00" vehsPerHour="25.00"/> 
+    <flow id="normal_brg_gmr" type="normal" begin="0.00" departLane="random" departSpeed="desired" from="1089949569" to="1093403775" end="1200.00" number="25"/>
+    <flow id="normal_gmr_brg" type="normal" begin="0.00" departLane="random" departSpeed="desired" from="95794934" to="538544553" end="1200.00" number="25"/>
     
-    <flow id="normal_brg_gmr" type="normal" begin="0.00" departLane="first" departSpeed="random" from="1089949569" to="1093403775" end="1200.00" number="25"/>
-    <flow id="normal_gmr_brg" type="normal" begin="0.00" departLane="first" departSpeed="random" from="95794934" to="538544553" end="1200.00" number="25"/>
-
-    <flow id="normal_brg_gmr_1" type="normal" begin="1200.00" departLane="first" departSpeed="random" from="1089949569" to="1093403775" end="2400.00" number="75"/>
-    <flow id="normal_gmr_brg_1" type="normal" begin="1200.00" departLane="first" departSpeed="random" from="95794934" to="538544553" end="2400.00" number="75"/>
-
-    <flow id="normal_brg_gmr_2" type="normal" begin="2400.00" departLane="first" departSpeed="random" from="1089949569" to="1093403775" end="3600.00" number="25"/>
-    <flow id="normal_gmr_brg_2" type="normal" begin="2400.00" departLane="first" departSpeed="random" from="95794934" to="538544553" end="3600.00" number="25"/>
+    <flow id="slow_brg_gmr" type="slow" begin="0.00" departLane="best" departSpeed="desired" from="1089949569" to="1093403775" end="3600.00" vehsPerHour="25.00"/>
+    <flow id="slow_gmr_brg" type="slow" begin="0.00" departLane="best" departSpeed="desired" from="95794934" to="538544553" end="3600.00" vehsPerHour="25.00"/> 
     
-    <!-- Brg <-> Gmr constant flows -->
-    <flow id="sport_brg_gmr" type="sport" begin="0.00" departLane="best" departSpeed="random" from="1089949569" to="1093403775" end="3600.00" vehsPerHour="25.00"/>
-    <flow id="sport_gmr_brg" type="sport" begin="0.00" departLane="best" departSpeed="random" from="95794934" to="538544553" end="3600.00" vehsPerHour="25.00"/>
+        <!-- Brg <-> Gmr constant flows -->
+    <flow id="sport_brg_gmr" type="sport" begin="0.00" departLane="best" departSpeed="desired" from="1089949569" to="1093403775" end="3600.00" vehsPerHour="25.00"/>
+    <flow id="sport_gmr_brg" type="sport" begin="0.00" departLane="best" departSpeed="desired" from="95794934" to="538544553" end="3600.00" vehsPerHour="25.00"/>
+
+    <flow id="normal_brg_gmr_1" type="normal" begin="1200.00" departLane="random" departSpeed="desired" from="1089949569" to="1093403775" end="2400.00" number="100"/>
+    <flow id="normal_gmr_brg_1" type="normal" begin="1200.00" departLane="random" departSpeed="desired" from="95794934" to="538544553" end="2400.00" number="100"/>
+
+    <flow id="normal_brg_gmr_2" type="normal" begin="2400.00" departLane="random" departSpeed="desired" from="1089949569" to="1093403775" end="3600.00" number="25"/>
+    <flow id="normal_gmr_brg_2" type="normal" begin="2400.00" departLane="random" departSpeed="desired" from="95794934" to="538544553" end="3600.00" number="25"/>
+   
 </routes>
