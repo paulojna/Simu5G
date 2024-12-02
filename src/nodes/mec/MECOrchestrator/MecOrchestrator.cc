@@ -84,6 +84,8 @@ void MecOrchestrator::initialize(int stage)
     instantiationTime = par("instantiationTime").doubleValue();
     terminationTime = par("terminationTime").doubleValue();
 
+    migrationTime = par("migrationTime").doubleValue();
+
     requestCounter = 0;
 
     getConnectedMecHosts();
@@ -472,7 +474,8 @@ void MecOrchestrator::sendMehChangeRequest(std::string ueAddress, std::string ne
     mehChangeRequest->setNewMehPort(newPort);
     mehChangeRequest->setRequestNumber(requestNumber);
 
-    send(mehChangeRequest, "toUALCMP");
+    //send(mehChangeRequest, "toUALCMP");
+    sendDelayed(mehChangeRequest, migrationTime, "toUALCMP");
 }
 
 void MecOrchestrator::sendDeleteAppContextAck(bool result, unsigned int requestSno, int contextId)

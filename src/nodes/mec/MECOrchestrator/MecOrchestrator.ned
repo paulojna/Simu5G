@@ -32,10 +32,13 @@ simple MecOrchestrator
         string mecHostList = default("");
         string mecApplicationPackageList = default("");
 
+
         // times to simulate lifecycle operations
         double onboardingTime @unit(s) = default(50ms);
         double instantiationTime @unit(s) = default(50ms);
         double terminationTime @unit(s) = default(50ms);
+
+        double migrationTime @unit("s") = default(10s); 
 
     gates:
 

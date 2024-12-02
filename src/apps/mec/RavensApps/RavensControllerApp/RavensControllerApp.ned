@@ -8,7 +8,7 @@ simple RavensControllerApp like IApp
 {
     parameters:
         @class("RavensControllerApp");
-        string mode = default("SaveDataHistory"); // available modes: "NotifyOnDataChange" and "SaveDataHistory"
+        string mode = default("NotifyOnDataChange"); // available modes: "NotifyOnDataChange" and "SaveDataHistory"
         int treshold = default(30);
         int snapshot_frequency = default(2); 
         int snapshot_starting_time = default(2);

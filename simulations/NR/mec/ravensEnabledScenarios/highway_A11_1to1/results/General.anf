@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<analysis version="2">
+    <inputs>
+        <input pattern="/Simu5G/simulations/NR/mec/ravensEnabledScenarios/highway_A11_1to1/results/General-*.vec"/>
+        <input pattern="/Simu5G/simulations/NR/mec/ravensEnabledScenarios/highway_A11_1to1/results/General-*.sca"/>
+    </inputs>
+    <charts/>
+</analysis>

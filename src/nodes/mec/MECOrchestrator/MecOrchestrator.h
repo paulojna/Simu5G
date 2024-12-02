@@ -124,6 +124,8 @@ class MecOrchestrator : public cSimpleModule
     double instantiationTime;
     double terminationTime;
 
+    double migrationTime;
+
     public:
         MecOrchestrator();
         const ApplicationDescriptor* getApplicationDescriptorByAppName(std::string& appName) const;
