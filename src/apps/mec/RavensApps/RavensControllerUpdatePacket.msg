@@ -18,10 +18,13 @@ import inet.common.packet.chunk.Chunk;
 
 cplusplus {{
     #include "RavensControllerApp/DataUpdates/UserMEHUpdate.h"
+    #include "RavensControllerApp/DataUpdates/UserEntryUpdate.h"
     typedef std::vector<::simu5g::UserMEHUpdate> UserMEHUpdatedList;
+    typedef std::vector<::simu5g::UserEntryUpdate> UserEntryUpdateList;
 }};
 
 class UserMEHUpdatedList { @existingClass; };
+class UserEntryUpdateList { @existingClass; };
 
 namespace simu5g;
 
@@ -29,7 +32,13 @@ class RavensControllerUpdatePacket extends inet::FieldsChunk{
     int type;
 }
 
+
 class UserMEHUpdatedListMessage extends RavensControllerUpdatePacket
 {
     UserMEHUpdatedList ueMehList;
+}
+
+class UserEntryListMessage extends RavensControllerUpdatePacket
+{
+    UserEntryUpdateList ueEntryList;
 }

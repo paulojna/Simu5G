@@ -18,6 +18,7 @@ RavensControllerApp::RavensControllerApp(){
     dataHandlerPolicy_ = nullptr;
     calculateAvg_ = nullptr;
     userUpdates.clear();
+    userEntryUpdates.clear();
 }
 
 RavensControllerApp::~RavensControllerApp(){
@@ -114,6 +115,24 @@ void RavensControllerApp::handleSelfMessage(cMessage *msg){
                 }
 
                 userUpdates.clear();
+            }
+            else if(userEntryUpdates.size() > 0)
+            {
+                inet::Packet *entry = new inet::Packet("UserEntryListMessage");
+                auto userEntryListMessage = inet::makeShared<UserEntryListMessage>();
+                userEntryListMessage->setChunkLength(inet::B(1500));
+                userEntryListMessage->setType(USERS_ENTRY);
+                userEntryListMessage->setUeEntryList(userEntryUpdates);
+                entry->insertAtBack(userEntryListMessage);
+                send(entry, "outGate");
+                EV << "RavensControllerApp::handleSelfMessage::sendSnapshot - entry sent to MEO" << endl;
+
+                //print userEntryUpdates
+                for(auto user : userEntryUpdates){
+                    //EV << "RavensControllerApp::handleSelfMessage::sendSnapshot - user address: " << user.getAddress() << " current MEH: " << user.getCurrentMEHId() << " next MEH: " << user.getNextMEHId() << endl;
+                }
+
+                userEntryUpdates.clear();
             }
             else{
                 EV << "RavensControllerApp::handleSelfMessage::sendSnapshot - nothing to send" << endl;
