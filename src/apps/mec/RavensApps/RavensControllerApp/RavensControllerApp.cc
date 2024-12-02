@@ -8,6 +8,7 @@
 #include "DataHandlerPolicies/NotifyOnDataChange.h"
 
 #define USERS_UPDATE 7
+#define USERS_ENTRY 8
 
 namespace simu5g {
 
