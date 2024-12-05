@@ -59,6 +59,8 @@ inet::Packet *NotifyOnUserEntry::handleDataMessage(inet::Ptr<const RavensLinkUse
             }
         } 
     }
+
+    return pck;
 }
 
 void NotifyOnUserEntry::addUserEntryUpdate(UserEntryUpdate &update) {

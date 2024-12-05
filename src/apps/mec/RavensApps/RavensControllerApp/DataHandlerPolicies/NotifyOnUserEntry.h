@@ -19,7 +19,7 @@ class NotifyOnUserEntry : public DataHandlerPolicyBase
   public:
     NotifyOnUserEntry(RavensControllerApp *controllerApp);
     void addUserEntryUpdate(UserEntryUpdate &update);
-    virtual ~NotifyOnUserEntry() {}
+    virtual ~NotifyOnUserEntry();
 
 };
 

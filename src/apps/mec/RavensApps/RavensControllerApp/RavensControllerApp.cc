@@ -51,7 +51,7 @@ void RavensControllerApp::initialize(int stage){
         EV << "RavensControllerApp::initialize - NotifyOnDataChange handler mode" << endl;
         dataHandlerPolicy_ = new NotifyOnDataChange(this, par("treshold"));
     }else if(!strcmp(par("mode"), "NotifyOnUserEntry")){
-        EV << "RavensControllerApp::initialize - NotifyOnDataChange handler mode" << endl;
+        EV << "RavensControllerApp::initialize - NotifyOnUserEntry handler mode" << endl;
         dataHandlerPolicy_ = new NotifyOnUserEntry(this);
     }else{
         throw cRuntimeError("RavensControllerApp::initialize - invalid mode parameter");
