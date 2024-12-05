@@ -61,6 +61,7 @@ class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket:
         friend class DataHandlerPolicyBase;
         friend class SaveDataHistory;
         friend class NotifyOnDataChange;
+        friend class NotifyOnUserEntry;
         
         DataHandlerPolicyBase* dataHandlerPolicy_;
 

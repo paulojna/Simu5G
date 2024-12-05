@@ -6,6 +6,7 @@
 
 #include "DataHandlerPolicies/SaveDataHistory.h"
 #include "DataHandlerPolicies/NotifyOnDataChange.h"
+#include "DataHandlerPolicies/NotifyOnUserEntry.h"
 
 #define USERS_UPDATE 7
 #define USERS_ENTRY 8
@@ -49,6 +50,9 @@ void RavensControllerApp::initialize(int stage){
     }else if(!strcmp(par("mode"), "NotifyOnDataChange")){
         EV << "RavensControllerApp::initialize - NotifyOnDataChange handler mode" << endl;
         dataHandlerPolicy_ = new NotifyOnDataChange(this, par("treshold"));
+    }else if(!strcmp(par("mode"), "NotifyOnUserEntry")){
+        EV << "RavensControllerApp::initialize - NotifyOnDataChange handler mode" << endl;
+        dataHandlerPolicy_ = new NotifyOnUserEntry(this);
     }else{
         throw cRuntimeError("RavensControllerApp::initialize - invalid mode parameter");
     }
@@ -128,9 +132,9 @@ void RavensControllerApp::handleSelfMessage(cMessage *msg){
                 EV << "RavensControllerApp::handleSelfMessage::sendSnapshot - entry sent to MEO" << endl;
 
                 //print userEntryUpdates
-                for(auto user : userEntryUpdates){
+                //for(auto user : userEntryUpdates){
                     //EV << "RavensControllerApp::handleSelfMessage::sendSnapshot - user address: " << user.getAddress() << " current MEH: " << user.getCurrentMEHId() << " next MEH: " << user.getNextMEHId() << endl;
-                }
+                //}
 
                 userEntryUpdates.clear();
             }

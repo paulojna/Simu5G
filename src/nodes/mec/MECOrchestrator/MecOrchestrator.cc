@@ -40,6 +40,7 @@
 namespace simu5g {
 
 #define USERS_UPDATE 7
+#define USERS_ENTRY 8
 
 Define_Module(MecOrchestrator);
 
@@ -138,6 +139,12 @@ void MecOrchestrator::handleMessage(cMessage *msg)
                 userMEHMap[user.getAddress()] = std::make_pair(user.getAddress(), user.getNewMEHId());
                 reactionOnUpdate_->reactOnUpdate(user);
                 EV << "RavensControllerApp::socketDataArrived - reactOnUpdate done!" << endl;
+            }
+        }else if(received_packet->getType() == USERS_ENTRY){
+            auto usersEntry = packet->peekAtFront<UserEntryListMessage>();
+            std::vector<UserEntryUpdate> UserEntryList_toPrint = usersEntry->getUeEntryList();
+            for(auto user : UserEntryList_toPrint){
+                std::cout << "RavensControllerApp::socketDataArrived - user address: " << user.getAddress() << " current MEH: " << user.getCurrentMEHId() << " next MEH: " << user.getNextMEHId() << endl;
             }
         }
     }
