@@ -138,6 +138,8 @@ class MecOrchestrator : public cSimpleModule
          * @param ServiceDescriptor descriptor of the MEC service to register
          */
         void registerMecService(ServiceDescriptor&) const;
+        nlohmann::json formatDataFromRAVENS(std::vector<UserEntryUpdate> UserEntryUpdatedList);
+        std::string postRequestPrediction(const std::string &url, const nlohmann::json &jsonObject);
 
     protected:
 

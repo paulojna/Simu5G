@@ -19,11 +19,14 @@ class UserEntryUpdate
         long hSpeed;
         long bearing;
         double distanceToAp;
+        int numberOfUsers;
+        double avgSpeed;
+        int numberOfUsersLessSpeed;
 
 
     public:
         UserEntryUpdate();
-        UserEntryUpdate(const std::string& address, const std::string& currentMEHId, const std::string& nextMEHId, omnetpp::simtime_t timestamp, const std::string& accessPointId, const std::string& ueId, long x, long y, long hSpeed, long bearing, double distanceToAp);
+        UserEntryUpdate(const std::string& address, const std::string& currentMEHId, const std::string& nextMEHId, omnetpp::simtime_t timestamp, const std::string& accessPointId, const std::string& ueId, long x, long y, long hSpeed, long bearing, double distanceToAp, int numberOfUsers, double avgSpeed, int numberOfUsersLessSpeed);
         virtual ~UserEntryUpdate();
 
         // setters
@@ -38,6 +41,9 @@ class UserEntryUpdate
         void setHSpeed(long hSpeed);
         void setBearing(long bearing);
         void setDistanceToAp(double distanceToAp);
+        void setNumberOfUsers(int numberOfUsers);
+        void setAvgSpeed(double avgSpeed);
+        void setNumberOfUsersLessSpeed(int numberOfUsersLessSpeed);
 
         // getters
         const std::string& getCurrentMEHId() const;
@@ -51,6 +57,9 @@ class UserEntryUpdate
         long getHSpeed() const;
         long getBearing() const;
         double getDistanceToAp() const;
+        int getNumberOfUsers() const;
+        double getAvgSpeed() const;
+        int getNumberOfUsersLessSpeed() const;
 };
 
 }

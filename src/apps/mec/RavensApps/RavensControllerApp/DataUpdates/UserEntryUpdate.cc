@@ -15,9 +15,12 @@ UserEntryUpdate::UserEntryUpdate(){
     this->hSpeed = 0;
     this->bearing = 0;
     this->distanceToAp = 0.0;
+    this->numberOfUsers = 0;
+    this->avgSpeed = 0.0;
+    this->numberOfUsersLessSpeed = 0;
 }
 
-UserEntryUpdate::UserEntryUpdate(const std::string& address, const std::string& currentMEHId, const std::string& nextMEHId, omnetpp::simtime_t timestamp, const std::string& accessPointId, const std::string& ueId, long x, long y, long hSpeed, long bearing, double distanceToAp){
+UserEntryUpdate::UserEntryUpdate(const std::string& address, const std::string& currentMEHId, const std::string& nextMEHId, omnetpp::simtime_t timestamp, const std::string& accessPointId, const std::string& ueId, long x, long y, long hSpeed, long bearing, double distanceToAp, int numberOfUsers, double avgSpeed, int numberOfUsersLessSpeed){
     this->address = address;
     this->currentMEHId = currentMEHId;
     this->nextMEHId = nextMEHId;
@@ -29,6 +32,9 @@ UserEntryUpdate::UserEntryUpdate(const std::string& address, const std::string& 
     this->hSpeed = hSpeed;
     this->bearing = bearing;
     this->distanceToAp = distanceToAp;
+    this->numberOfUsers = numberOfUsers;
+    this->avgSpeed = avgSpeed;
+    this->numberOfUsersLessSpeed = numberOfUsersLessSpeed;
 }
 
 UserEntryUpdate::~UserEntryUpdate(){}
@@ -78,6 +84,18 @@ void UserEntryUpdate::setDistanceToAp(double distanceToAp){
     this->distanceToAp = distanceToAp;
 }
 
+void UserEntryUpdate::setNumberOfUsers(int numberOfUsers){
+    this->numberOfUsers = numberOfUsers;
+}
+
+void UserEntryUpdate::setAvgSpeed(double avgSpeed){
+    this->avgSpeed = avgSpeed;
+}
+
+void UserEntryUpdate::setNumberOfUsersLessSpeed(int numberOfUsersLessSpeed){
+    this->numberOfUsersLessSpeed = numberOfUsersLessSpeed;
+}
+
 //getters
 const std::string& UserEntryUpdate::getCurrentMEHId() const{
     return currentMEHId;
@@ -121,6 +139,18 @@ long UserEntryUpdate::getBearing() const{
 
 double UserEntryUpdate::getDistanceToAp() const{
     return distanceToAp;
+}
+
+int UserEntryUpdate::getNumberOfUsers() const{
+    return numberOfUsers;
+}
+
+double UserEntryUpdate::getAvgSpeed() const{
+    return avgSpeed;
+}
+
+int UserEntryUpdate::getNumberOfUsersLessSpeed() const{
+    return numberOfUsersLessSpeed;
 }
 
 }
