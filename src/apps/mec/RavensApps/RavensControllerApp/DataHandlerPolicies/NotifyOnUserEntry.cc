@@ -34,6 +34,7 @@ inet::Packet *NotifyOnUserEntry::handleDataMessage(inet::Ptr<const RavensLinkUse
 
     auto updated_snapshot = received_packet;
 
+    /*
     for (auto &user_speed_info : speedInfoList)
     {
         // TODO: check if the user got out by runninh through the speedInfoList and check if the timestamp is older than 5 seconds
@@ -44,8 +45,17 @@ inet::Packet *NotifyOnUserEntry::handleDataMessage(inet::Ptr<const RavensLinkUse
         }
         
     }
+    */
+    for (auto it = speedInfoList.begin(); it != speedInfoList.end(); ) {
+    if (simTime() - it->second.timestamp > 5) {
+        std::cout << simTime() << " - NotifyOnUserEntry::handleDataMessage - user: " << it->first << " was removed from the speedInfoList" << std::endl;
+        it = speedInfoList.erase(it); // Erase and move to the next element
+    } else {
+        ++it;
+    }
+}
 
-    for (auto &user : updated_snapshot->getUsers())
+    for (const auto &user : updated_snapshot->getUsers())
     {
         auto it_speed = speedInfoList.find(user.first);
         if (it_speed == speedInfoList.end())
@@ -75,7 +85,7 @@ inet::Packet *NotifyOnUserEntry::handleDataMessage(inet::Ptr<const RavensLinkUse
     
 
     // Lets check if there are any UEs in stanby that are also on updated_snapshot
-    for (auto &user : updated_snapshot->getUsers())
+    for (const auto &user : updated_snapshot->getUsers())
     {
         auto it_users = standby.find(user.first);
         if (it_users == standby.end())

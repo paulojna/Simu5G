@@ -32,7 +32,7 @@ void MigrateOnTime::reactOnUpdate(const std::vector<UserEntryUpdate> &updatedLis
             migrateMsg->setUeAddress(user["Address"].get<std::string>().c_str());
             migrateMsg->setNewMEHId(nextMEHId.c_str());
             migrateMsg->setOldMEHId(currentMEHId.c_str());
-            double migrationTime = user["Duration"].get<double>() - mecOrchestrator_->getMigrationTime() + 15;
+            double migrationTime = user["Duration"].get<double>() - mecOrchestrator_->getMigrationTime() + 30;
             mecOrchestrator_->scheduleAt(simTime() + simtime_t(migrationTime), migrateMsg);
         }
         else
