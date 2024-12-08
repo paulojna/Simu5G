@@ -34,9 +34,14 @@ inet::Packet *NotifyOnUserEntry::handleDataMessage(inet::Ptr<const RavensLinkUse
 
     auto updated_snapshot = received_packet;
 
-    for (auto &user : updated_snapshot->getUsers())
+    for (auto &user_speed_info : speedInfoList)
     {
-        // TODO: check if the user got out
+        // TODO: check if the user got out by runninh through the speedInfoList and check if the timestamp is older than 5 seconds
+        if (simTime() - user_speed_info.second.timestamp > 5)
+        {
+            speedInfoList.erase(user_speed_info.first);
+            std::cout << simTime() << " - NotifyOnUserEntry::handleDataMessage - user: " << user_speed_info.first << " was removed from the speedInfoList" << std::endl;
+        }
         
     }
 
@@ -46,21 +51,27 @@ inet::Packet *NotifyOnUserEntry::handleDataMessage(inet::Ptr<const RavensLinkUse
         if (it_speed == speedInfoList.end())
         {
             // new user -> add it to the speedInfoList
-            UeSpeedInfo speedInfo = UeSpeedInfo(user.first, user.second.getCurrentLocation().getHorizontalSpeed(), user.second.getAccessPointId(), updated_snapshot->getTimeStamp());
+            UeSpeedInfo speedInfo = UeSpeedInfo(user.first, user.second.getCurrentLocation().getHorizontalSpeed(), user.second.getAccessPointId(), simTime());
             speedInfoList.insert({user.first, speedInfo});
         }
         else
         {
-            // user is on the speedInfoList -> check if the BS or MEH are the same
-            if (it_speed->second.bsId != user.second.getAccessPointId())
-            {
-                // update the speedInfoList
-                it_speed->second.bsId = user.second.getAccessPointId();
-                it_speed->second.speed = user.second.getCurrentLocation().getHorizontalSpeed();
-                it_speed->second.timestamp = updated_snapshot->getTimeStamp();
-            }
+        
+            // update the speedInfoList
+            it_speed->second.bsId = user.second.getAccessPointId();
+            it_speed->second.speed = user.second.getCurrentLocation().getHorizontalSpeed();
+            it_speed->second.timestamp = simTime();
+            
         }
     }
+
+    // print the speedInfoList
+    /*
+    for (auto &user : speedInfoList)
+    {
+        std::cout << simTime() << " - NotifyOnUserEntry::SpeedInfoList - user: " << user.first << " is using BS: " << user.second.bsId << " with time: " << user.second.timestamp << std::endl;
+    }
+    */
     
 
     // Lets check if there are any UEs in stanby that are also on updated_snapshot
@@ -78,7 +89,7 @@ inet::Packet *NotifyOnUserEntry::handleDataMessage(inet::Ptr<const RavensLinkUse
             // add the user to the stanby list
             standby.insert({user.first, userEntryUpdate});
             addUserEntryUpdate(userEntryUpdate);
-            EV << "NotifyOnUserEntry::handleDataMessage - user: " << user.first << " that is using BS: " << userEntryUpdate.getAccessPointId() << " was added to the standby list" << endl;
+            //std::cout << simTime() << " - NotifyOnUserEntry::handleDataMessage - user: " << user.first << " that is using BS: " << userEntryUpdate.getAccessPointId() << " was added to the standby list" << endl;
         }
         else
         {
@@ -93,7 +104,7 @@ inet::Packet *NotifyOnUserEntry::handleDataMessage(inet::Ptr<const RavensLinkUse
                 addUserEntryUpdate(userEntryUpdate);
                 standby.erase(it_users);
                 standby.insert({user.first, userEntryUpdate});
-                EV << "NotifyOnUserEntry::handleDataMessage - user: " << user.first << " that is using BS: " << userEntryUpdate.getAccessPointId() << " was in the stanby list and was updated" << endl;
+                //std::cout << simTime() << " - NotifyOnUserEntry::handleDataMessage - user: " << user.first << " that is using BS: " << userEntryUpdate.getAccessPointId() << " was in the stanby list and was updated" << endl;
             }
         } 
     }

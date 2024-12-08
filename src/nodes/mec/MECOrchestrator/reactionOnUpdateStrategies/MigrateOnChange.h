@@ -12,6 +12,7 @@ class MigrateOnChange : public ReactionOnUpdate
 {
   protected:
     virtual void reactOnUpdate(const UserMEHUpdate&) override;
+    virtual void reactOnUpdate(const std::vector<UserEntryUpdate>&) override;
   public:
     MigrateOnChange(MecOrchestrator* mecOrchestrator):ReactionOnUpdate(mecOrchestrator){}
     virtual ~MigrateOnChange(){}

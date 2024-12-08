@@ -37,7 +37,7 @@ void RavensControllerApp::initialize(int stage){
     snapshot_frequency_ = par("snapshot_frequency");
     snapshot_starting_time_ = par("snapshot_starting_time");
 
-    std::cout << "Stage" << stage << endl;
+    EV << "Stage" << stage << endl;
 
     if(stage == inet::INITSTAGE_LOCAL){
         EV << "RavensControllerApp::initialize - stage " << stage << endl;

@@ -7,6 +7,11 @@
 
 namespace simu5g {
 
+void RemoveOnExit::reactOnUpdate(const std::vector<UserEntryUpdate> &updatedList)
+{
+    // not implemented
+}
+
 void RemoveOnExit::reactOnUpdate(const UserMEHUpdate &update)
 {
     // check it the newMEH is empty

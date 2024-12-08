@@ -12,6 +12,11 @@
 
 namespace simu5g {
 
+void MigrateOnChange::reactOnUpdate(const std::vector<UserEntryUpdate> &updatedList)
+{
+    // not implemented
+}
+
 void MigrateOnChange::reactOnUpdate(const UserMEHUpdate &update)
 {
     // check if the newMEH is empty
