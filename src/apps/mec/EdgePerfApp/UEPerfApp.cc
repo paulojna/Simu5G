@@ -108,6 +108,11 @@ void UEPerfApp::initialize(int stage)
     lostPackets_ = 0;
     lostMessages_ = registerSignal("lostMessages");
     mecHostId_ = registerSignal("mecHostId");
+
+    ueAppId_ = registerSignal("ueAppId"); 
+
+    std::string deviceIP = deviceAppAddress_.str(); 
+    emit(ueAppId_, deviceIP.c_str());
 }
 
 void UEPerfApp::handleMessage(cMessage *msg)
@@ -156,6 +161,8 @@ void UEPerfApp::handleMessage(cMessage *msg)
          * From Device app
          * device app usually runs in the UE (loopback), but it could also run in other places
          */
+
+        
         if(ipAdd == deviceAppAddress_ || ipAdd == inet::L3Address("127.0.0.1")) // dev app
         {
             auto mePkt = packet->peekAtFront<DeviceAppPacket>();

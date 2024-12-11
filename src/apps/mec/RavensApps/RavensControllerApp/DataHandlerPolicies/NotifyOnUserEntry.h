@@ -25,7 +25,7 @@ class NotifyOnUserEntry : public DataHandlerPolicyBase
 {
   protected:
     std::unordered_map<std::string, UserEntryUpdate> standby;
-    std::map<std::string, UeSpeedInfo> speedInfoList;
+    std::unordered_map<std::string, UeSpeedInfo> speedInfoList;
     virtual inet::Packet *handleDataMessage(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet) override;
 
   public:

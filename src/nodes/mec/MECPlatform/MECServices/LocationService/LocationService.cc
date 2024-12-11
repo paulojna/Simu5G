@@ -49,6 +49,7 @@ void LocationService::initialize(int stage)
 
     if (stage == inet::INITSTAGE_APPLICATION_LAYER) {
         LocationResource_.addEnodeB(eNodeB_);
+        std::cout << "LocationService::initialize - eNodeB added " << std::endl;
         LocationResource_.addBinder(binder_);
         LocationResource_.setBaseUri(host_+baseUriQueries_);
         EV << "Host: " << host_+baseUriQueries_ << endl;
@@ -253,7 +254,7 @@ void LocationService::handleGETRequest(const HttpRequestMessage *currentRequestM
         { //no query params
             if(socket == nullptr || socket->getState() == inet::TcpSocket::PEER_CLOSED)
             {
-                std::cout << "LocationService::handleGETRequest - socket is nullptr" << std::endl;
+                //std::cout << "LocationService::handleGETRequest - socket is nullptr" << std::endl;
                 return;
             }
             EV <<"LocationService::handleGETReques - toJson() " << endl;
@@ -272,6 +273,7 @@ void LocationService::handleGETRequest(const HttpRequestMessage *currentRequestM
         else
         {
             EV << "LocationService::handleGETRequest - toJsonAccessPoints()" << endl;
+            //std::cout << "LocationService::handleGETRequest - toJsonAccessPoints()" << LocationResource_.toJsonAccessPoints().dump(0).c_str() << std::endl;
             Http::send200Response(socket, LocationResource_.toJsonAccessPoints().dump(0).c_str());
             return;
         }

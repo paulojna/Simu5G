@@ -165,14 +165,9 @@ void MecOrchestrator::handleMessage(cMessage *msg)
             auto usersEntry = packet->peekAtFront<UserEntryListMessage>();
             std::vector<UserEntryUpdate> UserEntryList_toPrint = usersEntry->getUeEntryList();
             reactionOnUpdate_->reactOnUpdate(UserEntryList_toPrint);
-            /*
-            EV << "MEO " << simTime() << endl; 
             for(auto user : UserEntryList_toPrint){
-                EV << "MecOrchestrator::socketDataArrived - user address: " << user.getAddress() << " current MEH: " << user.getCurrentMEHId() << " next MEH: " << user.getNextMEHId() << endl;   
-                reactionOnUpdate_->reactOnUpdate(user);
+                userMEHMap[user.getAddress()] = std::make_pair(user.getAddress(), user.getCurrentMEHId());
             }
-            std::string url = "http://localhost:5001/duration";
-            */
         }
     }
 

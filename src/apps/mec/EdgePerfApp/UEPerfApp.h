@@ -85,6 +85,8 @@ class UEPerfApp: public cSimpleModule
     simsignal_t lostMessages_;
     simsignal_t mecHostId_;
 
+    simsignal_t ueAppId_;
+
     
 
   public:
