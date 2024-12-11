@@ -81,6 +81,7 @@ module MECHost
             parameters:
                 @display("p=150,400");
                 nodeType = "UPF_MEC";
+                gateway = parent.gateway;
         }
 
         bgApp[numBGMecApp]: BackgroundApp {

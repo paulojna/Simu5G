@@ -81,10 +81,10 @@ network highwayA11_1to1
             @display("p=5853.6826,1261.9352;is=s");
         }
         iUpf1: Upf {
-            @display("p=307.88,244.09");
+            @display("p=307,308");
         }
         iUpf2: Upf {
-            @display("p=1949.89,1405.93");
+            @display("p=1819,1441");
         }
         iUpf3: Upf {
             @display("p=3591.91,2547.77");
@@ -101,7 +101,7 @@ network highwayA11_1to1
 
         // MEC Hosts
         mecHost1: MECHost {
-            @display("p=357.88,214.09");
+            @display("p=307.88,214.09");
         }
         mecHost2: MECHost {
             @display("p=1999.89,1355.93");
@@ -139,43 +139,56 @@ network highwayA11_1to1
         //mecHost0.ppp++ <--> Eth10G <--> centralUpf.pppg++;
         //mecHost1.ppp++ <--> Eth10G <--> centralUpf.pppg++;
 
-        mecHost1.ppp++ <--> Eth10G { delay=0.002s; } <--> iUpf1.pppg++;
-        mecHost2.ppp++ <--> Eth10G { delay=0.002s; } <--> iUpf2.pppg++;
-        mecHost3.ppp++ <--> Eth10G { delay=0.002s; } <--> iUpf3.pppg++;
-        mecHost4.ppp++ <--> Eth10G { delay=0.002s; } <--> iUpf4.pppg++;
-        mecHost5.ppp++ <--> Eth10G { delay=0.002s; } <--> iUpf5.pppg++;
-        mecHost6.ppp++ <--> Eth10G { delay=0.002s; } <--> iUpf6.pppg++;
+        mecHost1.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf1.pppg++;
+        mecHost2.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf2.pppg++;
+        mecHost3.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf3.pppg++;
+        mecHost4.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf4.pppg++;
+        mecHost5.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf5.pppg++;
+        mecHost6.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf6.pppg++;
 
         //mecHost0.ppp++ <--> Eth10G {  delay=0.002s; } <--> upf.pppg++;
-        iUpf1.pppg++ <--> Eth10G { delay=0.002s; } <--> upf.pppg++;
-        iUpf2.pppg++ <--> Eth10G { delay=0.002s; } <--> upf.pppg++;
-        iUpf3.pppg++ <--> Eth10G { delay=0.002s; } <--> upf.pppg++;
-        iUpf4.pppg++ <--> Eth10G { delay=0.002s; } <--> upf.pppg++;
-        iUpf5.pppg++ <--> Eth10G { delay=0.002s; } <--> upf.pppg++;
-        iUpf6.pppg++ <--> Eth10G { delay=0.002s; } <--> upf.pppg++;
+        iUpf1.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
+        iUpf2.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
+        iUpf3.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
+        iUpf4.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
+        iUpf5.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
+        iUpf6.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
 
-        iUpf1.pppg++ <--> Eth10G <--> gnb1.ppp;
-        iUpf2.pppg++ <--> Eth10G <--> gnb2.ppp;
-        iUpf3.pppg++ <--> Eth10G <--> gnb3.ppp;
-        iUpf4.pppg++ <--> Eth10G <--> gnb4.ppp;
-        iUpf5.pppg++ <--> Eth10G <--> gnb5.ppp;
-        iUpf6.pppg++ <--> Eth10G <--> gnb6.ppp;
+        iUpf1.pppg++ <--> Eth10G {  delay = 0.001s; } <--> gnb1.ppp;
+        iUpf2.pppg++ <--> Eth10G {  delay = 0.001s; } <--> gnb2.ppp;
+        iUpf3.pppg++ <--> Eth10G {  delay = 0.001s; } <--> gnb3.ppp;
+        iUpf4.pppg++ <--> Eth10G {  delay = 0.001s; } <--> gnb4.ppp;
+        iUpf5.pppg++ <--> Eth10G {  delay = 0.001s; } <--> gnb5.ppp;
+        iUpf6.pppg++ <--> Eth10G {  delay = 0.001s; } <--> gnb6.ppp;
 
         // intra iUPF connections
-        iUpf1.pppg++ <--> Eth10G { delay=0.002s; } <--> iUpf2.pppg++;
-        iUpf2.pppg++ <--> Eth10G { delay=0.002s; } <--> iUpf3.pppg++;
-        iUpf3.pppg++ <--> Eth10G { delay=0.002s; } <--> iUpf4.pppg++;
-        iUpf4.pppg++ <--> Eth10G { delay=0.002s; } <--> iUpf5.pppg++;
-        iUpf5.pppg++ <--> Eth10G { delay=0.002s; } <--> iUpf6.pppg++;
+        iUpf1.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf2.pppg++;
+        iUpf1.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf3.pppg++;
+        iUpf1.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf4.pppg++;
+        iUpf1.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf5.pppg++;
+        iUpf1.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf6.pppg++;
 
+        iUpf2.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf3.pppg++;
+        iUpf2.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf4.pppg++;
+        iUpf2.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf5.pppg++;
+        iUpf2.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf6.pppg++;
 
-        //mecHost0.ppp++ <--> Eth10G <--> gnb0.ppp;
-        //mecHost0.ppp++ <--> Eth10G <--> gnb1.ppp;
-        //mecHost0.ppp++ <--> Eth10G <--> gnb2.ppp;
+        iUpf3.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf4.pppg++;
+        iUpf3.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf5.pppg++;
+        iUpf3.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf6.pppg++;
 
-        //mecHost1.ppp++ <--> Eth10G <--> gnb3.ppp;
-        //mecHost1.ppp++ <--> Eth10G <--> gnb4.ppp;
-        //mecHost1.ppp++ <--> Eth10G <--> gnb5.ppp;
+        iUpf4.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf5.pppg++;
+        iUpf4.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf6.pppg++;
+
+        iUpf5.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf6.pppg++;
+
+        //connect mecHost with upf
+        mecHost1.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
+        mecHost2.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
+        mecHost3.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
+        mecHost4.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
+        mecHost5.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
+        mecHost6.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
 
         //mecHost0.ppp++ <--> Eth10G <--> upf.pppg++;
         //mecHost1.ppp++ <--> Eth10G <--> upf.pppg++;

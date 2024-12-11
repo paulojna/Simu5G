@@ -17,7 +17,7 @@ class MigrateOnTime : public ReactionOnUpdate
     MigrateOnTime(MecOrchestrator* mecOrchestrator):ReactionOnUpdate(mecOrchestrator){}
     virtual ~MigrateOnTime(){}
   private:
-    std::string url = "http://localhost:5001/duration";
+    std::string url = "http://localhost:5002/duration";
 };
 
 }

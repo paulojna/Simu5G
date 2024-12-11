@@ -68,6 +68,7 @@ module eNodeB
         *.routingTableModule = default("^.ipv4.routingTable");
         *.forwarding = true;
         *.multicastForwarding = false;
+        **.cellInfoModule = default(absPath(".cellInfo"));
 
         //# Apps
         int numApps = default(0);     // no of apps.
@@ -210,6 +211,7 @@ module eNodeB
             parameters:
                 @display("p=1041.22,372.88");
                 ipOutInterface = "cellular";
+                gateway = parent.gateway;
         }
 
         gtpUserX2: GtpUserX2 {

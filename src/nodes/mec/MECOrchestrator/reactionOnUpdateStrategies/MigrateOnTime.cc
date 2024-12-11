@@ -2,6 +2,7 @@
 #include "nodes/mec/MECOrchestrator/MECOMessages/MECOrchestratorMessages_m.h"
 #include "nodes/mec/UALCMP/UALCMPMessages/UALCMPMessages_m.h"
 #include "nodes/mec/UALCMP/UALCMPMessages/UALCMPMessages_types.h"
+#include <cmath>
 
 namespace simu5g {
 
