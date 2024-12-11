@@ -18,34 +18,12 @@ NotifyOnUserEntry::~NotifyOnUserEntry() {
 
 inet::Packet *NotifyOnUserEntry::handleDataMessage(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet)
 {
-    /*
-        This strategy aims to send updates regarding new entrances on Base Stations/MEH's. We are going to use the stanby list just to check if a user changed BS 
-        or MEH. If so, we are going to add it to the userEntryUpdates list and update the standby list. The goal is to inform the MEO whenever we detect a new user
-        in a new BS. WE ONLY WANT TO SEND THE FIRST VALUE (therefore userENTRYUpdates).
-        1) Run through stanby and check if any user on received_packet is there
-            a) If not, add it to the stanby list and userEntryUpdates list with all the information
-            b) If it is check if the BS or MEH are the same
-                b-1) If they are, do nothing
-                b-2) If they are not, add it to the userEntryUpdates list with all the information and update the standby list   
-    */
 
     // it might be a good idea to return a message anyway since we don't know what the future holds
     inet::Packet *pck = nullptr;
 
     auto updated_snapshot = received_packet;
 
-    /*
-    for (auto &user_speed_info : speedInfoList)
-    {
-        // TODO: check if the user got out by runninh through the speedInfoList and check if the timestamp is older than 5 seconds
-        if (simTime() - user_speed_info.second.timestamp > 5)
-        {
-            speedInfoList.erase(user_speed_info.first);
-            std::cout << simTime() << " - NotifyOnUserEntry::handleDataMessage - user: " << user_speed_info.first << " was removed from the speedInfoList" << std::endl;
-        }
-        
-    }
-    */
     for (auto it = speedInfoList.begin(); it != speedInfoList.end(); ) {
     if (simTime() - it->second.timestamp > 5) {
         std::cout << simTime() << " - NotifyOnUserEntry::handleDataMessage - user: " << it->first << " was removed from the speedInfoList" << std::endl;
@@ -74,17 +52,7 @@ inet::Packet *NotifyOnUserEntry::handleDataMessage(inet::Ptr<const RavensLinkUse
             
         }
     }
-
-    // print the speedInfoList
-    /*
-    for (auto &user : speedInfoList)
-    {
-        std::cout << simTime() << " - NotifyOnUserEntry::SpeedInfoList - user: " << user.first << " is using BS: " << user.second.bsId << " with time: " << user.second.timestamp << std::endl;
-    }
-    */
     
-
-    // Lets check if there are any UEs in stanby that are also on updated_snapshot
     for (const auto &user : updated_snapshot->getUsers())
     {
         auto it_users = standby.find(user.first);
