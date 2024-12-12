@@ -109,10 +109,36 @@ void UEPerfApp::initialize(int stage)
     lostMessages_ = registerSignal("lostMessages");
     mecHostId_ = registerSignal("mecHostId");
 
-    ueAppId_ = registerSignal("ueAppId"); 
+    ip_0_ = registerSignal("ip_0");
+    ip_1_ = registerSignal("ip_1");
+    ip_2_ = registerSignal("ip_2");
+    ip_3_ = registerSignal("ip_3");
 
-    std::string deviceIP = deviceAppAddress_.str(); 
-    emit(ueAppId_, deviceIP.c_str());
+    ueId_ = deviceAppAddress_.str(); 
+
+    std::cout << ueId_ << std::endl;
+
+    // dive the ueId_ into 4 parts divided by the dots and emit the signal for ip_0, ip_1, ip_2, ip_3
+    std::string ip = deviceAppAddress_.str();
+    ip = ip + ".";
+    std::string delimiter = ".";
+    size_t pos = 0;
+    std::string token;
+    int i = 0;
+    while ((pos = ip.find(delimiter)) != std::string::npos) {
+        token = ip.substr(0, pos);
+        if(i == 0)
+            emit(ip_0_, std::stoi(token));
+        else if(i == 1)
+            emit(ip_1_, std::stoi(token));
+        else if(i == 2)
+            emit(ip_2_, std::stoi(token));
+        else if(i == 3)
+            emit(ip_3_, std::stoi(token));
+        ip.erase(0, pos + delimiter.length());
+        i++;
+    }
+
 }
 
 void UEPerfApp::handleMessage(cMessage *msg)
