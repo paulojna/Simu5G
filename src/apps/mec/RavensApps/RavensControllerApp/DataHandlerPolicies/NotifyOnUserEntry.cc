@@ -25,7 +25,7 @@ inet::Packet *NotifyOnUserEntry::handleDataMessage(inet::Ptr<const RavensLinkUse
     auto updated_snapshot = received_packet;
 
     for (auto it = speedInfoList.begin(); it != speedInfoList.end(); ) {
-    if (simTime() - it->second.timestamp > 5) {
+    if (simTime() - it->second.timestamp > 4) {
         std::cout << simTime() << " - NotifyOnUserEntry::handleDataMessage - user: " << it->first << " was removed from the speedInfoList" << std::endl;
         it = speedInfoList.erase(it); // Erase and move to the next element
     } else {

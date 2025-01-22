@@ -136,7 +136,7 @@ network highwayA11_1to1
 
         // 5G Core Network connections
         //iUpf0.pppg++ <--> Eth10G <--> iUpf1.pppg++;
-        //mecHost0.ppp++ <--> Eth10G <--> centralUpf.pppg++;
+        //mecHost1.ppp++ <--> Eth10G <--> centralUpf.pppg++;
         //mecHost1.ppp++ <--> Eth10G <--> centralUpf.pppg++;
 
         mecHost1.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf1.pppg++;
@@ -146,7 +146,7 @@ network highwayA11_1to1
         mecHost5.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf5.pppg++;
         mecHost6.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf6.pppg++;
 
-        //mecHost0.ppp++ <--> Eth10G {  delay=0.002s; } <--> upf.pppg++;
+        //mecHost1.ppp++ <--> Eth10G {  delay=0.002s; } <--> upf.pppg++;
         iUpf1.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
         iUpf2.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
         iUpf3.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
@@ -190,10 +190,10 @@ network highwayA11_1to1
         mecHost5.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
         mecHost6.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
 
-        //mecHost0.ppp++ <--> Eth10G <--> upf.pppg++;
+        //mecHost1.ppp++ <--> Eth10G <--> upf.pppg++;
         //mecHost1.ppp++ <--> Eth10G <--> upf.pppg++;
 
-        //mecHost0.ppp++ <--> Eth10G <--> mecHost1.ppp++;
+        //mecHost1.ppp++ <--> Eth10G <--> mecHost1.ppp++;
 
         // MEC-related connections
         router.pppg++ <--> Eth10G <--> upf.filterGate;
