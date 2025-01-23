@@ -12,6 +12,7 @@ class RemoveOnExit : public ReactionOnUpdate
 {
   protected:
     virtual void reactOnUpdate(const simu5g::UserMEHUpdate&) override;
+    virtual void reactOnUpdate(const std::vector<simu5g::UserEntryUpdate>&) override;
   public:
     RemoveOnExit(MecOrchestrator* mecOrchestrator):ReactionOnUpdate(mecOrchestrator){}
     virtual ~RemoveOnExit(){}

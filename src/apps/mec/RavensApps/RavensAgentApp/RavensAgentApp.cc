@@ -167,23 +167,27 @@ void RavensAgentApp::handleMp1Message(int connId)
             // find which service from the list is running at my Local Host
             int target = 0;
             int i = 0;
-            std::cout << jsonBody << std::endl;
+            //std::cout << jsonBody << std::endl;
+            // jsonBody is a list of json objects. Lets run through it
+    
             while(i < jsonBody.size())
             {
                 if(jsonBody[i]["isLocal"] == "TRUE")
                 {
+                    std::cout << "The choosen one was: " << jsonBody[i]["transportInfo"]["endPoint"]["addresses"] << std::endl;
                     target = i;
                 }
                 i++;
             }
             jsonBody = jsonBody[target];
+            //std::cout << "The choosen one was: " << jsonBody["transportInfo"]["endPoint"]["addresses"] << std::endl;
             std::string serName = jsonBody["serName"];
             if(serName.compare("LocationService") == 0)
             {
                 if(jsonBody.contains("transportInfo"))
                 {
                     nlohmann::json endPoint = jsonBody["transportInfo"]["endPoint"]["addresses"];
-                    EV << "address: " << endPoint["host"] << " port: " <<  endPoint["port"] << endl;
+                    std::cout << "address: " << endPoint["host"] << " port: " <<  endPoint["port"] << endl;
                     std::string address = endPoint["host"];
                     serviceAddress = L3AddressResolver().resolve(address.c_str());;
                     servicePort = endPoint["port"];
@@ -330,6 +334,8 @@ void RavensAgentApp::handleLSMessage(int connId)
             if(jsonBody.contains("cellList"))
             {
                 nlohmann::json cellList = jsonBody["cellList"];
+                std::cout << "MecHostId" << getMecHostId() << std::endl;
+                std::cout << "cellList: " << jsonBody << std::endl;
                 for (auto& cell : cellList)
                 {
                     std::string cellId = to_string(cell["cellId"]);

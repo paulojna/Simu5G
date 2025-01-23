@@ -61,6 +61,18 @@ simple UEPerfApp like IApp
 
         @signal[lostMessages];
         @statistic[lostMessages](title="lostMessages"; source="lostMessages"; record=stats, mean, vector);
+
+        @signal[ip_0];
+        @statistic[ip_0](title="ip_0"; source="ip_0"; record=last);
+
+        @signal[ip_1];
+        @statistic[ip_1](title="ip_1"; source="ip_1"; record=last);
+
+        @signal[ip_2];
+        @statistic[ip_2](title="ip_2"; source="ip_2"; record=last);
+
+        @signal[ip_3];
+        @statistic[ip_3](title="ip_3"; source="ip_3"; record=last);
              
     gates:
         output socketOut;

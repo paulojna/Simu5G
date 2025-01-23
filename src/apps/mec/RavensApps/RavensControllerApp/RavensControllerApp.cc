@@ -6,8 +6,10 @@
 
 #include "DataHandlerPolicies/SaveDataHistory.h"
 #include "DataHandlerPolicies/NotifyOnDataChange.h"
+#include "DataHandlerPolicies/NotifyOnUserEntry.h"
 
 #define USERS_UPDATE 7
+#define USERS_ENTRY 8
 
 namespace simu5g {
 
@@ -17,6 +19,7 @@ RavensControllerApp::RavensControllerApp(){
     dataHandlerPolicy_ = nullptr;
     calculateAvg_ = nullptr;
     userUpdates.clear();
+    userEntryUpdates.clear();
 }
 
 RavensControllerApp::~RavensControllerApp(){
@@ -34,7 +37,7 @@ void RavensControllerApp::initialize(int stage){
     snapshot_frequency_ = par("snapshot_frequency");
     snapshot_starting_time_ = par("snapshot_starting_time");
 
-    std::cout << "Stage" << stage << endl;
+    EV << "Stage" << stage << endl;
 
     if(stage == inet::INITSTAGE_LOCAL){
         EV << "RavensControllerApp::initialize - stage " << stage << endl;
@@ -47,6 +50,9 @@ void RavensControllerApp::initialize(int stage){
     }else if(!strcmp(par("mode"), "NotifyOnDataChange")){
         EV << "RavensControllerApp::initialize - NotifyOnDataChange handler mode" << endl;
         dataHandlerPolicy_ = new NotifyOnDataChange(this, par("treshold"));
+    }else if(!strcmp(par("mode"), "NotifyOnUserEntry")){
+        EV << "RavensControllerApp::initialize - NotifyOnUserEntry handler mode" << endl;
+        dataHandlerPolicy_ = new NotifyOnUserEntry(this);
     }else{
         throw cRuntimeError("RavensControllerApp::initialize - invalid mode parameter");
     }
@@ -113,6 +119,24 @@ void RavensControllerApp::handleSelfMessage(cMessage *msg){
                 }
 
                 userUpdates.clear();
+            }
+            else if(userEntryUpdates.size() > 0)
+            {
+                inet::Packet *entry = new inet::Packet("UserEntryListMessage");
+                auto userEntryListMessage = inet::makeShared<UserEntryListMessage>();
+                userEntryListMessage->setChunkLength(inet::B(1500));
+                userEntryListMessage->setType(USERS_ENTRY);
+                userEntryListMessage->setUeEntryList(userEntryUpdates);
+                entry->insertAtBack(userEntryListMessage);
+                send(entry, "outGate");
+                EV << "RavensControllerApp::handleSelfMessage::sendSnapshot - entry sent to MEO" << endl;
+
+                //print userEntryUpdates
+                //for(auto user : userEntryUpdates){
+                    //EV << "RavensControllerApp::handleSelfMessage::sendSnapshot - user address: " << user.getAddress() << " current MEH: " << user.getCurrentMEHId() << " next MEH: " << user.getNextMEHId() << endl;
+                //}
+
+                userEntryUpdates.clear();
             }
             else{
                 EV << "RavensControllerApp::handleSelfMessage::sendSnapshot - nothing to send" << endl;

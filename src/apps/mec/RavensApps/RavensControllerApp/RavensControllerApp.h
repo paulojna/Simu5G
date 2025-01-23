@@ -17,6 +17,7 @@
 
 #include "MECHostData.h"
 #include "DataUpdates/UserMEHUpdate.h"
+#include "DataUpdates/UserEntryUpdate.h"
 
 #include "../RavensLinkPacket_m.h"
 #include "../UsersInfoPacket_m.h"
@@ -50,7 +51,8 @@ class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket:
         int bufferTime_;
         int snapshot_frequency_;
         int snapshot_starting_time_;
-        std::vector<UserMEHUpdate> userUpdates;
+        std::vector<UserMEHUpdate> userUpdates; 
+        std::vector<UserEntryUpdate> userEntryUpdates; 
         simtime_t rcUpdateInterval; // start time of the simulation
 
         inet::UdpSocket udpSocket;
@@ -59,6 +61,7 @@ class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket:
         friend class DataHandlerPolicyBase;
         friend class SaveDataHistory;
         friend class NotifyOnDataChange;
+        friend class NotifyOnUserEntry;
         
         DataHandlerPolicyBase* dataHandlerPolicy_;
 

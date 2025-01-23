@@ -21,7 +21,7 @@ simple NRRxPdcpEntity extends LteRxPdcpEntity
         @dynamic(true);
         @class("NRRxPdcpEntity");
         @display("i=block/segm");
-        bool outOfOrderDelivery = default(false);
+        bool outOfOrderDelivery = default(true);//default(false);
         double timeout @unit(s) = default(0.1s);   // Timeout for RX Buffer
         int rxWindowSize = default(4096);
 }

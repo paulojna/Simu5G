@@ -4,6 +4,7 @@
 
 #include "nodes/mec/MECOrchestrator/MecOrchestrator.h"
 #include "apps/mec/RavensApps/RavensControllerApp/DataUpdates/UserMEHUpdate.h"
+#include "apps/mec/RavensApps/RavensControllerApp/DataUpdates/UserEntryUpdate.h"
 
 namespace simu5g {
 
@@ -16,6 +17,7 @@ class ReactionOnUpdate
   protected:
     MecOrchestrator* mecOrchestrator_;
     virtual void reactOnUpdate(const UserMEHUpdate&) = 0;
+    virtual void reactOnUpdate(const std::vector<UserEntryUpdate>&) = 0;
 
   public:
     ReactionOnUpdate(MecOrchestrator* mecOrchestrator){mecOrchestrator_ = mecOrchestrator;}

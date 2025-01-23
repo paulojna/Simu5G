@@ -21,6 +21,14 @@ message MECOrchestratorMessage {
     bool success;   
 }
 
+message MigrateAppMessage {
+    int type;
+    string ueAddress;
+    string newMEHId;
+    string oldMEHId;
+}
+
+
 class CreateAppMessage extends inet::FieldsChunk {
    
     unsigned int sno;

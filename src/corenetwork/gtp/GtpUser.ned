@@ -22,6 +22,7 @@ simple GtpUser
         int localPort = default(31);
         int tunnelPeerPort = default(31);
         bool filter = default(true);
+        string gateway = default("");
 
         @display("i=block/tunnel");
 

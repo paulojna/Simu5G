@@ -31,15 +31,18 @@
 
 #include "nodes/mec/MECOrchestrator/reactionOnUpdateStrategies/RemoveOnExit.h"
 #include "nodes/mec/MECOrchestrator/reactionOnUpdateStrategies/MigrateOnChange.h"
+#include "nodes/mec/MECOrchestrator/reactionOnUpdateStrategies/MigrateOnTime.h"
 
 #include "apps/mec/RavensApps/RavensControllerUpdatePacket_m.h"
 
 //emulation debug
 #include <iostream>
+#include <curl/curl.h>
 
 namespace simu5g {
 
 #define USERS_UPDATE 7
+#define USERS_ENTRY 8
 
 Define_Module(MecOrchestrator);
 
@@ -77,6 +80,8 @@ void MecOrchestrator::initialize(int stage)
         reactionOnUpdate_ = new RemoveOnExit(this);
     else if(!strcmp(par("reactionStrategy"), "MigrateOnChange"))
         reactionOnUpdate_ = new MigrateOnChange(this);
+    else if(!strcmp(par("reactionStrategy"), "MigrateOnTime"))
+        reactionOnUpdate_ = new MigrateOnTime(this);
     else
         throw cRuntimeError("MecOrchestrator::initialize - Reaction on update strategy %s not present!" , par("reactionOnUpdateStrategy").stringValue());
 
@@ -114,6 +119,23 @@ void MecOrchestrator::handleMessage(cMessage *msg)
         {
             EV << "I'm going to do something here" << endl;
         }
+        else if(strcmp(msg->getName(), "MigrateAppMessage") == 0)
+        {
+            MigrateAppMessage* migrateMsg = check_and_cast<MigrateAppMessage*>(msg);
+            if(migrateMsg->getType() == 0)
+            {
+                // remove the user from the MEC system
+                //std::cout << "BE AWARE: We should remove the user" << migrateMsg->getUeAddress() << " from the MEC system" << std::endl;
+                removeAppTime(migrateMsg->getUeAddress(), migrateMsg->getOldMEHId());
+            }
+            else
+            {
+                //std::cout << "BE AWARE: We should migrate the user" << migrateMsg->getUeAddress() << " from the MEC system" << std::endl;
+                migrateAppTime(migrateMsg->getUeAddress(), migrateMsg->getNewMEHId(), migrateMsg->getOldMEHId());
+            }
+            //std::cout << "MecOrchestrator::MigrateOnTime message received with fields:" << migrateMsg->getUeAddress() << " " << migrateMsg->getNewMEHId() << " " << migrateMsg->getOldMEHId() << std::endl;
+            //migrateAppTime(migrateMsg->getUeAddress(), migrateMsg->getNewMEHId(), migrateMsg->getOldMEHId());
+        }
     }
 
     // handle message from the LCM proxy
@@ -134,10 +156,17 @@ void MecOrchestrator::handleMessage(cMessage *msg)
             auto usersUpdate = packet->peekAtFront<UserMEHUpdatedListMessage>();
             UserMEHUpdatedList_toPrint = usersUpdate->getUeMehList();
             for(auto user : UserMEHUpdatedList_toPrint){
-                EV << "RavensControllerApp::socketDataArrived - user address: " << user.getAddress() << " last MEH: " << user.getLastMEHId() << " new MEH: " << user.getNewMEHId() << endl;
+                EV << "MecOrchestrator::socketDataArrived - user address: " << user.getAddress() << " last MEH: " << user.getLastMEHId() << " new MEH: " << user.getNewMEHId() << endl;
                 userMEHMap[user.getAddress()] = std::make_pair(user.getAddress(), user.getNewMEHId());
                 reactionOnUpdate_->reactOnUpdate(user);
-                EV << "RavensControllerApp::socketDataArrived - reactOnUpdate done!" << endl;
+                EV << "MecOrchestrator::socketDataArrived - reactOnUpdate done!" << endl;
+            }
+        }else if(received_packet->getType() == USERS_ENTRY){
+            auto usersEntry = packet->peekAtFront<UserEntryListMessage>();
+            std::vector<UserEntryUpdate> UserEntryList_toPrint = usersEntry->getUeEntryList();
+            reactionOnUpdate_->reactOnUpdate(UserEntryList_toPrint);
+            for(auto user : UserEntryList_toPrint){
+                userMEHMap[user.getAddress()] = std::make_pair(user.getAddress(), user.getCurrentMEHId());
             }
         }
     }
@@ -145,6 +174,33 @@ void MecOrchestrator::handleMessage(cMessage *msg)
     delete msg;
     return;
 
+}
+
+nlohmann::json MecOrchestrator::formatDataFromRAVENS(std::vector<UserEntryUpdate> UserEntryUpdatedList){
+    nlohmann::json jsonList;
+    // lets create a list of json objects, each one representing a user
+    for(auto user : UserEntryUpdatedList){
+        nlohmann::json userJson;
+        userJson["AccessPointId"] = user.getAccessPointId();
+        userJson["x"] = user.getX();
+        userJson["y"] = user.getY();
+        userJson["Speed"] = user.getHSpeed();
+        userJson["Bearing"] = user.getBearing();
+        userJson["DistanceToAccessPoint"] = user.getDistanceToAp();
+        userJson["TimeSpent"] = "0";
+        userJson["GB"] = "0";
+        userJson["BG"] = "0";
+        userJson["NumberOfUsers"] = user.getNumberOfUsers();
+        userJson["AvgSpeed"] = user.getAvgSpeed();
+        userJson["NumberOfUsersLessSpeed"] = user.getNumberOfUsersLessSpeed();
+        userJson["address_"] = user.getAddress();
+        userJson["currentMEHId_"] = user.getCurrentMEHId();
+        userJson["nextMEHId_"] = user.getNextMEHId();
+        userJson["timestamp_"] = user.getTimestamp().str();
+        userJson["ueId_"] = user.getUeId();
+        jsonList.push_back(userJson);
+    }
+    return jsonList;
 }
 
 void MecOrchestrator::handleUALCMPMessage(cMessage* msg)
@@ -199,7 +255,7 @@ void MecOrchestrator::handleMehChangeAck(UALCMPMessage* msg)
             if(isTerminated)
             {
                 EV << "MecOrchestrator::handleMehChangeAck - mec Application with mecUeAppId ["<< element.mecUeAppID << "] removed"<< endl;
-                std::cout << "MigrateOnChange" << endl;
+                //std::cout << "MigrateOnChange" << endl;
                 standByList.erase(mehChangeAck->getRequestNumber());
                 EV << "MecOrchestrator::handleMehChangeAck - standByList entry removed" << endl;
             }
@@ -656,6 +712,222 @@ void MecOrchestrator::onboardApplicationPackages()
     }
 
 }
+
+// Callback function to write response data
+static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
+{
+    ((std::string*)userp)->append((char*)contents, size * nmemb);
+    return size * nmemb;
+}
+
+std::string MecOrchestrator::postRequestPrediction(const std::string &url, const nlohmann::json &jsonObject) 
+{
+    CURL *curl;
+    CURLcode res;
+    std::string response;
+
+    curl = curl_easy_init();
+    if (!curl) {
+        EV << "Failed to initialize cURL!" << endl;
+        return "";
+    }
+
+    // Convert JSON object to string
+    std::string jsonString = jsonObject.dump();
+
+    // Set URL
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+
+    // Set HTTP headers
+    struct curl_slist *headers = NULL;
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+    // Set POST data
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonString.c_str());
+
+    // Set callback function to capture response data
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+
+    // Perform the request, res will get the return code
+    res = curl_easy_perform(curl);
+
+    // Check for errors
+    if (res != CURLE_OK) {
+        EV << "curl_easy_perform() failed: " << curl_easy_strerror(res) << endl;
+    } else {
+        long response_code;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
+        
+        EV << "Response code: " << response_code << endl;
+        EV << "Response body: " << response << endl;
+    }
+
+    // Cleanup
+    curl_easy_cleanup(curl);
+    curl_slist_free_all(headers);
+
+    return response;
+}
+
+void MecOrchestrator::removeAppTime(std::string ueAddress, std::string oldMEHId)
+{
+    std::string ueIp = ueAddress.substr(4);
+    inet::L3Address ueL3Address = inet::L3AddressResolver().resolve(ueIp.c_str());
+
+    // remove user from the userMEHMap
+    userMEHMap.erase(ueAddress);
+
+    // requestId will be zero so the UALCMP will not try to send a response to the UE when receives the ack from the MEO
+    int requestId = 0; // I've changed the starting value of the request counter to 1
+
+    // find the contextId that has the same ueAddress
+    int contextId = -1;
+    for (auto &it : meAppMap)
+    {
+        if (it.second.ueAddress == ueL3Address)
+        {
+            EV << "RemoveOnExit::reactOnUpdate - contextId found for ueAddress " << ueAddress << " is " << it.first << endl;
+            contextId = it.first;
+            break;
+        }
+    }
+
+    if (contextId == -1)
+    {
+        EV << "RemoveOnExit::reactOnUpdate - ERROR: contextId not found for ueAddress " << ueAddress << endl;
+        return;
+    }
+
+    // create the message to stop the MEC app
+    DeleteContextAppMessage *msg = new DeleteContextAppMessage("DeleteContextAppMessage");
+    msg->setType(DELETE_CONTEXT_APP);
+    msg->setRequestId(requestId);
+    msg->setContextId(contextId);
+
+    // invoke stopMECApp method from MecOrchestrator
+    EV << "RemoveOnExit::reactOnUpdate - sending DeleteContextAppMessage to MecOrchestrator to stop MEC app with contextId " << contextId << endl;
+    stopMECApp(msg);
+}
+
+void MecOrchestrator::migrateAppTime(std::string ueAddress, std::string newMEHId, std::string oldMEHId)
+{
+    // this is a replication of what happens on the MigrationOnChange class. TODO: That class will use this method in the future. 
+    std::string ueIp = ueAddress.substr(4);
+    inet::L3Address ueL3Address = inet::L3AddressResolver().resolve(ueIp.c_str());
+
+    int contextId = -1;
+    for (auto &it : meAppMap)
+    {
+        if (it.second.ueAddress == ueL3Address)
+        {
+            EV << "MecOrchestrator::MigrateAppTime - contextId found for ueAddress " << ueAddress << " is " << it.first << endl;
+            contextId = it.first;
+            break;
+        }
+    }
+
+    if (contextId == -1)
+    {
+        EV << "MecOrchestrator::MigrateAppTime - contextId not found for ueAddress " << ueAddress << endl;
+        return;
+    }
+    else
+    {
+        auto meAppMapEntry = meAppMap.find(contextId);
+        const ApplicationDescriptor& desc = mecApplicationDescriptors_.at(meAppMapEntry->second.appDId);
+
+        standByElement standBy;
+        standBy.mecUeAppID = meAppMapEntry->second.mecUeAppID;
+        standBy.mecpm = meAppMapEntry->second.mecpm; 
+
+        cModule *newMEH = nullptr;
+        for (auto &it : mecHosts)
+        {
+            if (it->getName() == newMEHId)
+            {
+                EV << "MigrateOnChange::reactOnUpdate - newMEH found on mecHosts list" << endl;
+                newMEH = it;
+                break;
+            }
+        }
+
+        if (newMEH == nullptr)
+        {
+            EV << "MigrateOnChange::reactOnUpdate - ERROR: newMEH not found on mecHosts list" << endl;
+            return;
+        }
+
+        // check if the newMEH has enought resources
+        VirtualisationInfrastructureManager *vim = check_and_cast<VirtualisationInfrastructureManager*> (newMEH->getSubmodule("vim"));
+        ResourceDescriptor resources = desc.getVirtualResources();
+        bool res = vim->isAllocable(resources.ram, resources.disk, resources.cpu);
+        
+        if(!res)
+        {   
+            EV << "MigrateOnChange::reactOnUpdate - ERROR: newMEH does not have enought resources" << endl;
+            return;
+        }   
+
+        // 1.4 create the message to start the MEC app on the new MEH
+        CreateAppMessage *msg = new CreateAppMessage();
+        msg->setUeAppID(standBy.mecUeAppID);
+        msg->setMEModuleName(desc.getAppName().c_str());
+        msg->setMEModuleType(desc.getAppProvider().c_str());
+
+        msg->setRequiredCpu(desc.getVirtualResources().cpu);
+        msg->setRequiredRam(desc.getVirtualResources().ram);
+        msg->setRequiredDisk(desc.getVirtualResources().disk);
+
+        if(!desc.getOmnetppServiceRequired().empty())
+            msg->setRequiredService(desc.getOmnetppServiceRequired().c_str());
+        else
+            msg->setRequiredService("NULL");
+        msg->setContextId(meAppMapEntry->first);
+
+        // change de mecapp in the map structure
+        meAppMapEntry->second.mecHost = newMEH;
+        meAppMapEntry->second.vim = vim;
+        meAppMapEntry->second.mecpm = newMEH->getSubmodule("mecPlatformManager");
+        meAppMapEntry->second.appDId = desc.getAppDId();
+        meAppMapEntry->second.mecUeAppID = standBy.mecUeAppID;
+        meAppMapEntry->second.ueAddress = ueL3Address;
+
+        MecPlatformManager* mecpm = check_and_cast<MecPlatformManager*>(meAppMapEntry->second.mecpm);
+
+        MecAppInstanceInfo* appInfo = nullptr;
+        appInfo = mecpm->instantiateMEApp(msg);   
+
+        if(!appInfo->status)
+        {
+            EV << "MigrateOnChange::reactOnUpdate - ERROR: MEC app could not be instantiated on the newMEH" << endl;
+            return;
+        }
+
+        EV << "MigrateOnChange::reactOnUpdate - new MEC application with name: " << appInfo->instanceId << " instantiated on MEC host []"<< meAppMapEntry->second.mecHost << " at "<< appInfo->endPoint.addr.str() << ":" << appInfo->endPoint.port << endl;
+
+        meAppMapEntry->second.mecAppAddress = appInfo->endPoint.addr;
+        meAppMapEntry->second.mecAppPort = appInfo->endPoint.port;
+        meAppMapEntry->second.mecAppIsntanceId = appInfo->instanceId;
+
+        //update the meAppMap
+        meAppMap[meAppMapEntry->first] = meAppMapEntry->second;
+
+        standBy.request = requestCounter;
+        requestCounter++; 
+
+        // 2. Inform the UE about the new MEH (through the UALCMP)
+        sendMehChangeRequest(ueIp, appInfo->endPoint.addr.str(), appInfo->endPoint.port, standBy.request);
+
+        // 3. Add the UE to a standby list until the ACK from the UE is received
+        standByList[standBy.request] = standBy; 
+
+        delete appInfo;
+    }
+
+}
+
 
 const ApplicationDescriptor* MecOrchestrator::getApplicationDescriptorByAppName(std::string& appName) const
 {

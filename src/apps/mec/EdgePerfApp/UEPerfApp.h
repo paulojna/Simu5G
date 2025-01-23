@@ -10,6 +10,9 @@
 #include "common/binder/Binder.h"
 #include "../RavensApps/UsersInfoPacket_m.h"
 
+#include <fstream>
+#include <iostream>
+
 namespace simu5g {
 
 #define UEAPP_REQUEST 0
@@ -46,6 +49,7 @@ class UEPerfApp: public cSimpleModule
     simtime_t end_;
 
     int mehostId_;
+    std::string ueId_;
 
     // DeviceApp info
     int localPort_;
@@ -84,6 +88,11 @@ class UEPerfApp: public cSimpleModule
     simsignal_t responseTime_;
     simsignal_t lostMessages_;
     simsignal_t mecHostId_;
+
+    simsignal_t ip_0_;
+    simsignal_t ip_1_;
+    simsignal_t ip_2_;
+    simsignal_t ip_3_;
 
     
 

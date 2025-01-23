@@ -116,14 +116,14 @@ network highwayA11
 
         mecHost0.ppp++ <--> Eth10G { delay=0.001s; } <--> iUpf0.pppg++;
         //mecHost0.ppp++ <--> Eth10G {  delay=0.002s; } <--> upf.pppg++;
-        iUpf0.pppg++ <--> Eth10G { delay=0.001s; } <--> upf.pppg++;
+        iUpf0.pppg++ <--> Eth10G { delay=0.002s; } <--> upf.pppg++;
         iUpf0.pppg++ <--> Eth10G <--> gnb0.ppp;
         iUpf0.pppg++ <--> Eth10G <--> gnb1.ppp;
         iUpf0.pppg++ <--> Eth10G <--> gnb2.ppp;
 
-        mecHost1.ppp++ <--> Eth10G { delay=0.004s; } <--> iUpf1.pppg++;
+        mecHost1.ppp++ <--> Eth10G { delay=0.001s; } <--> iUpf1.pppg++;
         //mecHost1.ppp++ <--> Eth10G { delay=0.005s; } <--> upf.pppg++;
-        iUpf1.pppg++ <--> Eth10G { delay=0.001s; } <--> upf.pppg++;
+        iUpf1.pppg++ <--> Eth10G { delay=0.002s; } <--> upf.pppg++;
         iUpf1.pppg++ <--> Eth10G <--> gnb3.ppp;
         iUpf1.pppg++ <--> Eth10G <--> gnb4.ppp;
         iUpf1.pppg++ <--> Eth10G <--> gnb5.ppp;
