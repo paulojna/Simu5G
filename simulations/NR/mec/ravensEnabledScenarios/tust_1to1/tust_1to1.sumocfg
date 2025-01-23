@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on Thu Dec 31 16:03:15 2020 by Eclipse SUMO Version 1.2.0
+-->
+
+<configuration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/sumoConfiguration.xsd">
+
+    <input>
+        <net-file value="./tust_1to1.net.xml"/>
+        <route-files value="./tust_1to1.rou.xml"/>
+    </input>
+
+    <output>
+        <!--
+        <summary-output value="./Output/Summary.xml"/>
+        <vehroute-output value="./Output/VehTraces.xml"/>
+        <vehroute-output.exit-times value="true"/>
+        <vehroute-output.sorted value="true"/>
+        <vehroute-output.route-length value="true"/>
+        <vehroute-output.write-unfinished value="true"/>
+        -->
+    </output>
+
+    <time>
+        <begin value="0"/>
+		<step-length value="1"/>
+		<end value="3600"/>
+    </time>
+
+    <processing>
+        <no-internal-links value="true"/>
+        <ignore-junction-blocker value="5"/>
+        <ignore-route-errors value="true"/>
+        <time-to-teleport value="150"/>
+    </processing>
+
+    <report>
+        <xml-validation value="never"/>
+        <no-warnings value="true"/>
+    </report>
+
+    <mesoscopic>
+        <mesosim value="true"/>
+        <meso-junction-control.limited value="true"/>
+        <meso-overtaking value="true"/>
+    </mesoscopic>
+
+    <random_number>
+        <random value="true"/>
+    </random_number>
+
+</configuration>

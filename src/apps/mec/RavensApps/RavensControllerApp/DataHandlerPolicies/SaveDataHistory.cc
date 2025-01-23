@@ -37,8 +37,9 @@ inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkUsers
         for (auto u_it = users.begin(); u_it != users.end(); u_it++)
         {
             // TODO: Binder has getMacNodeId(ipv4) and getOmnetId(macNodeId) so we can get the omnet id of the users
-            
-            
+            // do it only if the simTime().dbl() is equal to the lastUpdated of the user
+            if(simTime().dbl() != it->second.getLastUpdated().dbl())
+                continue;
             csvFile << std::to_string(simTime().dbl()) << "," << std::to_string(it->second.getLastUpdated().dbl()) << "," << it->second.getHostId() << "," << u_it->second.getAccessPointId() << "," << u_it->first << "," << std::to_string(u_it->second.getCurrentLocation().getX()) << "," << std::to_string(u_it->second.getCurrentLocation().getY()) << "," << std::to_string(u_it->second.getCurrentLocation().getZ()) << "," << std::to_string(u_it->second.getCurrentLocation().getHorizontalSpeed()) << "," << std::to_string(u_it->second.getCurrentLocation().getBearing()) << "," << std::to_string(u_it->second.getDistanceToAP()) << endl;
             csvFile.flush();
         }

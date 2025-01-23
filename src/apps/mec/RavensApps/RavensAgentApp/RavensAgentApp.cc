@@ -370,8 +370,8 @@ void RavensAgentApp::handleLSMessage(int connId)
                     long x = user["userInfo"]["locationInfo"]["x"];
                     long y = user["userInfo"]["locationInfo"]["y"];
                     long z = user["userInfo"]["locationInfo"]["z"];
-                    long bearing = user["userInfo"]["locationInfo"]["velocity"]["bearing"];
-                    long speed = user["userInfo"]["locationInfo"]["velocity"]["horizontalSpeed"];
+                    //long bearing = user["userInfo"]["locationInfo"]["velocity"]["bearing"];
+                    long bearing = user["userInfo"]["locationInfo"]["velocity"]["bearing"].is_null() ? 0 : user["userInfo"]["locationInfo"]["velocity"]["bearing"].get<long>();                    long speed = user["userInfo"]["locationInfo"]["velocity"]["horizontalSpeed"];
                     UserLocation userLocation = UserLocation(x, y, z, bearing, speed);
                     UserData userData = UserData(address, apData, userLocation);
                     users[address] = userData;
@@ -386,6 +386,10 @@ void RavensAgentApp::handleLSMessage(int connId)
                     myfile << to_string(jsonBody["subscriptionNotification"]["timeStamp"]) << "," << user.first << "," << user.second.getAccessPointId() << "," << user.second.getCurrentLocation().getX() << "," << user.second.getCurrentLocation().getY() << "," << to_string(user.second.getDistanceToAP()) << "," << to_string(user.second.getCurrentLocation().getHorizontalSpeed()) << endl;
                 }*/ 
             }
+        }
+        else
+        {
+            EV << "RavensAgentApp::handleLSMessage - LS Message without valid body!" << endl;
         }
     }
     else if(code == 201)
@@ -402,6 +406,7 @@ void RavensAgentApp::handleLSMessage(int connId)
     // print users
     for (auto& user : users)
     {
+        EV << "LETS PRINT THE USERS" << endl;
         EV << "RavensAgentApp::handleLSMessage - User: " << user.first << " AccessPoint: " << user.second.getAccessPointId() << endl;
     }
 }
