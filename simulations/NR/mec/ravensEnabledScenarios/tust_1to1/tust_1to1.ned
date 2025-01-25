@@ -50,25 +50,34 @@ network tust_1to1
 
         // Configuration for 6 gNodeBs
         gnb1: gNodeB {
-            @display("p=250,100");
+            @display("p=212,118");
         }
         gnb2: gNodeB {
-            @display("p=750,100");
+            @display("p=638,118");
         }
         gnb3: gNodeB {
-            @display("p=50,500");
+            @display("p=1063,118");
         }
         gnb4: gNodeB {
-            @display("p=950,500");
+            @display("p=10,586");
         }
         gnb5: gNodeB {
-            @display("p=500,500");
+            @display("p=425,586");
         }
         gnb6: gNodeB {
-            @display("p=250,900");
+            @display("p=850,586");
         }
         gnb7: gNodeB {
-            @display("p=750,900");
+            @display("p=1266,586");
+        }
+        gnb8: gNodeB {
+            @display("p=212,1055");
+        }
+        gnb9: gNodeB {
+            @display("p=638,1055");
+        }
+        gnb10: gNodeB {
+            @display("p=1063,1055");
         }
 
         // Router and Host (for RAVENS Controller)
@@ -80,52 +89,69 @@ network tust_1to1
         }
 
         upf: Upf {
-            @display("p=550,700;is=s");
+            @display("p=500,500;is=s");
         }
-
         iUpf1: Upf {
-            @display("p=260,100;is=s");
+            @display("p=212,118;is=s");
         }
         iUpf2: Upf {
-            @display("p=760,100;is=s");
+            @display("p=638,118;is=s");
         }
         iUpf3: Upf {
-            @display("p=60,500;is=s");
+            @display("p=1063,118;is=s");
         }
         iUpf4: Upf {
-            @display("p=960,500;is=s");
+            @display("p=10,586;is=s");
         }
         iUpf5: Upf {
-            @display("p=510,500;is=s");
+            @display("p=425,586;is=s");
         }
         iUpf6: Upf {
-            @display("p=260,900;is=s");
+            @display("p=850,586;is=s");
         }
         iUpf7: Upf {
-            @display("p=760,900;is=s");
+            @display("p=1266,586;is=s");
         }
+        iUpf8: Upf {
+            @display("p=212,1055;is=s");
+        }
+        iUpf9: Upf {
+            @display("p=638,1055;is=s");
+        }
+        iUpf10: Upf {
+            @display("p=1063,1055;is=s");
+        }     
 
         // MEC Hosts
         mecHost1: MECHost {
-            @display("p=270,100");
+            @display("p=212,118;is=s");
         }
         mecHost2: MECHost {
-            @display("p=770,100");
+            @display("p=638,118;is=s");
         }
         mecHost3: MECHost {
-            @display("p=70,500");
+            @display("p=1063,118;is=s");
         }
         mecHost4: MECHost {
-            @display("p=970,500");
+            @display("p=10,586;is=s");
         }
         mecHost5: MECHost {
-            @display("p=570,500");
+            @display("p=425,586;is=s");
         }
         mecHost6: MECHost {
-            @display("p=270,900");
+            @display("p=850,586;is=s");
         }
         mecHost7: MECHost {
-            @display("p=770,900");
+            @display("p=1266,586;is=s");
+        }
+        mecHost8: MECHost {
+            @display("p=212,1055;is=s");
+        }
+        mecHost9: MECHost {
+            @display("p=638,1055;is=s");
+        }
+        mecHost10: MECHost {
+            @display("p=1063,1055;is=s");
         }
 
         mecOrchestrator: MecOrchestrator {
@@ -148,6 +174,9 @@ network tust_1to1
         mecHost5.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf5.pppg++;
         mecHost6.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf6.pppg++;
         mecHost7.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf7.pppg++;
+        mecHost8.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf8.pppg++;
+        mecHost9.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf9.pppg++;
+        mecHost10.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf10.pppg++;
 
         iUpf1.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
         iUpf2.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
@@ -156,6 +185,9 @@ network tust_1to1
         iUpf5.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
         iUpf6.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
         iUpf7.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
+        iUpf8.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
+        iUpf9.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
+        iUpf10.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
 
         iUpf1.pppg++ <--> Eth10G {  delay = 0.001s; } <--> gnb1.ppp;
         iUpf2.pppg++ <--> Eth10G {  delay = 0.001s; } <--> gnb2.ppp;
@@ -164,6 +196,9 @@ network tust_1to1
         iUpf5.pppg++ <--> Eth10G {  delay = 0.001s; } <--> gnb5.ppp;
         iUpf6.pppg++ <--> Eth10G {  delay = 0.001s; } <--> gnb6.ppp;
         iUpf7.pppg++ <--> Eth10G {  delay = 0.001s; } <--> gnb7.ppp;
+        iUpf8.pppg++ <--> Eth10G {  delay = 0.001s; } <--> gnb8.ppp;
+        iUpf9.pppg++ <--> Eth10G {  delay = 0.001s; } <--> gnb9.ppp;
+        iUpf10.pppg++ <--> Eth10G {  delay = 0.001s; } <--> gnb10.ppp;
 
         mecHost1.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
         mecHost2.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
@@ -172,6 +207,9 @@ network tust_1to1
         mecHost5.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
         mecHost6.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
         mecHost7.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
+        mecHost8.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
+        mecHost9.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
+        mecHost10.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
 
         router.pppg++ <--> Eth10G <--> upf.filterGate;
 
@@ -188,20 +226,30 @@ network tust_1to1
 
         // X2 connections
         gnb1.x2++ <--> Eth10G <--> gnb2.x2++;
-        gnb1.x2++ <--> Eth10G <--> gnb3.x2++;
-        gnb1.x2++ <--> Eth10G <--> gnb5.x2++;
-
-        gnb2.x2++ <--> Eth10G <--> gnb5.x2++;
         gnb2.x2++ <--> Eth10G <--> gnb4.x2++;
-
-        gnb3.x2++ <--> Eth10G <--> gnb5.x2++;
-        gnb3.x2++ <--> Eth10G <--> gnb6.x2++;
-
         gnb4.x2++ <--> Eth10G <--> gnb5.x2++;
-        gnb4.x2++ <--> Eth10G <--> gnb7.x2++;
 
-        gnb6.x2++ <--> Eth10G <--> gnb5.x2++;
-        gnb6.x2++ <--> Eth10G <--> gnb7.x2++;
+        gnb2.x2++ <--> Eth10G <--> gnb3.x2++;
+        gnb2.x2++ <--> Eth10G <--> gnb6.x2++;
+        gnb2.x2++ <--> Eth10G <--> gnb5.x2++;
 
-        gnb7.x2++ <--> Eth10G <--> gnb5.x2++;
+        gnb3.x2++ <--> Eth10G <--> gnb6.x2++;
+        gnb3.x2++ <--> Eth10G <--> gnb7.x2++;
+
+        gnb5.x2++ <--> Eth10G <--> gnb6.x2++;
+
+        gnb4.x2++ <--> Eth10G <--> gnb8.x2++;
+        gnb4.x2++ <--> Eth10G <--> gnb5.x2++;
+
+        gnb7.x2++ <--> Eth10G <--> gnb6.x2++;
+        gnb7.x2++ <--> Eth10G <--> gnb10.x2++;
+
+        gnb8.x2++ <--> Eth10G <--> gnb9.x2++;
+        gnb8.x2++ <--> Eth10G <--> gnb5.x2++;
+
+        gnb9.x2++ <--> Eth10G <--> gnb5.x2++;
+        gnb9.x2++ <--> Eth10G <--> gnb10.x2++;
+        gnb9.x2++ <--> Eth10G <--> gnb6.x2++;
+
+        gnb10.x2++ <--> Eth10G <--> gnb6.x2++;
 }
