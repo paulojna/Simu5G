@@ -22,16 +22,18 @@
     </output>
 
     <time>
-        <begin value="0"/>
+        <begin value="25200"/>
 		<step-length value="1"/>
-		<end value="3600"/>
+		<end value="28800"/>
     </time>
 
     <processing>
+        <!--
         <no-internal-links value="true"/>
         <ignore-junction-blocker value="5"/>
         <ignore-route-errors value="true"/>
         <time-to-teleport value="150"/>
+        -->
     </processing>
 
     <report>

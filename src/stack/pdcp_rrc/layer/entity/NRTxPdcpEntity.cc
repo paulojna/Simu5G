@@ -37,8 +37,13 @@ void NRTxPdcpEntity::deliverPdcpPdu(Packet* pkt)
         if (!pdcp_->isDualConnectivityEnabled())
         {
             MacNodeId destId = lteInfo->getDestId();
-            if (getNodeTypeById(destId) != UE)
-                throw cRuntimeError("NRTxPdcpEntity::deliverPdcpPdu - the destination is not a UE but Dual Connectivity is not enabled.");
+            if (getNodeTypeById(destId) != UE){
+                EV_FATAL << "the destination " << destId <<" is not a UE but Dual Connectivity is not enabled." << endl;
+                delete pkt;
+                return;
+            }
+            //if (getNodeTypeById(destId) != UE)
+            //    throw cRuntimeError("NRTxPdcpEntity::deliverPdcpPdu - the destination is not a UE but Dual Connectivity is not enabled.");
 
             EV << NOW << " NRTxPdcpEntity::deliverPdcpPdu - LCID[" << lteInfo->getLcid() << "] - the destination is a UE. Send packet to lower layer" << endl;
             LteTxPdcpEntity::deliverPdcpPdu(pkt);
