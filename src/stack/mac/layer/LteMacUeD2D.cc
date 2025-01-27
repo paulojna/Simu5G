@@ -597,10 +597,19 @@ void LteMacUeD2D::checkRAC()
         if (!(it->second->isEmpty()))
         {
             MacCid cid = it->first;
-            if (connDesc_.at(cid).getDirection() == D2D_MULTI)
-                triggerD2DMulticast = true;
+            // Check if cid exists in connDesc_ before accessing it
+            if (connDesc_.find(cid) != connDesc_.end())
+            {
+                if (connDesc_.at(cid).getDirection() == D2D_MULTI)
+                    triggerD2DMulticast = true;
+                else
+                    trigger = true;
+            }
             else
-                trigger = true;
+            {
+                // Handle the case where cid is not found in connDesc_
+                std::cerr << "Error: cid " << cid << " not found in connDesc_" << std::endl;
+            }
             break;
         }
     }

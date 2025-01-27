@@ -92,7 +92,7 @@ void LteMacEnbD2D::macHandleFeedbackPkt(cPacket *pktAux)
     std::map<MacNodeId, LteFeedbackDoubleVector> fbMapD2D = fb->getLteFeedbackDoubleVectorD2D();
 
     // skip if no D2D CQI has been reported
-    if (!fbMapD2D.empty())
+    if (!fbMapD2D.empty() && fbMapD2D.size() > 0)
     {
         //get Source Node Id<
         MacNodeId id = fb->getSourceNodeId();
@@ -106,11 +106,14 @@ void LteMacEnbD2D::macHandleFeedbackPkt(cPacket *pktAux)
             MacNodeId peerId = mapIt->first;
             for (it = mapIt->second.begin(); it != mapIt->second.end(); ++it)
             {
-                for (jt = it->begin(); jt != it->end(); ++jt)
+                if (!it->empty())
                 {
-                    if (!jt->isEmptyFeedback())
+                    for (jt = it->begin(); jt != it->end(); ++jt)
                     {
-                        amc_->pushFeedbackD2D(id, (*jt), peerId, lteInfo->getCarrierFrequency());
+                        if (!jt->isEmptyFeedback())
+                        {
+                            amc_->pushFeedbackD2D(id, (*jt), peerId, lteInfo->getCarrierFrequency());
+                        }
                     }
                 }
             }

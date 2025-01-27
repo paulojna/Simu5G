@@ -1,0 +1,5 @@
+<launch>
+  <copy file="tust_1to1.net.xml"/>
+  <copy file="tust_1to1.rou.xml"/>
+  <copy file="tust_1to1.sumocfg" type="config"/>
+</launch>

@@ -1,0 +1,21 @@
+{
+"appDid" : "MECPERFAPP",
+"appName" : "MECPerfApp",
+"appProvider" : "simu5g.apps.mec.EdgePerfApp.MECPerfApp",
+"appInfoName" : "appInfoName_",
+"appDescription" : "appDescription_",
+"virtualComputeDescriptor" :{
+    "virtualDisk": 10,
+    "virtualCpu" : 500,
+    "virtualMemory":10
+    },
+"appServiceRequired": [
+    {
+        "ServiceDependency" :{
+            "serName" : "LocationService",
+            "version" : "v2",
+            "serCategory": "Location"
+        }
+    }
+]
+}
