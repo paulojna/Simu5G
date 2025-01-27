@@ -22,8 +22,8 @@
     </output>
 
     <time>
-        <begin value="25200"/>
-		<step-length value="1"/>
+        <begin value="0"/>
+		<step-length value="1.0"/>
 		<end value="28800"/>
     </time>
 
