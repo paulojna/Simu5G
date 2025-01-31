@@ -23,6 +23,7 @@ NRMacGnb::NRMacGnb() :  LteMacEnbD2D()
 
 NRMacGnb::~NRMacGnb()
 {
+    delete enbSchedulerUl_;
 }
 
 void NRMacGnb::initialize(int stage)

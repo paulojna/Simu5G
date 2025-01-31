@@ -24,7 +24,7 @@
     <time>
         <begin value="0"/>
 		<step-length value="1.0"/>
-		<end value="28800"/>
+		<end value="86400"/>
     </time>
 
     <processing>
@@ -34,6 +34,7 @@
         <ignore-route-errors value="true"/>
         <time-to-teleport value="150"/>
         -->
+        <scale value="0.3"/>
     </processing>
 
     <report>
