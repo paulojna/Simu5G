@@ -10,6 +10,7 @@
 
 #define USERS_UPDATE 7
 #define USERS_ENTRY 8
+#define MAX_MEH_STATE_MAP_SIZE 15
 
 namespace simu5g {
 
@@ -18,8 +19,6 @@ Define_Module(RavensControllerApp);
 RavensControllerApp::RavensControllerApp(){
     dataHandlerPolicy_ = nullptr;
     calculateAvg_ = nullptr;
-    userUpdates.clear();
-    userEntryUpdates.clear();
 }
 
 RavensControllerApp::~RavensControllerApp(){
@@ -27,29 +26,29 @@ RavensControllerApp::~RavensControllerApp(){
     udpSocket.close();
     hostsData.clear();
     hostsDataHistory.clear();
+    delete dataHandlerPolicy_;
 }
 
 void RavensControllerApp::initialize(int stage){
     ApplicationBase::initialize(stage);
-    //bufferTime = par("bufferTime");
     if (stage!=inet::INITSTAGE_APPLICATION_LAYER)
         return;
     snapshot_frequency_ = par("snapshot_frequency");
     snapshot_starting_time_ = par("snapshot_starting_time");
 
-    EV << "Stage" << stage << endl;
+    // start mehStateMap with a maximum size
+    mehStateMap.reserve(MAX_MEH_STATE_MAP_SIZE);
 
     if(stage == inet::INITSTAGE_LOCAL){
         EV << "RavensControllerApp::initialize - stage " << stage << endl;
     }
-    EV << "RavensControllerApp::initialize - stage " << stage << endl;
 
     if(!strcmp(par("mode"), "SaveDataHistory")){
         EV << "RavensControllerApp::initialize - SaveDataHistory mode" << endl;
         dataHandlerPolicy_ = new SaveDataHistory(this, par("path"));
     }else if(!strcmp(par("mode"), "NotifyOnDataChange")){
         EV << "RavensControllerApp::initialize - NotifyOnDataChange handler mode" << endl;
-        dataHandlerPolicy_ = new NotifyOnDataChange(this, par("treshold"));
+        dataHandlerPolicy_ = new NotifyOnDataChange(this, par("threshold"));
     }else if(!strcmp(par("mode"), "NotifyOnUserEntry")){
         EV << "RavensControllerApp::initialize - NotifyOnUserEntry handler mode" << endl;
         dataHandlerPolicy_ = new NotifyOnUserEntry(this);
@@ -63,13 +62,14 @@ void RavensControllerApp::initialize(int stage){
         EV << "RavensControllerApp::initialize - outGate is not connected" << endl;
     }
 
-    calculateAvg_ = new cMessage("calculateAvgNetworkData");
+    // TODO: add feature to calculate network metrics
+    //calculateAvg_ = new cMessage("calculateAvgNetworkData");
 
     ravensLinkPacketFilter.setPattern("RavensLink*");
     uePacketFilter.setPattern("User*");
 
     scheduleAt(simTime() + snapshot_starting_time_, new cMessage("sendSnapshot"));
-    scheduleAt(simTime() + 10, calculateAvg_);
+    // scheduleAt(simTime() + 10, calculateAvg_);
 }
 
 void RavensControllerApp::handleMessageWhenUp(cMessage *msg){
@@ -102,7 +102,7 @@ void RavensControllerApp::handleSelfMessage(cMessage *msg){
     if(strcmp(msg->getName(), "sendSnapshot") == 0)
     {
         if(gate("outGate")->isConnected()){
-            if(userUpdates.size() > 0)
+            if(!userUpdates.empty())
             {
                 inet::Packet *update = new inet::Packet("UserMEHUpdatedListMessage");
                 auto userMEHUpdatedListMessage = inet::makeShared<UserMEHUpdatedListMessage>();
@@ -120,7 +120,7 @@ void RavensControllerApp::handleSelfMessage(cMessage *msg){
 
                 userUpdates.clear();
             }
-            else if(userEntryUpdates.size() > 0)
+            else if(!userEntryUpdates.empty())
             {
                 inet::Packet *entry = new inet::Packet("UserEntryListMessage");
                 auto userEntryListMessage = inet::makeShared<UserEntryListMessage>();
@@ -130,12 +130,6 @@ void RavensControllerApp::handleSelfMessage(cMessage *msg){
                 entry->insertAtBack(userEntryListMessage);
                 send(entry, "outGate");
                 EV << "RavensControllerApp::handleSelfMessage::sendSnapshot - entry sent to MEO" << endl;
-
-                //print userEntryUpdates
-                //for(auto user : userEntryUpdates){
-                    //EV << "RavensControllerApp::handleSelfMessage::sendSnapshot - user address: " << user.getAddress() << " current MEH: " << user.getCurrentMEHId() << " next MEH: " << user.getNextMEHId() << endl;
-                //}
-
                 userEntryUpdates.clear();
             }
             else{
@@ -173,24 +167,25 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
             auto joinNetworkRequest = packet->peekAtFront<RavensLinkJoinNetworkRequestMessage>();
 
             EV << "RavensControllerApp::socketDataArrived - join network request received" << endl;
-            //fill the hostsData map with the new host. Key and MecHostid in the MECHostData object are the same
-            MECHostData hostData;
-            mecHostNetworkData mehNetworkData;
-            hostData.setHostId(joinNetworkRequest->getMecHostId());
-            mehNetworkData.mecHostId = joinNetworkRequest->getMecHostId();
-            hostData.setLastUpdated(simTime());
-            hostData.setL3Address(remoteAddress);
-            hostData.setPort(srcPort);
-            hostsData.insert({joinNetworkRequest->getMecHostId(),hostData});
-            hostsNetworkData[joinNetworkRequest->getMecHostId()] = mehNetworkData;
-            
+
+            // Create new MECHostState
+            MECHostState newHostState;
+            newHostState.mecHostId = joinNetworkRequest->getMecHostId();
+            newHostState.lastUpdate = simTime();
+    
+            // Initialize host data
+            newHostState.hostData.setHostId(joinNetworkRequest->getMecHostId());
+            newHostState.hostData.setL3Address(remoteAddress);
+            newHostState.hostData.setPort(srcPort);
+    
+            // Initialize metrics with default values
+            newHostState.avgRTT = 0.0;
+            newHostState.avgLostPackets = 0.0;
+
+            mehStateMap[joinNetworkRequest->getMecHostId()] = newHostState;
+
             //send back a RAVENS_LINK_PACKET with type JOIN_NETWORK_ACK
             sendJoinNetworkAck(socket, remoteAddress, srcPort);
-
-            //print hostsData map state
-            for(auto host : hostsData){
-                EV << "RavensControllerApp::socketDataArrived printing hostsData content - host: " << host.first << endl;
-            }
         }
         else if(received_packet->getType() == INFRAESTRUCTURE_DETAILS)
         {   
@@ -198,39 +193,35 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
 
             auto infrastructureDetails = packet->peekAtFront<RavensLinkInfrastructureDetailsMessage>();
             
-            //get the APList from the message and print it to the console
+            // Get and log the AP list from the message
             std::vector<AccessPointData> apList = infrastructureDetails->getAPList();
-            for(auto ap : apList){
-                EV << "RavensControllerApp::socketDataArrived - AP: " << ap.getAccessPointId() <<  endl;
+            EV << "RavensControllerApp::socketDataArrived - Received APs for host " << infrastructureDetails->getMecHostId() << ":" << endl;
+            for(const auto& ap : apList) {
+                EV << "AP ID: " << ap.getAccessPointId() << endl;
             }
 
-            std::map<std::string, MECHostData>::iterator it = hostsData.find(infrastructureDetails->getMecHostId());
-            if(it == hostsData.end()){
-                EV << "RavensControllerApp::socketDataArrived - host not found" << endl;
+            // Find the MEC host in our state map
+            auto it = mehStateMap.find(infrastructureDetails->getMecHostId());
+            if(it == mehStateMap.end()) {
+                EV << "RavensControllerApp::socketDataArrived - host " << infrastructureDetails->getMecHostId() << " not found" << endl;
                 return;
             }
-            it->second.setAccessPoints(apList);
-            it->second.setLastUpdated(simTime());
 
-            //send back a INFRAESTRUCTURE_DETAILS_ACK
+            // Update the host data
+            it->second.hostData.setAccessPoints(apList);
+            it->second.lastUpdate = simTime();  // Update the state's last update time as well
+
+            // Send acknowledgment
             sendInfrastructureDetailsAck(socket, remoteAddress, srcPort);
 
-            //print the hostsData map state with regards to the access points
-            for(auto host : hostsData){
-                EV << "RavensControllerApp::socketDataArrived printing hostsData content - host: " << host.first << endl;
-                for(auto ap : host.second.getAccessPoints()){
-                    if(ap.getAccessPointId() != ""){
-                        EV << "RavensControllerApp::socketDataArrived printing hostsData content - AP: " << ap.getAccessPointId() << endl;
-                    }
-                }
-            }
+            EV << "RavensControllerApp::socketDataArrived - Updated infrastructure details for host " << it->first << ", now managing " << apList.size() << " access points" << endl;
         }
         else if(received_packet->getType() == USERS_INFO_SNAPSHOT)
         {
             auto usersInfoSnapshot = packet->peekAtFront<RavensLinkUsersInfoSnapshotMessage>();
             EV << "RavensControllerApp::socketDataArrived - users info snapshot received from MEC host: " << usersInfoSnapshot->getMecHostId() << " with a number of users of " << usersInfoSnapshot->getUsers().size() << endl;
 
-            //call the data handler policy
+            //call the data handler policy, depending on the mode we might want to do different things
             inet::Packet* response = dataHandlerPolicy_->handleDataMessage(packet->peekAtFront<RavensLinkUsersInfoSnapshotMessage>());
         }
     }
@@ -238,9 +229,10 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
     {
         EV << "RavensControllerApp::socketDataArrived - User Network Info Packet received" << endl;
         auto users_network_info = packet->peekAtFront<UsersNetworkInfoPacket>();
+        // TODO: correct this when network metrics is implemented again
         // add the information to the hostsNetworkData map
-        hostsNetworkData[users_network_info->getMecHostId()].avgRTT.push_back(users_network_info->getAvgRTT());
-        hostsNetworkData[users_network_info->getMecHostId()].avgLostPackets.push_back(users_network_info->getLostPackets());
+        //hostsNetworkData[users_network_info->getMecHostId()].avgRTT.push_back(users_network_info->getAvgRTT());
+        //hostsNetworkData[users_network_info->getMecHostId()].avgLostPackets.push_back(users_network_info->getLostPackets());
         delete packet;
     }
     else{
@@ -308,7 +300,65 @@ void RavensControllerApp::socketErrorArrived(inet::UdpSocket *socket, inet::Indi
     EV << "RavensControllerApp::socketErrorArrived - socket error arrived" << endl;
 }
 
+// detect in userState if there are any user without an updade for the last treshold seconds, remove it also from the mehStateMap
+std::vector<std::pair<std::string, std::string>> RavensControllerApp::detectInactiveUsers() {
+    const simtime_t threshold = par("threshold");
+    const simtime_t currentTime = simTime();
+    int removedCount = 0;
+    
+    // Vector to store removed users info: <userId, mehId>
+    std::vector<std::pair<std::string, std::string>> removedUsers;
+    
+    auto userIt = userStateMap.begin();
+    while (userIt != userStateMap.end()) {
+        const std::string& userId = userIt->first;
+        const UserState& userState = userIt->second;
+        
+        if (currentTime - userState.lastUpdate > threshold) {
+            EV << "User " << userId << " inactive for " << (currentTime - userState.lastUpdate) << " seconds (threshold: " << threshold << ")" << endl;
+
+            if (!userState.currentMEH.empty()) {
+                auto mehIt = mehStateMap.find(userState.currentMEH);
+                if (mehIt != mehStateMap.end()) {
+                    try {
+                        auto userDataIt = mehIt->second.hostData.getUsers().find(userId);
+                        if (userDataIt != mehIt->second.hostData.getUsers().end()) {
+                            mehIt->second.hostData.getUsers().erase(userId);
+                            
+                            // Update MEH timestamps
+                            mehIt->second.lastUpdate = currentTime;
+                            
+                            EV << "Updated MEH " << mehIt->first << ", remaining users: " << mehIt->second.hostData.getUsers().size() << endl;
+                        }
+                        // Store the removed user info
+                        removedUsers.push_back({userId, userState.currentMEH});
+                    } catch (const std::exception& e) {
+                        EV << "Error updating MEH " << mehIt->first << ": " << e.what() << endl;
+                    }
+                } else {
+                    // this should never happen
+                    EV << "Warning: User's MEH " << userState.currentMEH << " not found in mehStateMap" << endl;
+                }
+            } else {
+                // this should never happen also
+                EV << "Warning: User " << userId << " has no current MEH" << endl;
+            }
+
+            userIt = userStateMap.erase(userIt);
+            removedCount++;
+        } else {
+            ++userIt;
+        }
+    }
+
+    if (removedCount > 0) {
+        EV << "Cleanup complete: removed " << removedCount << " inactive users. Remaining users: " << userStateMap.size() << endl;
+    }
+    
+    return removedUsers;
 }
 
+
+} // namespace
 
 

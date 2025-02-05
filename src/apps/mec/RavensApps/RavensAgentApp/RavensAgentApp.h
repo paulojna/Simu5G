@@ -58,7 +58,7 @@ protected:
     cMessage *userLocation;
     
     std::vector<AccessPointData> accessPoints;
-    std::map<std::string, UserData> users; 
+    std::unordered_map<std::string, UserData> users; 
     std::map<long, std::map<std::string, UserData>> history;
 
     virtual int numInitStages() const override { return inet::NUM_INIT_STAGES; }

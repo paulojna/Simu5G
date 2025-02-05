@@ -49,7 +49,7 @@ void RavensAgentApp::initialize(int stage)
     userLocation = new cMessage("userLocation");
 
     accessPoints = std::vector<AccessPointData>();
-    users = std::map<std::string, UserData>();
+    users = std::unordered_map<std::string, UserData>();
 
     this->mecHostId = mecHost->getName();
 
@@ -371,7 +371,8 @@ void RavensAgentApp::handleLSMessage(int connId)
                     long y = user["userInfo"]["locationInfo"]["y"];
                     long z = user["userInfo"]["locationInfo"]["z"];
                     //long bearing = user["userInfo"]["locationInfo"]["velocity"]["bearing"];
-                    long bearing = user["userInfo"]["locationInfo"]["velocity"]["bearing"].is_null() ? 0 : user["userInfo"]["locationInfo"]["velocity"]["bearing"].get<long>();                    long speed = user["userInfo"]["locationInfo"]["velocity"]["horizontalSpeed"];
+                    long bearing = user["userInfo"]["locationInfo"]["velocity"]["bearing"].is_null() ? 0 : user["userInfo"]["locationInfo"]["velocity"]["bearing"].get<long>();                    
+                    long speed = user["userInfo"]["locationInfo"]["velocity"]["horizontalSpeed"];
                     UserLocation userLocation = UserLocation(x, y, z, bearing, speed);
                     UserData userData = UserData(address, apData, userLocation);
                     users[address] = userData;

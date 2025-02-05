@@ -21,6 +21,7 @@
 
 #include "../RavensLinkPacket_m.h"
 #include "../UsersInfoPacket_m.h"
+#include "../RavensAgentApp/UserData.h"
 
 #include <iostream>
 #include <fstream>
@@ -39,21 +40,46 @@ struct mecHostNetworkData
     std::list<int> avgLostPackets;
 };
 
+struct UserState
+{
+    std::string userId;
+    std::string currentMEH;
+    simtime_t lastUpdate_origin;
+    simtime_t lastUpdate;
+};
+
+struct MECHostState
+{
+    std::string mecHostId;
+    MECHostData hostData;
+    simtime_t lastUpdate;
+    // Average RTT as measured by the UEs
+    double avgRTT;
+    // Average quantity of packets that were not received in less than 1 second, as measured by the UEs
+    double avgLostPackets;
+};
+
 class DataHandlerPolicyBase;
 
 class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket::ICallback
 {
     private:
+        // TODO: to delete ->
         std::map<std::string, MECHostData> hostsData;
         std::map<simtime_t, std::map<std::string, MECHostData>> hostsDataHistory;
         std::map<std::string, mecHostNetworkData> hostsNetworkData;
+        // <- to delete
 
-        int bufferTime_;
+        // Structures to hold the state of the MEHs and the users and identify changes in the data
+        std::unordered_map<std::string, MECHostState> mehStateMap;
+        std::unordered_map<std::string, UserState> userStateMap;
+
+        // When to start sending the snapshots to the MEO and at which frequency
         int snapshot_frequency_;
         int snapshot_starting_time_;
+
         std::vector<UserMEHUpdate> userUpdates; 
         std::vector<UserEntryUpdate> userEntryUpdates; 
-        simtime_t rcUpdateInterval; // start time of the simulation
 
         inet::UdpSocket udpSocket;
         inet::SocketMap socketMap;
@@ -85,6 +111,9 @@ class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket:
     
         void sendJoinNetworkAck(inet::UdpSocket *socket, inet::L3Address remoteAddress, int port);
         void sendInfrastructureDetailsAck(inet::UdpSocket *socket, inet::L3Address remoteAddress, int port);
+
+        // methods to deal with mehStateMap and userStateMap
+        std::vector<std::pair<std::string, std::string>> detectInactiveUsers();
 
         void handleSelfMessage(inet::cMessage *msg);
 

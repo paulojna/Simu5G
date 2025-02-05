@@ -8,12 +8,12 @@ using namespace omnetpp;
 
 MECHostData::MECHostData(){
     this->hostId = "";
-    this->lastUpdated = omnetpp::simTime();
+    this->originTimestamp = omnetpp::simTime();
     this->accessPoints = std::vector<AccessPointData>();
-    this->users = std::map<std::string, UserData>();
+    this->users = std::unordered_map<std::string, UserData>();
 }
 
-MECHostData::MECHostData(const std::string& hostId, const std::vector<AccessPointData>& accessPoints, const std::map<std::string, UserData>& users){
+MECHostData::MECHostData(const std::string& hostId, const std::vector<AccessPointData>& accessPoints, const std::unordered_map<std::string, UserData>& users){
     this->hostId = hostId;
     this->accessPoints = accessPoints;
     this->users = users;
@@ -22,22 +22,18 @@ MECHostData::MECHostData(const std::string& hostId, const std::vector<AccessPoin
 // setters
 void MECHostData::setHostId(const std::string& hostId){
     this->hostId = hostId;
-    // update lastUpdated with the current timestamp
-    setLastUpdated(omnetpp::simTime());
 }
 
 void MECHostData::setAccessPoints(const std::vector<AccessPointData>& accessPoints){
     this->accessPoints = accessPoints;
-    setLastUpdated(omnetpp::simTime());
 }   
 
-void MECHostData::setUsers(const std::map<std::string, UserData>& users){
+void MECHostData::setUsers(const std::unordered_map<std::string, UserData>& users){
     this->users = users;
-    setLastUpdated(omnetpp::simTime());
 }   
 
-void MECHostData::setLastUpdated(omnetpp::simtime_t lastUpdated){
-    this->lastUpdated = lastUpdated;
+void MECHostData::setOriginTimestamp(omnetpp::simtime_t time){
+    this->originTimestamp = time;
 }
 
 void MECHostData::setL3Address(inet::L3Address remoteAddress){
@@ -57,12 +53,16 @@ std::vector<AccessPointData> MECHostData::getAccessPoints() const{
     return this->accessPoints;
 }   
 
-std::map<std::string, UserData> MECHostData::getUsers() const{
+std::unordered_map<std::string, UserData> MECHostData::getUsers() const{
     return this->users;
 }   
 
-omnetpp::simtime_t MECHostData::getLastUpdated() const{
-    return this->lastUpdated;
+std::unordered_map<std::string, UserData>& MECHostData::getUsers() {
+    return users;
+}
+
+omnetpp::simtime_t MECHostData::getOriginTimestamp() const{
+    return this->originTimestamp;
 }
 
 inet::L3Address MECHostData::getL3Address() const{
