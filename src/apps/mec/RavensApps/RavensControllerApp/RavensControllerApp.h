@@ -30,16 +30,6 @@ namespace simu5g {
 
 using namespace omnetpp;
 
-struct mecHostNetworkData
-{
-    std::string mecHostId;
-    simtime_t lastUpdate;
-    double lastAvgRTT;
-    double lastAvgLostPackets;
-    std::list<double> avgRTT;
-    std::list<int> avgLostPackets;
-};
-
 struct UserState
 {
     std::string userId;
@@ -64,12 +54,6 @@ class DataHandlerPolicyBase;
 class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket::ICallback
 {
     private:
-        // TODO: to delete ->
-        std::map<std::string, MECHostData> hostsData;
-        std::map<simtime_t, std::map<std::string, MECHostData>> hostsDataHistory;
-        std::map<std::string, mecHostNetworkData> hostsNetworkData;
-        // <- to delete
-
         // Structures to hold the state of the MEHs and the users and identify changes in the data
         std::unordered_map<std::string, MECHostState> mehStateMap;
         std::unordered_map<std::string, UserState> userStateMap;
@@ -78,6 +62,7 @@ class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket:
         int snapshot_frequency_;
         int snapshot_starting_time_;
 
+        // Data structures to be sent to the MEO depending on the mode we are in
         std::vector<UserMEHUpdate> userUpdates; 
         std::vector<UserEntryUpdate> userEntryUpdates; 
 
@@ -91,6 +76,7 @@ class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket:
         
         DataHandlerPolicyBase* dataHandlerPolicy_;
 
+        // to check if we are dealing with a packet from RAVENS Agent or from a UE directly
         inet::PacketFilter ravensLinkPacketFilter;
         inet::PacketFilter uePacketFilter;
 

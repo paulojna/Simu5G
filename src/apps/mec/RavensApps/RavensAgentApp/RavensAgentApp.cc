@@ -131,19 +131,24 @@ void RavensAgentApp::sendAPList()
 
 void RavensAgentApp::sendUsersInfoSnapshot()
 {
-    // get the information available on the users map and send it to the controller using the message type USER_INFO_SNAPSHOT
-    EV << "RavensAgentApp::sendUsersInfoSnapshot - Sending User Info Snapshot" << endl;
-    inet::Packet* packet = new inet::Packet("RavensLinkUsersInfoSnapshotMessage");
-    auto request = inet::makeShared<RavensLinkUsersInfoSnapshotMessage>();
-    request->setChunkLength(B(500));
-    request->setType(USERS_INFO_SNAPSHOT);
-    request->setRequestId(localSnapshotCounter);
-    request->setTimeStamp(simTime().inUnit(SIMTIME_S));
-    request->setMecHostId(getMecHostId().c_str());
-    request->setUsers(users);
-    packet->insertAtBack(request);
-    controllerSocket_.send(packet);
-    localSnapshotCounter++;
+    // only send the information if the users map has changed
+    if (users.size() != last_users.size() || !std::equal(users.begin(), users.end(), last_users.begin(), last_users.end(), [](const auto& p1, const auto& p2) {return p1.first == p2.first && p1.second == p2.second; }))
+    {
+        // get the information available on the users map and send it to the controller using the message type USER_INFO_SNAPSHOT
+        EV << "RavensAgentApp::sendUsersInfoSnapshot - Sending User Info Snapshot" << endl;
+        inet::Packet* packet = new inet::Packet("RavensLinkUsersInfoSnapshotMessage");
+        auto request = inet::makeShared<RavensLinkUsersInfoSnapshotMessage>();
+        request->setChunkLength(B(500));
+        request->setType(USERS_INFO_SNAPSHOT);
+        request->setRequestId(localSnapshotCounter);
+        request->setTimeStamp(simTime().inUnit(SIMTIME_S));
+        request->setMecHostId(getMecHostId().c_str());
+        request->setUsers(users);
+        packet->insertAtBack(request);
+        controllerSocket_.send(packet);
+        localSnapshotCounter++;
+        last_users = users;
+    }
 
     // schedule the next snapshot to send
     cMessage *msg = new cMessage("sendUserList");

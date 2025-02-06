@@ -10,12 +10,13 @@ namespace simu5g {
 NotifyOnDataChange::NotifyOnDataChange(RavensControllerApp *controllerApp, int treshold) : DataHandlerPolicyBase(controllerApp)
 {
     stanby_treshold_ = treshold;
-    controllerApp_->hostsDataHistory[simTime()] = controllerApp_->hostsData;
+    //controllerApp_->hostsDataHistory[simTime()] = controllerApp_->hostsData;
     EV << "NotifyOnDataChange::NotifyOnDataChange - max_iterations = " << max_iterations << endl;
 }
 
 inet::Packet *NotifyOnDataChange::handleDataMessage(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet)
 {
+    /*
     /*
         This strategy aims to fill the userUpdates list and update the hostsData map at the RavensControllerApp.
         1) Run through stanby to check if any user there has passed the time
@@ -25,7 +26,7 @@ inet::Packet *NotifyOnDataChange::handleDataMessage(inet::Ptr<const RavensLinkUs
             c) if any UE entered the system
             For each update, check if the userUpdates has info about that specific UE and update if it is the case. If not, new entry.
         3) Update the hostsData map with the received information.
-    */
+
 
     // it might be a good idea to return a message anyway since we don't know what the future holds
     inet::Packet *pck = nullptr;
@@ -156,8 +157,8 @@ inet::Packet *NotifyOnDataChange::handleDataMessage(inet::Ptr<const RavensLinkUs
     // 3) update the hostsData map with the received information
     controllerApp_->hostsData[updated_snapshot->getMecHostId()].setUsers(updated_snapshot->getUsers());
     controllerApp_->hostsData[updated_snapshot->getMecHostId()].setLastUpdated(simTime());
-
-    return pck;
+    */
+    return nullptr;
 }
 
 void NotifyOnDataChange::addUserUpdate(UserMEHUpdate &update)

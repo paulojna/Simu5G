@@ -24,8 +24,7 @@ RavensControllerApp::RavensControllerApp(){
 RavensControllerApp::~RavensControllerApp(){
     cancelAndDelete(calculateAvg_);
     udpSocket.close();
-    hostsData.clear();
-    hostsDataHistory.clear();
+
     delete dataHandlerPolicy_;
 }
 
@@ -241,6 +240,8 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
 }
 
 void RavensControllerApp::calculateAvgNetworkData(){
+    // TODO: to develop when network metrics is implemented again
+    /*
     for(auto host : hostsNetworkData){
         double avg_RTT = 0;
         double avg_LostPackets = 0;
@@ -264,6 +265,7 @@ void RavensControllerApp::calculateAvgNetworkData(){
     }
 
     scheduleAt(simTime() + 5, calculateAvg_);
+    */
 }
 
 void RavensControllerApp::sendJoinNetworkAck(inet::UdpSocket *socket, inet::L3Address remoteAddress, int port){
@@ -287,7 +289,7 @@ void RavensControllerApp::sendInfrastructureDetailsAck(inet::UdpSocket *socket, 
     request->setRequestId(0);
     request->setTimeStamp(simTime().inUnit(SIMTIME_S));
     request->setInfoType(100);
-    request->setRate(3000);
+    request->setRate(1000);
     packet->insertAtBack(request);
     socket->sendTo(packet, remoteAddress, port);
 }
@@ -306,7 +308,7 @@ std::vector<std::pair<std::string, std::string>> RavensControllerApp::detectInac
     const simtime_t currentTime = simTime();
     int removedCount = 0;
     
-    // Vector to store removed users info: <userId, mehId>
+    // vector to store removed users info: <userId, mehId>
     std::vector<std::pair<std::string, std::string>> removedUsers;
     
     auto userIt = userStateMap.begin();
@@ -325,12 +327,12 @@ std::vector<std::pair<std::string, std::string>> RavensControllerApp::detectInac
                         if (userDataIt != mehIt->second.hostData.getUsers().end()) {
                             mehIt->second.hostData.getUsers().erase(userId);
                             
-                            // Update MEH timestamps
+                            // update MEH timestamps
                             mehIt->second.lastUpdate = currentTime;
                             
                             EV << "Updated MEH " << mehIt->first << ", remaining users: " << mehIt->second.hostData.getUsers().size() << endl;
                         }
-                        // Store the removed user info
+                        // store the removed user info
                         removedUsers.push_back({userId, userState.currentMEH});
                     } catch (const std::exception& e) {
                         EV << "Error updating MEH " << mehIt->first << ": " << e.what() << endl;
@@ -354,7 +356,7 @@ std::vector<std::pair<std::string, std::string>> RavensControllerApp::detectInac
     if (removedCount > 0) {
         EV << "Cleanup complete: removed " << removedCount << " inactive users. Remaining users: " << userStateMap.size() << endl;
     }
-    
+
     return removedUsers;
 }
 

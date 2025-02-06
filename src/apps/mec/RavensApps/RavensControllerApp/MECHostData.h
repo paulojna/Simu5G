@@ -47,6 +47,8 @@ class MECHostData {
         void setL3Address(inet::L3Address remoteAddress);
         void setPort(int port);
         void setAccessPoints(const std::vector<AccessPointData>& accessPoints);
+        // add one setUsers method that is not const
+        void setUsers(std::unordered_map<std::string, UserData>& users);
         void setUsers(const std::unordered_map<std::string, UserData>& users);
         void setOriginTimestamp(omnetpp::simtime_t time);
 };

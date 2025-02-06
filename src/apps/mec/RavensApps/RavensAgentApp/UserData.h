@@ -34,7 +34,9 @@ class UserData
         // method that calculates the eculedean distance between two points
         double calculateDistanceToAP(long x_AP, long y_AP, long x_UE, long y_UE);
 
-         
+        bool operator==(const UserData& other) const {
+        return address == other.address && currentLocation == other.currentLocation;
+    }
 };  
 
 }
