@@ -168,20 +168,12 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
             EV << "RavensControllerApp::socketDataArrived - join network request received" << endl;
 
             // Create new MECHostState
-            MECHostState newHostState;
-            newHostState.mecHostId = joinNetworkRequest->getMecHostId();
-            newHostState.lastUpdate = simTime();
-    
-            // Initialize host data
-            newHostState.hostData.setHostId(joinNetworkRequest->getMecHostId());
-            newHostState.hostData.setL3Address(remoteAddress);
-            newHostState.hostData.setPort(srcPort);
-    
-            // Initialize metrics with default values
-            newHostState.avgRTT = 0.0;
-            newHostState.avgLostPackets = 0.0;
+            MECHostData newHostData;
+            newHostData.setHostId(joinNetworkRequest->getMecHostId());
+            newHostData.setL3Address(remoteAddress);
+            newHostData.setPort(srcPort);
 
-            mehStateMap[joinNetworkRequest->getMecHostId()] = newHostState;
+            mehStateMap[joinNetworkRequest->getMecHostId()] = newHostData;
 
             //send back a RAVENS_LINK_PACKET with type JOIN_NETWORK_ACK
             sendJoinNetworkAck(socket, remoteAddress, srcPort);
@@ -207,9 +199,7 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
             }
 
             // Update the host data
-            it->second.hostData.setAccessPoints(apList);
-            it->second.lastUpdate = simTime();  // Update the state's last update time as well
-
+            it->second.setAccessPoints(apList);
             // Send acknowledgment
             sendInfrastructureDetailsAck(socket, remoteAddress, srcPort);
 
@@ -217,11 +207,11 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
         }
         else if(received_packet->getType() == USERS_INFO_SNAPSHOT)
         {
-            auto usersInfoSnapshot = packet->peekAtFront<RavensLinkUsersInfoSnapshotMessage>();
-            EV << "RavensControllerApp::socketDataArrived - users info snapshot received from MEC host: " << usersInfoSnapshot->getMecHostId() << " with a number of users of " << usersInfoSnapshot->getUsers().size() << endl;
-
-            //call the data handler policy, depending on the mode we might want to do different things
-            inet::Packet* response = dataHandlerPolicy_->handleDataMessage(packet->peekAtFront<RavensLinkUsersInfoSnapshotMessage>());
+            auto changes = updateUserStateMap(packet->peekAtFront<RavensLinkUsersInfoSnapshotMessage>());
+            if (!changes.empty()){
+                //call the data handler policy, depending on the mode we might want to do different things
+                inet::Packet* response = dataHandlerPolicy_->handleDataMessage(packet->peekAtFront<RavensLinkUsersInfoSnapshotMessage>());
+            }
         }
     }
     else if(uePacketFilter.matches(packet))
@@ -302,62 +292,72 @@ void RavensControllerApp::socketErrorArrived(inet::UdpSocket *socket, inet::Indi
     EV << "RavensControllerApp::socketErrorArrived - socket error arrived" << endl;
 }
 
-// detect in userState if there are any user without an updade for the last treshold seconds, remove it also from the mehStateMap
-std::vector<std::pair<std::string, std::string>> RavensControllerApp::detectInactiveUsers() {
-    const simtime_t threshold = par("threshold");
-    const simtime_t currentTime = simTime();
-    int removedCount = 0;
-    
-    // vector to store removed users info: <userId, mehId>
-    std::vector<std::pair<std::string, std::string>> removedUsers;
-    
-    auto userIt = userStateMap.begin();
-    while (userIt != userStateMap.end()) {
-        const std::string& userId = userIt->first;
-        const UserState& userState = userIt->second;
-        
-        if (currentTime - userState.lastUpdate > threshold) {
-            EV << "User " << userId << " inactive for " << (currentTime - userState.lastUpdate) << " seconds (threshold: " << threshold << ")" << endl;
+/*
+    Method to update the state of the userStateMap. It receives a RavensLinkUsersInfoSnapshotMessage message from a given MEH. 
+    It should check if each user is already in the map and update the data if it is.
+    If a given user is not in the map, it should be added. 
+    It should also understand if the user changed MEH or position and create a list of changes to be returned to whoever called the update.
+*/
+std::vector<UserStateChange> RavensControllerApp::updateUserStateMap(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet){
+    std::vector<UserStateChange> changes;
 
-            if (!userState.currentMEH.empty()) {
-                auto mehIt = mehStateMap.find(userState.currentMEH);
-                if (mehIt != mehStateMap.end()) {
-                    try {
-                        auto userDataIt = mehIt->second.hostData.getUsers().find(userId);
-                        if (userDataIt != mehIt->second.hostData.getUsers().end()) {
-                            mehIt->second.hostData.getUsers().erase(userId);
-                            
-                            // update MEH timestamps
-                            mehIt->second.lastUpdate = currentTime;
-                            
-                            EV << "Updated MEH " << mehIt->first << ", remaining users: " << mehIt->second.hostData.getUsers().size() << endl;
-                        }
-                        // store the removed user info
-                        removedUsers.push_back({userId, userState.currentMEH});
-                    } catch (const std::exception& e) {
-                        EV << "Error updating MEH " << mehIt->first << ": " << e.what() << endl;
-                    }
-                } else {
-                    // this should never happen
-                    EV << "Warning: User's MEH " << userState.currentMEH << " not found in mehStateMap" << endl;
-                }
-            } else {
-                // this should never happen also
-                EV << "Warning: User " << userId << " has no current MEH" << endl;
-            }
+    auto usersInfoSnapshot = received_packet;
 
-            userIt = userStateMap.erase(userIt);
-            removedCount++;
+    // first we should check if there are users in the userStateMap which have a timestamp older than the actual time - the threshold parameter
+    auto it = userStateMap.begin();
+    while (it != userStateMap.end()) {
+        if(simTime() - it->second.timestamp > par("threshold")){
+            changes.push_back({CHANGE_EXIT, it->first});
+            //std::cout << simTime() << " - RavensControllerApp::updateUserStateMap - we detected that user " << it->first << " has exited the network" << endl;
+            it = userStateMap.erase(it);  // erase() returns iterator to next element
         } else {
-            ++userIt;
+            ++it;
         }
     }
 
-    if (removedCount > 0) {
-        EV << "Cleanup complete: removed " << removedCount << " inactive users. Remaining users: " << userStateMap.size() << endl;
+    for(const auto& user : usersInfoSnapshot->getUsers()){
+        if(user.first == "acr:10.0.15.66"){
+                std::cout << simTime() << " - RavensControllerApp::updateUserStateMap - we received the timestamp " << usersInfoSnapshot->getTimeStamp() << " for user " << user.first << endl;
+            }
+        auto userIt = userStateMap.find(user.first);
+        if(userIt == userStateMap.end()){
+            // user is not in the map, we need to add it
+            userStateMap[user.first].userId = user.second.getAddress();
+            userStateMap[user.first].currentMEH = usersInfoSnapshot->getMecHostId();
+            userStateMap[user.first].timestamp = usersInfoSnapshot->getTimeStamp();
+            userStateMap[user.first].userData = user.second;
+            changes.push_back({CHANGE_ENTRY, user.first});
+            //std::cout << simTime() << " - RavensControllerApp::updateUserStateMap - we detected that user " << user.first << " has entered the network through " << usersInfoSnapshot->getMecHostId() << endl;
+        }else{
+            // if the user is acr:10.0.15.66 print the timestamp received from the packet
+            
+
+            // first we should check if the timestamp of the new user data is greater than the timestamp of the user in the map
+            if(usersInfoSnapshot->getTimeStamp() > userStateMap[user.first].timestamp){
+                // user is in the map, we need to update the data in userStateMap, but first we need to check if the user has changed MEH or position
+                if(userStateMap[user.first].currentMEH != usersInfoSnapshot->getMecHostId()){
+                    changes.push_back({CHANGE_MEH, user.first});
+                    //std::cout << simTime() << " - RavensControllerApp::updateUserStateMap - we detected that user " << user.first << " has changed to " << usersInfoSnapshot->getMecHostId() << endl;
+                }else if (userStateMap[user.first].userData.getCurrentLocation() == user.second.getCurrentLocation()){
+                    changes.push_back({NO_CHANGE, user.first});    
+                    // std::cout << simTime() << " - RavensControllerApp::updateUserStateMap - we detected that user " << user.first << " has not changed position" << endl;
+                }else{
+                    changes.push_back({CHANGE_POSITION, user.first});
+                    //std::cout << simTime() << " - RavensControllerApp::updateUserStateMap - we detected that user " << user.first << " has changed position" << endl;
+                }
+            
+                userStateMap[user.first].currentMEH = usersInfoSnapshot->getMecHostId();  
+                userStateMap[user.first].timestamp = usersInfoSnapshot->getTimeStamp();
+                userStateMap[user.first].userData = user.second; 
+            }
+            else{
+                // discard the new user data because it is older than the data in the map
+                std::cout << simTime() << " -  RavensControllerApp::updateUserStateMap - discarding new user data because it is older than the data in the map" << endl;
+            }
+        }
     }
 
-    return removedUsers;
+    return changes;
 }
 
 

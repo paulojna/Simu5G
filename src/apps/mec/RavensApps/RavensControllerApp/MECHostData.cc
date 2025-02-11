@@ -8,15 +8,14 @@ using namespace omnetpp;
 
 MECHostData::MECHostData(){
     this->hostId = "";
-    this->originTimestamp = omnetpp::simTime();
     this->accessPoints = std::vector<AccessPointData>();
-    this->users = std::unordered_map<std::string, UserData>();
+    // this->users = std::unordered_map<std::string, UserData>();
 }
 
 MECHostData::MECHostData(const std::string& hostId, const std::vector<AccessPointData>& accessPoints, const std::unordered_map<std::string, UserData>& users){
     this->hostId = hostId;
     this->accessPoints = accessPoints;
-    this->users = users;
+    // this->users = users;
 }
 
 // setters
@@ -28,13 +27,9 @@ void MECHostData::setAccessPoints(const std::vector<AccessPointData>& accessPoin
     this->accessPoints = accessPoints;
 }   
 
-void MECHostData::setUsers(const std::unordered_map<std::string, UserData>& users){
-    this->users = users;
-}   
-
-void MECHostData::setOriginTimestamp(omnetpp::simtime_t time){
-    this->originTimestamp = time;
-}
+// void MECHostData::setUsers(const std::unordered_map<std::string, UserData>& users){
+//     this->users = users;
+// }   
 
 void MECHostData::setL3Address(inet::L3Address remoteAddress){
     this->remoteAddress = remoteAddress;
@@ -53,17 +48,13 @@ std::vector<AccessPointData> MECHostData::getAccessPoints() const{
     return this->accessPoints;
 }   
 
-std::unordered_map<std::string, UserData> MECHostData::getUsers() const{
-    return this->users;
-}   
+// std::unordered_map<std::string, UserData> MECHostData::getUsers() const{
+//     return this->users;
+// }   
 
-std::unordered_map<std::string, UserData>& MECHostData::getUsers() {
-    return users;
-}
-
-omnetpp::simtime_t MECHostData::getOriginTimestamp() const{
-    return this->originTimestamp;
-}
+// std::unordered_map<std::string, UserData>& MECHostData::getUsers() {
+//     return users;
+// }
 
 inet::L3Address MECHostData::getL3Address() const{
     return this->remoteAddress;

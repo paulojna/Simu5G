@@ -148,7 +148,7 @@ bool UsersListNotificationSubscription::fromJson(const nlohmann::ordered_json& b
 
 EventNotification* UsersListNotificationSubscription::handleSubscription(){
     
-    EV << "UsersListNotificationSubscription::handleSubscription - start" << endl;
+    EV << simTime() << " - UsersListNotificationSubscription::handleSubscription - start" << endl;
 
     userList.clear();
 
@@ -171,6 +171,9 @@ EventNotification* UsersListNotificationSubscription::handleSubscription(){
         const std::map<MacNodeId, inet::Coord>* uePositionList;
         uePositionList = cellInfo->getUePositionList();
 
+        // print the cellInfo
+        //std::cout << "UsersListNotificationSubscription::handleSubscription - CELL ID: " << cellInfo->getId() << std::endl;
+
         //deal with the case in which the uePositionList is empty. Fill userList with that information
         if(!uePositionList->empty())
         {
@@ -189,7 +192,7 @@ EventNotification* UsersListNotificationSubscription::handleSubscription(){
                 addressess.insert(ipAddress);
                 // populate userList with UserInfo objects
                 UserInfo userInfo = UserInfo(position, speed , ipAddress, cellInfo->getMacCellId(), refUrl);
-                // std::cout << "UserInfo with ipAddress " << ipAddress.str() << " at time " << simTime() << " added to userList" << std::endl;
+                //std::cout << "UserInfo with ipAddress " << ipAddress.str() << " at time " << simTime() << " added to userList" << std::endl;
                 userList.push_back(userInfo);
             }    
         }
@@ -236,7 +239,7 @@ void UsersListNotificationSubscription::sendNotification(EventNotification *even
     val["link"]["href"] = resourceURL;
     val["link"]["rel"] = subscriptionType_;
 
-    for(auto it : notificationEvent->getUsersList())
+    for(const auto& it : notificationEvent->getUsersList())
     {
         ueInfo["userInfo"] = it.toJson();
         ueInfoList.push_back(ueInfo);

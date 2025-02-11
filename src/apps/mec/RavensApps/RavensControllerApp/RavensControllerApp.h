@@ -9,6 +9,12 @@
 #define SET_RETRIEVAL_INTERVAL_ACK 5
 #define USERS_INFO_SNAPSHOT 6
 
+#define CHANGE_ENTRY 0
+#define CHANGE_MEH 1
+#define CHANGE_POSITION 2
+#define CHANGE_EXIT 3
+#define NO_CHANGE 4
+
 #include <inet/networklayer/common/L3AddressResolver.h>
 #include <inet/transportlayer/contract/udp/UdpSocket.h>
 #include <inet/common/socket/SocketMap.h>
@@ -34,19 +40,14 @@ struct UserState
 {
     std::string userId;
     std::string currentMEH;
-    simtime_t lastUpdate_origin;
-    simtime_t lastUpdate;
+    simtime_t timestamp;
+    UserData userData;
 };
 
-struct MECHostState
+struct UserStateChange
 {
-    std::string mecHostId;
-    MECHostData hostData;
-    simtime_t lastUpdate;
-    // Average RTT as measured by the UEs
-    double avgRTT;
-    // Average quantity of packets that were not received in less than 1 second, as measured by the UEs
-    double avgLostPackets;
+    int changeType;
+    std::string userId;
 };
 
 class DataHandlerPolicyBase;
@@ -55,7 +56,7 @@ class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket:
 {
     private:
         // Structures to hold the state of the MEHs and the users and identify changes in the data
-        std::unordered_map<std::string, MECHostState> mehStateMap;
+        std::unordered_map<std::string, MECHostData> mehStateMap;
         std::unordered_map<std::string, UserState> userStateMap;
 
         // When to start sending the snapshots to the MEO and at which frequency
@@ -99,7 +100,9 @@ class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket:
         void sendInfrastructureDetailsAck(inet::UdpSocket *socket, inet::L3Address remoteAddress, int port);
 
         // methods to deal with mehStateMap and userStateMap
-        std::vector<std::pair<std::string, std::string>> detectInactiveUsers();
+        // std::vector<std::pair<std::string, std::string>> detectInactiveUsers();
+
+        std::vector<UserStateChange> updateUserStateMap(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet);
 
         void handleSelfMessage(inet::cMessage *msg);
 

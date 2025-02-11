@@ -226,8 +226,8 @@ network tust_1to1
 
         // X2 connections
         gnb1.x2++ <--> Eth10G <--> gnb2.x2++;
-        gnb2.x2++ <--> Eth10G <--> gnb4.x2++;
-        gnb4.x2++ <--> Eth10G <--> gnb5.x2++;
+        gnb4.x2++ <--> Eth10G <--> gnb1.x2++;
+        gnb1.x2++ <--> Eth10G <--> gnb5.x2++;
 
         gnb2.x2++ <--> Eth10G <--> gnb3.x2++;
         gnb2.x2++ <--> Eth10G <--> gnb6.x2++;

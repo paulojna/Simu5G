@@ -122,7 +122,7 @@ void RavensAgentApp::sendAPList()
     request->setChunkLength(B(500));
     request->setType(INFRAESTRUCTURE_DETAILS);
     request->setRequestId(0);
-    request->setTimeStamp(simTime().inUnit(SIMTIME_S));
+    request->setTimeStamp(simTime());
     request->setMecHostId(getMecHostId().c_str());
     request->setAPList(accessPoints);
     packet->insertAtBack(request);
@@ -141,7 +141,7 @@ void RavensAgentApp::sendUsersInfoSnapshot()
         request->setChunkLength(B(500));
         request->setType(USERS_INFO_SNAPSHOT);
         request->setRequestId(localSnapshotCounter);
-        request->setTimeStamp(simTime().inUnit(SIMTIME_S));
+        request->setTimeStamp(simTime());
         request->setMecHostId(getMecHostId().c_str());
         request->setUsers(users);
         packet->insertAtBack(request);
