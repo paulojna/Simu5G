@@ -200,16 +200,16 @@ network tust_1to1
         iUpf9.pppg++ <--> Eth10G {  delay = 0.001s; } <--> gnb9.ppp;
         iUpf10.pppg++ <--> Eth10G {  delay = 0.001s; } <--> gnb10.ppp;
 
-        mecHost1.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
-        mecHost2.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
-        mecHost3.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
-        mecHost4.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
-        mecHost5.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
-        mecHost6.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
-        mecHost7.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
-        mecHost8.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
-        mecHost9.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
-        mecHost10.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
+        // mecHost1.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
+        // mecHost2.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
+        // mecHost3.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
+        // mecHost4.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
+        // mecHost5.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
+        // mecHost6.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
+        // mecHost7.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
+        // mecHost8.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
+        // mecHost9.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
+        // mecHost10.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
 
         router.pppg++ <--> Eth10G <--> upf.filterGate;
 
@@ -225,31 +225,31 @@ network tust_1to1
         server.hostInGate <-- mecOrchestrator.toRavensController;
 
         // X2 connections
-        gnb1.x2++ <--> Eth10G <--> gnb2.x2++;
-        gnb4.x2++ <--> Eth10G <--> gnb1.x2++;
-        gnb1.x2++ <--> Eth10G <--> gnb5.x2++;
+        gnb1.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb2.x2++;
+        gnb4.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb1.x2++;
+        gnb1.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb5.x2++;
 
-        gnb2.x2++ <--> Eth10G <--> gnb3.x2++;
-        gnb2.x2++ <--> Eth10G <--> gnb6.x2++;
-        gnb2.x2++ <--> Eth10G <--> gnb5.x2++;
+        gnb2.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb3.x2++;
+        gnb2.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb6.x2++;
+        gnb2.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb5.x2++;
 
-        gnb3.x2++ <--> Eth10G <--> gnb6.x2++;
-        gnb3.x2++ <--> Eth10G <--> gnb7.x2++;
+        gnb3.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb6.x2++;
+        gnb3.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb7.x2++;
 
-        gnb5.x2++ <--> Eth10G <--> gnb6.x2++;
+        gnb5.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb6.x2++;
 
-        gnb4.x2++ <--> Eth10G <--> gnb8.x2++;
-        gnb4.x2++ <--> Eth10G <--> gnb5.x2++;
+        gnb4.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb8.x2++;
+        gnb4.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb5.x2++;
 
-        gnb7.x2++ <--> Eth10G <--> gnb6.x2++;
-        gnb7.x2++ <--> Eth10G <--> gnb10.x2++;
+        gnb7.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb6.x2++;
+        gnb7.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb10.x2++;
 
-        gnb8.x2++ <--> Eth10G <--> gnb9.x2++;
-        gnb8.x2++ <--> Eth10G <--> gnb5.x2++;
+        gnb8.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb9.x2++;
+        gnb8.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb5.x2++;
 
-        gnb9.x2++ <--> Eth10G <--> gnb5.x2++;
-        gnb9.x2++ <--> Eth10G <--> gnb10.x2++;
-        gnb9.x2++ <--> Eth10G <--> gnb6.x2++;
+        gnb9.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb5.x2++;
+        gnb9.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb10.x2++;
+        gnb9.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb6.x2++;
 
-        gnb10.x2++ <--> Eth10G <--> gnb6.x2++;
+        gnb10.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb6.x2++;
 }

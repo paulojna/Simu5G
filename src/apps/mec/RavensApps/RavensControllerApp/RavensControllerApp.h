@@ -36,6 +36,7 @@ namespace simu5g {
 
 using namespace omnetpp;
 
+// the most updated state of a given user 
 struct UserState
 {
     std::string userId;
@@ -44,10 +45,11 @@ struct UserState
     UserData userData;
 };
 
+// structure that contains the type of change and the user data at the moment the change happens
 struct UserStateChange
 {
     int changeType;
-    std::string userId;
+    UserData userData;
 };
 
 class DataHandlerPolicyBase;
@@ -59,9 +61,14 @@ class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket:
         std::unordered_map<std::string, MECHostData> mehStateMap;
         std::unordered_map<std::string, UserState> userStateMap;
 
+        // update to be sent to the MEO
+        inet::Packet *update;
+
         // When to start sending the snapshots to the MEO and at which frequency
         int snapshot_frequency_;
         int snapshot_starting_time_;
+
+        int threshold_;
 
         // Data structures to be sent to the MEO depending on the mode we are in
         std::vector<UserMEHUpdate> userUpdates; 
@@ -102,7 +109,11 @@ class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket:
         // methods to deal with mehStateMap and userStateMap
         // std::vector<std::pair<std::string, std::string>> detectInactiveUsers();
 
-        std::vector<UserStateChange> updateUserStateMap(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet);
+        // methods to deal with userStateMap
+        void updateUserStateMap(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet);
+        std::vector<UserState> removeInactiveUsers();
+
+        std::string getMecHostIdFromAccessPointId(std::string accessPointId);
 
         void handleSelfMessage(inet::cMessage *msg);
 

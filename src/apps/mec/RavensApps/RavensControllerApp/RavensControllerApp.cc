@@ -34,6 +34,8 @@ void RavensControllerApp::initialize(int stage){
         return;
     snapshot_frequency_ = par("snapshot_frequency");
     snapshot_starting_time_ = par("snapshot_starting_time");
+    threshold_ = par("threshold");
+    update = nullptr;
 
     // start mehStateMap with a maximum size
     mehStateMap.reserve(MAX_MEH_STATE_MAP_SIZE);
@@ -207,11 +209,7 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
         }
         else if(received_packet->getType() == USERS_INFO_SNAPSHOT)
         {
-            auto changes = updateUserStateMap(packet->peekAtFront<RavensLinkUsersInfoSnapshotMessage>());
-            if (!changes.empty()){
-                //call the data handler policy, depending on the mode we might want to do different things
-                inet::Packet* response = dataHandlerPolicy_->handleDataMessage(packet->peekAtFront<RavensLinkUsersInfoSnapshotMessage>());
-            }
+            update = dataHandlerPolicy_->handleDataMessage(packet->peekAtFront<RavensLinkUsersInfoSnapshotMessage>());
         }
     }
     else if(uePacketFilter.matches(packet))
@@ -279,7 +277,7 @@ void RavensControllerApp::sendInfrastructureDetailsAck(inet::UdpSocket *socket, 
     request->setRequestId(0);
     request->setTimeStamp(simTime().inUnit(SIMTIME_S));
     request->setInfoType(100);
-    request->setRate(1000);
+    request->setRate(3000);
     packet->insertAtBack(request);
     socket->sendTo(packet, remoteAddress, port);
 }
@@ -293,11 +291,58 @@ void RavensControllerApp::socketErrorArrived(inet::UdpSocket *socket, inet::Indi
 }
 
 /*
+    Method that will run through the userStateMap and detect users that have not been updated for a pre-determined 
+    amount time - defined by the treshold_.
+*/
+std::vector<UserState> RavensControllerApp::removeInactiveUsers(){
+    simtime_t actual = simTime();
+    std::vector<UserState> inactiveUsers;
+
+    auto it = userStateMap.begin();
+    while (it != userStateMap.end()) {
+        if(actual - it->second.timestamp > threshold_){
+            // add the user to the list of inactive users
+            inactiveUsers.push_back(it->second);
+            it = userStateMap.erase(it);  // erase() returns iterator to next element
+        } else {
+            ++it;
+        }
+    }
+
+    return inactiveUsers;
+}
+
+/*
+    Method to update the state of the userStateMap. It receives a RavensLinkUsersInfoSnapshotMessage message,
+    checks if each user is already in the map and updates the data if it is.
+*/
+void RavensControllerApp::updateUserStateMap(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet){
+    auto usersInfoSnapshot = received_packet;
+
+    // check if the user is already in the map, if so, update the data, if not, add it
+    for(const auto& user : usersInfoSnapshot->getUsers()){
+        auto userIt = userStateMap.find(user.first);
+        if(userIt == userStateMap.end()){
+            // user is not in the map, we need to add it
+            userStateMap[user.first].userId = user.second.getAddress();
+            userStateMap[user.first].currentMEH = usersInfoSnapshot->getMecHostId();
+            userStateMap[user.first].timestamp = usersInfoSnapshot->getTimeStamp();
+            userStateMap[user.first].userData = user.second;
+        }else{
+            // user is in the map, we need to update the data in userStateMap
+            userStateMap[user.first].currentMEH = usersInfoSnapshot->getMecHostId();  
+            userStateMap[user.first].timestamp = usersInfoSnapshot->getTimeStamp();
+            userStateMap[user.first].userData = user.second; 
+        }
+    }
+}
+
+
+/*
     Method to update the state of the userStateMap. It receives a RavensLinkUsersInfoSnapshotMessage message from a given MEH. 
     It should check if each user is already in the map and update the data if it is.
     If a given user is not in the map, it should be added. 
     It should also understand if the user changed MEH or position and create a list of changes to be returned to whoever called the update.
-*/
 std::vector<UserStateChange> RavensControllerApp::updateUserStateMap(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet){
     std::vector<UserStateChange> changes;
 
@@ -307,7 +352,7 @@ std::vector<UserStateChange> RavensControllerApp::updateUserStateMap(inet::Ptr<c
     auto it = userStateMap.begin();
     while (it != userStateMap.end()) {
         if(simTime() - it->second.timestamp > par("threshold")){
-            changes.push_back({CHANGE_EXIT, it->first});
+            changes.push_back({CHANGE_EXIT, it->second.userData});
             //std::cout << simTime() << " - RavensControllerApp::updateUserStateMap - we detected that user " << it->first << " has exited the network" << endl;
             it = userStateMap.erase(it);  // erase() returns iterator to next element
         } else {
@@ -316,9 +361,6 @@ std::vector<UserStateChange> RavensControllerApp::updateUserStateMap(inet::Ptr<c
     }
 
     for(const auto& user : usersInfoSnapshot->getUsers()){
-        if(user.first == "acr:10.0.15.66"){
-                std::cout << simTime() << " - RavensControllerApp::updateUserStateMap - we received the timestamp " << usersInfoSnapshot->getTimeStamp() << " for user " << user.first << endl;
-            }
         auto userIt = userStateMap.find(user.first);
         if(userIt == userStateMap.end()){
             // user is not in the map, we need to add it
@@ -326,7 +368,7 @@ std::vector<UserStateChange> RavensControllerApp::updateUserStateMap(inet::Ptr<c
             userStateMap[user.first].currentMEH = usersInfoSnapshot->getMecHostId();
             userStateMap[user.first].timestamp = usersInfoSnapshot->getTimeStamp();
             userStateMap[user.first].userData = user.second;
-            changes.push_back({CHANGE_ENTRY, user.first});
+            changes.push_back({CHANGE_EXIT, it->second.userData});
             //std::cout << simTime() << " - RavensControllerApp::updateUserStateMap - we detected that user " << user.first << " has entered the network through " << usersInfoSnapshot->getMecHostId() << endl;
         }else{
             // if the user is acr:10.0.15.66 print the timestamp received from the packet
@@ -336,13 +378,13 @@ std::vector<UserStateChange> RavensControllerApp::updateUserStateMap(inet::Ptr<c
             if(usersInfoSnapshot->getTimeStamp() > userStateMap[user.first].timestamp){
                 // user is in the map, we need to update the data in userStateMap, but first we need to check if the user has changed MEH or position
                 if(userStateMap[user.first].currentMEH != usersInfoSnapshot->getMecHostId()){
-                    changes.push_back({CHANGE_MEH, user.first});
+                    changes.push_back({CHANGE_EXIT, it->second.userData});
                     //std::cout << simTime() << " - RavensControllerApp::updateUserStateMap - we detected that user " << user.first << " has changed to " << usersInfoSnapshot->getMecHostId() << endl;
                 }else if (userStateMap[user.first].userData.getCurrentLocation() == user.second.getCurrentLocation()){
-                    changes.push_back({NO_CHANGE, user.first});    
+                    changes.push_back({CHANGE_EXIT, it->second.userData});    
                     // std::cout << simTime() << " - RavensControllerApp::updateUserStateMap - we detected that user " << user.first << " has not changed position" << endl;
                 }else{
-                    changes.push_back({CHANGE_POSITION, user.first});
+                    changes.push_back({CHANGE_EXIT, it->second.userData});
                     //std::cout << simTime() << " - RavensControllerApp::updateUserStateMap - we detected that user " << user.first << " has changed position" << endl;
                 }
             
@@ -359,6 +401,7 @@ std::vector<UserStateChange> RavensControllerApp::updateUserStateMap(inet::Ptr<c
 
     return changes;
 }
+    */
 
 
 } // namespace

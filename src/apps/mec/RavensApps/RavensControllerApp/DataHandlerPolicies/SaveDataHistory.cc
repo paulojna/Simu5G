@@ -14,13 +14,20 @@ SaveDataHistory::SaveDataHistory(RavensControllerApp* controllerApp, std::string
 /*
 * handleDataMessage is called when a RavensLinkUsersInfoSnapshotMessage is received
 * this message contains the information about the users connected to the access point
-* we need to update the mehStateMap with the new users
-* for the current strategy, we want to save the data in a csv file
+* 1) We need to update the mehStateMap with the new users (this means remove inactive users 
+*    and add/update users to the userStateMap)
+* 2) for the current strategy, we also want to save the data in a csv file
 */
 inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet)
 {
     // it might be a good idea to return a message anyway since we don't know what the future holds
     inet::Packet* pck = nullptr;
+
+    // remove inactive users
+    std::vector<UserState> removedUsers = controllerApp_->removeInactiveUsers();
+
+    // update the userStateMap
+    controllerApp_->updateUserStateMap(received_packet);
 
     // print the userStateMap in the csv file
     for(auto user : controllerApp_->userStateMap){
