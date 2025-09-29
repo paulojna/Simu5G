@@ -466,7 +466,7 @@ void RavensAgentApp::sendUsersListSubscription()
                             "\"callbackData\":\"v0\","
                             "\"notifyURL\":\"ravens.user.list\"},"
                            "\"checkImmediate\": \"true\","
-                            "\"frequency\": 0.5,"
+                            "\"frequency\": 1,"
                             "\"cells\": [0]"
                             "}"
                             "}\r\n";

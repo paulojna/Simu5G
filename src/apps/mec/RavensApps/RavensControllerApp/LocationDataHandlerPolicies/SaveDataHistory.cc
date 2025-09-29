@@ -2,7 +2,7 @@
 
 namespace simu5g {
 
-SaveDataHistory::SaveDataHistory(RavensControllerApp* controllerApp, std::string path):DataHandlerPolicyBase(controllerApp)
+SaveDataHistory::SaveDataHistory(RavensControllerApp* controllerApp, std::string path):LocationDataHandlerPolicyBase(controllerApp)
 {
     std::string name = path+"run_"+std::to_string(getEnvir()->getConfigEx()->getActiveRunNumber())+"_data_history.csv"; 
     csvFile.open(name, std::ios::out | std::ios::trunc);

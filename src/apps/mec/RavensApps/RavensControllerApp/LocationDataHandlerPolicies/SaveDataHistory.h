@@ -1,7 +1,7 @@
 #ifndef RAVENS_CONTROLLER_APP_SAVEDATAHISTORY_H_
 #define RAVENS_CONTROLLER_APP_SAVEDATAHISTORY_H_
 
-#include "DataHandlerPolicyBase.h"
+#include "LocationDataHandlerPolicyBase.h"
 
 #include <fstream>
 #include <iostream>
@@ -13,7 +13,7 @@ using namespace omnetpp;
 
 //class RavensControllerApp;
 
-class SaveDataHistory : public DataHandlerPolicyBase
+class SaveDataHistory : public LocationDataHandlerPolicyBase
 {
     protected:
         std::ofstream csvFile;

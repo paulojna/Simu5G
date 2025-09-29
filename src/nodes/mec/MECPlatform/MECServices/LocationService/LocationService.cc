@@ -56,7 +56,7 @@ void LocationService::initialize(int stage)
         LocationSubscriptionEvent_ = new cMessage("LocationSubscriptionEvent");
         LocationSubscriptionPeriod_ = par("LocationSubscriptionPeriod");
 
-        subscriptionTimer_ = new AperiodicSubscriptionTimer("subscriptionTimer", 0.1);
+        subscriptionTimer_ = new AperiodicSubscriptionTimer("subscriptionTimer", 0.5);
     }
 }
 

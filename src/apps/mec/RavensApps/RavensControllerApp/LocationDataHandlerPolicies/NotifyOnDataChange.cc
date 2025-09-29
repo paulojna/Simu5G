@@ -7,7 +7,7 @@
 
 namespace simu5g {
 
-NotifyOnDataChange::NotifyOnDataChange(RavensControllerApp *controllerApp, int treshold) : DataHandlerPolicyBase(controllerApp)
+NotifyOnDataChange::NotifyOnDataChange(RavensControllerApp *controllerApp, int treshold) : LocationDataHandlerPolicyBase(controllerApp)
 {
     stanby_treshold_ = treshold;
     //controllerApp_->hostsDataHistory[simTime()] = controllerApp_->hostsData;

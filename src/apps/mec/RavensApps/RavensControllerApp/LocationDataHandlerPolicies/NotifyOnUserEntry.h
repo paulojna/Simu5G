@@ -1,7 +1,7 @@
 #ifndef RAVENS_CONTROLLER_APP_NOTIFYONUSERENTRY_H_
 #define RAVENS_CONTROLLER_APP_NOTIFYONUSERENTRY_H_
 
-#include "DataHandlerPolicyBase.h"
+#include "LocationDataHandlerPolicyBase.h"
 #include "../../RavensControllerUpdatePacket_m.h"
 #include "../DataUpdates/UserEntryUpdate.h"
 #include <string>
@@ -21,7 +21,7 @@ struct UeSpeedInfo
         : ueId(ueId), speed(speed), bsId(bsId), timestamp(timestamp) {}
 };
 
-class NotifyOnUserEntry : public DataHandlerPolicyBase
+class NotifyOnUserEntry : public LocationDataHandlerPolicyBase
 {
   protected:
     std::unordered_map<std::string, UserEntryUpdate> standby;

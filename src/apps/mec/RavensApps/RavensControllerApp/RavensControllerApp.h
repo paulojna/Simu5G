@@ -52,7 +52,7 @@ struct UserStateChange
     UserData userData;
 };
 
-class DataHandlerPolicyBase;
+class LocationDataHandlerPolicyBase;
 
 class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket::ICallback
 {
@@ -77,12 +77,12 @@ class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket:
         inet::UdpSocket udpSocket;
         inet::SocketMap socketMap;
 
-        friend class DataHandlerPolicyBase;
+        friend class LocationDataHandlerPolicyBase;
         friend class SaveDataHistory;
         friend class NotifyOnDataChange;
         friend class NotifyOnUserEntry;
         
-        DataHandlerPolicyBase* dataHandlerPolicy_;
+        LocationDataHandlerPolicyBase* locationDataHandlerPolicy_;
 
         // to check if we are dealing with a packet from RAVENS Agent or from a UE directly
         inet::PacketFilter ravensLinkPacketFilter;

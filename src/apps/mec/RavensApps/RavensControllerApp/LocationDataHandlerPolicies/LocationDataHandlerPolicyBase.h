@@ -1,5 +1,5 @@
-#ifndef RAVENS_CONTROLLER_APP_DATAHANDLERPOLICYBASE_H_
-#define RAVENS_CONTROLLER_APP_DATAHANDLERPOLICYBASE_H_
+#ifndef RAVENS_CONTROLLER_APP_LOCATIONDATAHANDLERPOLICYBASE_H_
+#define RAVENS_CONTROLLER_APP_LOCATIONDATAHANDLERPOLICYBASE_H_
 
 #include "../RavensControllerApp.h"
 
@@ -10,7 +10,7 @@ using namespace omnetpp;
 class RavensControllerApp;
 
 // abstract class
-class DataHandlerPolicyBase
+class LocationDataHandlerPolicyBase
 {
     friend class RavensControllerApp;
     
@@ -20,10 +20,10 @@ class DataHandlerPolicyBase
         virtual inet::Packet* handleDataMessage(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet) = 0;
 
     public:
-        DataHandlerPolicyBase(RavensControllerApp* controllerApp) { controllerApp_ = controllerApp; }
-        virtual ~DataHandlerPolicyBase() {}
+        LocationDataHandlerPolicyBase(RavensControllerApp* controllerApp) { controllerApp_ = controllerApp; }
+        virtual ~LocationDataHandlerPolicyBase() {}
 };
 
 }
 
-#endif /* RAVENS_CONTROLLER_APP_DATAHANDLERPOLICYBASE_H_ */
+#endif /* RAVENS_CONTROLLER_APP_LOCATIONDATAHANDLERPOLICYBASE_H_ */

@@ -4,9 +4,9 @@
 #include "inet/transportlayer/common/L4PortTag_m.h"
 #include "inet/transportlayer/contract/udp/UdpControlInfo_m.h"
 
-#include "DataHandlerPolicies/SaveDataHistory.h"
-#include "DataHandlerPolicies/NotifyOnDataChange.h"
-#include "DataHandlerPolicies/NotifyOnUserEntry.h"
+#include "LocationDataHandlerPolicies/SaveDataHistory.h"
+#include "LocationDataHandlerPolicies/NotifyOnDataChange.h"
+#include "LocationDataHandlerPolicies/NotifyOnUserEntry.h"
 
 #define USERS_UPDATE 7
 #define USERS_ENTRY 8
@@ -17,7 +17,7 @@ namespace simu5g {
 Define_Module(RavensControllerApp);
 
 RavensControllerApp::RavensControllerApp(){
-    dataHandlerPolicy_ = nullptr;
+    locationDataHandlerPolicy_ = nullptr;
     calculateAvg_ = nullptr;
 }
 
@@ -25,7 +25,7 @@ RavensControllerApp::~RavensControllerApp(){
     cancelAndDelete(calculateAvg_);
     udpSocket.close();
 
-    delete dataHandlerPolicy_;
+    delete locationDataHandlerPolicy_;
 }
 
 void RavensControllerApp::initialize(int stage){
@@ -46,13 +46,13 @@ void RavensControllerApp::initialize(int stage){
 
     if(!strcmp(par("mode"), "SaveDataHistory")){
         EV << "RavensControllerApp::initialize - SaveDataHistory mode" << endl;
-        dataHandlerPolicy_ = new SaveDataHistory(this, par("path"));
+        locationDataHandlerPolicy_ = new SaveDataHistory(this, par("path"));
     }else if(!strcmp(par("mode"), "NotifyOnDataChange")){
         EV << "RavensControllerApp::initialize - NotifyOnDataChange handler mode" << endl;
-        dataHandlerPolicy_ = new NotifyOnDataChange(this, par("threshold"));
+        locationDataHandlerPolicy_ = new NotifyOnDataChange(this, par("threshold"));
     }else if(!strcmp(par("mode"), "NotifyOnUserEntry")){
         EV << "RavensControllerApp::initialize - NotifyOnUserEntry handler mode" << endl;
-        dataHandlerPolicy_ = new NotifyOnUserEntry(this);
+        locationDataHandlerPolicy_ = new NotifyOnUserEntry(this);
     }else{
         throw cRuntimeError("RavensControllerApp::initialize - invalid mode parameter");
     }
@@ -209,7 +209,7 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
         }
         else if(received_packet->getType() == USERS_INFO_SNAPSHOT)
         {
-            update = dataHandlerPolicy_->handleDataMessage(packet->peekAtFront<RavensLinkUsersInfoSnapshotMessage>());
+            update = locationDataHandlerPolicy_->handleDataMessage(packet->peekAtFront<RavensLinkUsersInfoSnapshotMessage>());
         }
     }
     else if(uePacketFilter.matches(packet))
@@ -291,7 +291,7 @@ void RavensControllerApp::socketErrorArrived(inet::UdpSocket *socket, inet::Indi
 }
 
 /*
-    Method that will run through the userStateMap and detect users that have not been updated for a pre-determined 
+    Method that runs through the userStateMap and detect users that have not been updated for a pre-determined 
     amount time - defined by the treshold_.
 */
 std::vector<UserState> RavensControllerApp::removeInactiveUsers(){
