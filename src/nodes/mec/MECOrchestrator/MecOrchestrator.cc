@@ -897,7 +897,10 @@ void MecOrchestrator::migrateAppTime(std::string ueAddress, std::string newMEHId
         MecPlatformManager* mecpm = check_and_cast<MecPlatformManager*>(meAppMapEntry->second.mecpm);
 
         MecAppInstanceInfo* appInfo = nullptr;
-        appInfo = mecpm->instantiateMEApp(msg);   
+        appInfo = mecpm->instantiateMEApp(msg);
+        
+        // print the result of the instantiation
+        EV << "MigrateOnChange::reactOnUpdate - new MEC application with name: " << appInfo->instanceId << " instantiated on MEC host []"<< meAppMapEntry->second.mecHost << " at "<< appInfo->endPoint.addr.str() << ":" << appInfo->endPoint.port << endl;
 
         if(!appInfo->status)
         {

@@ -58,7 +58,9 @@ protected:
     cMessage *userLocation;
     
     std::vector<AccessPointData> accessPoints;
-    std::map<std::string, UserData> users; 
+    std::unordered_map<std::string, UserData> users; 
+    // to compare before sending the information to the controller to ensure that we are not sending the same information twice
+    std::unordered_map<std::string, UserData> last_users; 
     std::map<long, std::map<std::string, UserData>> history;
 
     virtual int numInitStages() const override { return inet::NUM_INIT_STAGES; }

@@ -20,7 +20,7 @@ cplusplus {{
     #include "RavensAgentApp/AccessPointData.h"
     #include "RavensAgentApp/UserData.h"
     typedef std::vector<::simu5g::AccessPointData> AccessPointList;
-    typedef std::map<std::string, ::simu5g::UserData> UsersMap;
+    typedef std::unordered_map<std::string, ::simu5g::UserData> UsersMap;
 }};
 
 class AccessPointList { @existingClass; };

@@ -3,7 +3,7 @@
 
 namespace simu5g {
 
-NotifyOnUserEntry::NotifyOnUserEntry(RavensControllerApp *controllerApp) : DataHandlerPolicyBase(controllerApp) {
+NotifyOnUserEntry::NotifyOnUserEntry(RavensControllerApp *controllerApp) : LocationDataHandlerPolicyBase(controllerApp) {
     // we are going to use the controllerApp_ instance from DataHandlerPolicyBase
     // start standby as an empty list
     standby.clear();
@@ -15,6 +15,12 @@ NotifyOnUserEntry::~NotifyOnUserEntry() {
     standby.clear();
     speedInfoList.clear();
 }
+
+/*
+    This is a specific use case of the handleDataMessage method that is used to handle the data messages
+    received from the network similarly to the NotifyOnDataChange. However, this is used to feed a ML support system that
+    is connected to the MEO. Some other metrics need to be calculated in order to be used by the ML system.
+*/
 
 inet::Packet *NotifyOnUserEntry::handleDataMessage(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet)
 {

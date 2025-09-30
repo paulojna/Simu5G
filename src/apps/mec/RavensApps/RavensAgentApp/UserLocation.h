@@ -25,6 +25,12 @@ class UserLocation: public NodeLocation {
 
         void setBearing(long newBearing);
         void setHorizontalSpeed(long newHorizontalSpeed);
+
+        bool operator==(const UserLocation& other) const {
+        return NodeLocation::operator==(other) &&
+               bearing == other.bearing &&
+               horizontalSpeed == other.horizontalSpeed;
+        }
 };
 
 }

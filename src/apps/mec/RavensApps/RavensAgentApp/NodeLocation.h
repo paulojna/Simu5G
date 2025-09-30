@@ -28,6 +28,12 @@ class NodeLocation {
         void setX(long newX);
         void setY(long newY);
         void setZ(long newZ);
+
+        bool operator==(const NodeLocation& other) const {
+        return x == other.x &&
+               y == other.y &&
+               z == other.z;
+        }
 };
 }
 

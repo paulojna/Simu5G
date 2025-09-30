@@ -10,7 +10,7 @@
 #include "inet/networklayer/common/L3Address.h"
 
 /*
-    Simple structure to hold the data of a host, including Access Points and Users and the last time it was updated
+    Simple structure to hold the data of a host, including connected Access Points and other relevant information
 */
 
 namespace simu5g {
@@ -20,15 +20,14 @@ class MECHostData {
         std::string hostId;
         inet::L3Address remoteAddress;
         int port;
-        omnetpp::simtime_t lastUpdated;
         std::vector<AccessPointData> accessPoints;
-        std::map<std::string, UserData> users;
+        // std::unordered_map<std::string, UserData> users;
 
     public:
         // Default constructor
         MECHostData();
         // Parameterized constructor
-        MECHostData(const std::string& hostId, const std::vector<AccessPointData>& accessPoints, const std::map<std::string, UserData>& users);
+        MECHostData(const std::string& hostId, const std::vector<AccessPointData>& accessPoints, const std::unordered_map<std::string, UserData>& users);
 
         // Destructor
         ~MECHostData() {}
@@ -37,15 +36,20 @@ class MECHostData {
         inet::L3Address getL3Address() const;
         int getPort() const;
         std::vector<AccessPointData> getAccessPoints() const;
-        std::map<std::string, UserData> getUsers() const;
-        omnetpp::simtime_t getLastUpdated() const;
+        //std::unordered_map<std::string, UserData> getUsers() const;
+        //omnetpp::simtime_t getOriginTimestamp() const;
+
+        std::vector<AccessPointData>& getAccessPoints();
+        // std::unordered_map<std::string, UserData>& getUsers();
 
         void setHostId(const std::string& hostId);
         void setL3Address(inet::L3Address remoteAddress);
         void setPort(int port);
         void setAccessPoints(const std::vector<AccessPointData>& accessPoints);
-        void setUsers(const std::map<std::string, UserData>& users);
-        void setLastUpdated(omnetpp::simtime_t lastUpdated);
+        // add one setUsers method that is not const
+        // void setUsers(std::unordered_map<std::string, UserData>& users);
+        // void setUsers(const std::unordered_map<std::string, UserData>& users);
+        // void setOriginTimestamp(omnetpp::simtime_t time);
 };
 
 }

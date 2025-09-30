@@ -12,14 +12,14 @@ using namespace omnetpp;
 class UsersListNotificationEvent: public EventNotification {
     public:
         UsersListNotificationEvent();
-        UsersListNotificationEvent(const std::string& type, const int& subId, const std::list<UserInfo>& usersList);
+        UsersListNotificationEvent(const std::string& type, const int& subId, const std::vector<UserInfo>& usersList);
 
-        const std::list<UserInfo>& getUsersList() const;
+        const std::vector<UserInfo>& getUsersList() const;
 
         virtual ~UsersListNotificationEvent();
 
     private:
-        std::list<UserInfo> usersList_;
+        std::vector<UserInfo> usersList_;
 };
 
 }

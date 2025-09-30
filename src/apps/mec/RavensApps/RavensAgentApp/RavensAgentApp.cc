@@ -49,7 +49,7 @@ void RavensAgentApp::initialize(int stage)
     userLocation = new cMessage("userLocation");
 
     accessPoints = std::vector<AccessPointData>();
-    users = std::map<std::string, UserData>();
+    users = std::unordered_map<std::string, UserData>();
 
     this->mecHostId = mecHost->getName();
 
@@ -122,7 +122,7 @@ void RavensAgentApp::sendAPList()
     request->setChunkLength(B(500));
     request->setType(INFRAESTRUCTURE_DETAILS);
     request->setRequestId(0);
-    request->setTimeStamp(simTime().inUnit(SIMTIME_S));
+    request->setTimeStamp(simTime());
     request->setMecHostId(getMecHostId().c_str());
     request->setAPList(accessPoints);
     packet->insertAtBack(request);
@@ -131,19 +131,24 @@ void RavensAgentApp::sendAPList()
 
 void RavensAgentApp::sendUsersInfoSnapshot()
 {
-    // get the information available on the users map and send it to the controller using the message type USER_INFO_SNAPSHOT
-    EV << "RavensAgentApp::sendUsersInfoSnapshot - Sending User Info Snapshot" << endl;
-    inet::Packet* packet = new inet::Packet("RavensLinkUsersInfoSnapshotMessage");
-    auto request = inet::makeShared<RavensLinkUsersInfoSnapshotMessage>();
-    request->setChunkLength(B(500));
-    request->setType(USERS_INFO_SNAPSHOT);
-    request->setRequestId(localSnapshotCounter);
-    request->setTimeStamp(simTime().inUnit(SIMTIME_S));
-    request->setMecHostId(getMecHostId().c_str());
-    request->setUsers(users);
-    packet->insertAtBack(request);
-    controllerSocket_.send(packet);
-    localSnapshotCounter++;
+    // only send the information if the users map has changed
+    if (users.size() != last_users.size() || !std::equal(users.begin(), users.end(), last_users.begin(), last_users.end(), [](const auto& p1, const auto& p2) {return p1.first == p2.first && p1.second == p2.second; }))
+    {
+        // get the information available on the users map and send it to the controller using the message type USER_INFO_SNAPSHOT
+        EV << "RavensAgentApp::sendUsersInfoSnapshot - Sending User Info Snapshot" << endl;
+        inet::Packet* packet = new inet::Packet("RavensLinkUsersInfoSnapshotMessage");
+        auto request = inet::makeShared<RavensLinkUsersInfoSnapshotMessage>();
+        request->setChunkLength(B(500));
+        request->setType(USERS_INFO_SNAPSHOT);
+        request->setRequestId(localSnapshotCounter);
+        request->setTimeStamp(simTime());
+        request->setMecHostId(getMecHostId().c_str());
+        request->setUsers(users);
+        packet->insertAtBack(request);
+        controllerSocket_.send(packet);
+        localSnapshotCounter++;
+        last_users = users;
+    }
 
     // schedule the next snapshot to send
     cMessage *msg = new cMessage("sendUserList");
@@ -371,7 +376,8 @@ void RavensAgentApp::handleLSMessage(int connId)
                     long y = user["userInfo"]["locationInfo"]["y"];
                     long z = user["userInfo"]["locationInfo"]["z"];
                     //long bearing = user["userInfo"]["locationInfo"]["velocity"]["bearing"];
-                    long bearing = user["userInfo"]["locationInfo"]["velocity"]["bearing"].is_null() ? 0 : user["userInfo"]["locationInfo"]["velocity"]["bearing"].get<long>();                    long speed = user["userInfo"]["locationInfo"]["velocity"]["horizontalSpeed"];
+                    long bearing = user["userInfo"]["locationInfo"]["velocity"]["bearing"].is_null() ? 0 : user["userInfo"]["locationInfo"]["velocity"]["bearing"].get<long>();                    
+                    long speed = user["userInfo"]["locationInfo"]["velocity"]["horizontalSpeed"];
                     UserLocation userLocation = UserLocation(x, y, z, bearing, speed);
                     UserData userData = UserData(address, apData, userLocation);
                     users[address] = userData;
@@ -460,7 +466,7 @@ void RavensAgentApp::sendUsersListSubscription()
                             "\"callbackData\":\"v0\","
                             "\"notifyURL\":\"ravens.user.list\"},"
                            "\"checkImmediate\": \"true\","
-                            "\"frequency\": 0.5,"
+                            "\"frequency\": 1,"
                             "\"cells\": [0]"
                             "}"
                             "}\r\n";

@@ -40,7 +40,7 @@ class UsersListNotificationSubscription: public SubscriptionBase
             std::set<MacNodeId> cells_;
     
             //set of UserInfo 
-            std::list<UserInfo> userList;
+            std::vector<UserInfo> userList;
             
             //callbackReference
             std::string callbackData;// optional: YES

@@ -23,8 +23,8 @@
 
     <time>
         <begin value="0"/>
-		<step-length value="1.0"/>
-		<end value="28800"/>
+		<step-length value="1"/>
+		<end value="3600"/>
     </time>
 
     <processing>
@@ -34,18 +34,13 @@
         <ignore-route-errors value="true"/>
         <time-to-teleport value="150"/>
         -->
+        <scale value="0.3"/>
     </processing>
 
     <report>
         <xml-validation value="never"/>
         <no-warnings value="true"/>
     </report>
-
-    <mesoscopic>
-        <mesosim value="true"/>
-        <meso-junction-control.limited value="true"/>
-        <meso-overtaking value="true"/>
-    </mesoscopic>
 
     <random_number>
         <random value="true"/>

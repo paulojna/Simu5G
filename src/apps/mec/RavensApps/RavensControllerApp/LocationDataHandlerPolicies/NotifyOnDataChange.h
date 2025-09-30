@@ -1,7 +1,7 @@
 #ifndef RAVENS_CONTROLLER_APP_NOTIFYONDATACHANGE_H_
 #define RAVENS_CONTROLLER_APP_NOTIFYONDATACHANGE_H_
 
-#include "DataHandlerPolicyBase.h"
+#include "LocationDataHandlerPolicyBase.h"
 #include "../../RavensControllerUpdatePacket_m.h"
 #include <string>
 
@@ -20,7 +20,7 @@ struct ueStanbyElement
 };
 
 
-class NotifyOnDataChange : public DataHandlerPolicyBase
+class NotifyOnDataChange : public LocationDataHandlerPolicyBase
 {
     protected:
         simtime_t interval_;

@@ -183,12 +183,12 @@ network highwayA11_1to1
         iUpf5.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf6.pppg++;
 
         //connect mecHost with upf
-        mecHost1.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
-        mecHost2.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
-        mecHost3.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
-        mecHost4.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
-        mecHost5.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
-        mecHost6.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
+        //mecHost1.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
+        //mecHost2.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
+        //mecHost3.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
+        //mecHost4.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
+        //mecHost5.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
+        //mecHost6.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
 
         //mecHost1.ppp++ <--> Eth10G <--> upf.pppg++;
         //mecHost1.ppp++ <--> Eth10G <--> upf.pppg++;
