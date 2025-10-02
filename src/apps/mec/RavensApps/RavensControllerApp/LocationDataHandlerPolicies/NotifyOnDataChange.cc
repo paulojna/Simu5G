@@ -71,6 +71,9 @@ inet::Packet *NotifyOnDataChange::handleDataMessage(inet::Ptr<const RavensLinkUs
 
     // update the userStateMap
     controllerApp_->updateUserStateMap(received_packet);
+
+    // return nullptr since we don't need to send any packet
+    return nullptr;
 }
 
 void NotifyOnDataChange::addUserUpdate(UserMEHUpdate &update)
