@@ -2,7 +2,7 @@
 #define NODES_MEC_MECORCHESTRATOR_REACTIONONUPDATE_H_
 
 
-#include "nodes/mec/MECOrchestrator/MecOrchestrator.h"
+#include "nodes/mec/MECOrchestrator/Interfaces/IOrchestrationApi.h"
 #include "apps/mec/RavensApps/RavensControllerApp/DataUpdates/UserMEHUpdate.h"
 #include "apps/mec/RavensApps/RavensControllerApp/DataUpdates/UserEntryUpdate.h"
 
@@ -12,15 +12,13 @@ class MecOrchestrator;
 
 class ReactionOnUpdate
 {
-    friend class MecOrchestrator;
-
   protected:
-    MecOrchestrator* mecOrchestrator_;
-    virtual void reactOnUpdate(const UserMEHUpdate&) = 0;
-    virtual void reactOnUpdate(const std::vector<UserEntryUpdate>&) = 0;
+    IOrchestratorApi* api_ = nullptr;
 
   public:
-    ReactionOnUpdate(MecOrchestrator* mecOrchestrator){mecOrchestrator_ = mecOrchestrator;}
+    explicit ReactionOnUpdate(IOrchestratorApi* api) : api_(api) {}
+    virtual void reactOnUpdate(const UserMEHUpdate&) = 0;
+    virtual void reactOnUpdate(const std::vector<UserEntryUpdate>&) = 0;
     virtual ~ReactionOnUpdate() {}
 };
 

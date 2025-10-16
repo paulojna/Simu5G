@@ -31,6 +31,9 @@
 
 #include "nodes/mec/MECOrchestrator/ApplicationDescriptor/ApplicationDescriptor.h"
 
+//Interfaces
+#include "nodes/mec/MECOrchestrator/Interfaces/IOrchestrationApi.h"
+
 namespace simu5g {
 
 using namespace omnetpp;
@@ -83,7 +86,7 @@ class ReactionOnUpdate;
 //   - MEC app run-time onboarding
 //
 
-class MecOrchestrator : public cSimpleModule
+class MecOrchestrator : public cSimpleModule, public IOrchestratorApi
 {
     // Selection Policies modules access grants
     friend class SelectionPolicyBase;
@@ -91,10 +94,6 @@ class MecOrchestrator : public cSimpleModule
     friend class AvailableResourcesSelectionBased;
     friend class MecHostSelectionBased;
     friend class LocationSelectionBased;
-
-    friend class ReactionOnUpdate;
-    friend class RemoveOnExit;
-    friend class MigrateOnChange;
 
     SelectionPolicyBase* mecHostSelectionPolicy_;
     ReactionOnUpdate* reactionOnUpdate_;
@@ -138,10 +137,12 @@ class MecOrchestrator : public cSimpleModule
          * @param ServiceDescriptor descriptor of the MEC service to register
          */
         void registerMecService(ServiceDescriptor&) const;
-        nlohmann::json formatDataFromRAVENS(std::vector<UserEntryUpdate> UserEntryUpdatedList);
-        std::string postRequestPrediction(const std::string &url, const nlohmann::json &jsonObject);
-        void migrateAppTime(std::string ueAddress, std::string newMEHId, std::string oldMEHId);
-        void removeAppTime(std::string ueAddress, std::string oldMEHId);
+        nlohmann::json formatDataFromRAVENS(std::vector<UserEntryUpdate> UserEntryUpdatedList) override;
+        std::string postRequestPrediction(const std::string &url, const nlohmann::json &jsonObject) override;
+        // IOrchestratorApi methods
+        void migrateApp(std::string ueAddress, std::string newMEHId, std::string oldMEHId) override;
+        void removeAppFromSystem(std::string ueAddress, std::string oldMEHId) override;
+        void checkIfMigrationIsNeeded(std::string ueAddress, std::string newMEHId, std::string oldMEHId) override;
 
         int getMigrationTime() const { return migrationTime; }
 

@@ -22,6 +22,8 @@ void MigrateOnChange::reactOnUpdate(const UserMEHUpdate &update)
     // check if the newMEH is empty
     if (update.getNewMEHId()==" ")
     {
+        api_->removeAppFromSystem(update.getAddress(), update.getLastMEHId());
+        /*
         EV << "MigrateOnChange::reactOnUpdate - newMEHId is not empty - it got out of the system -> removing MEC app" << endl;
         // remove the acr: part of the address and convertit to inet::L3Address
         std::string ueAddress = update.getAddress();
@@ -62,9 +64,12 @@ void MigrateOnChange::reactOnUpdate(const UserMEHUpdate &update)
         EV << "MigrateOnChange::reactOnUpdate - sending DeleteContextAppMessage to MecOrchestrator to stop MEC app with contextId " << contextId << endl;
         std::cout << "RemoveOnExit" << endl;
         mecOrchestrator_->stopMECApp(msg);
+        */
     }
     else if(update.getNewMEHId()!=" " && update.getLastMEHId()!=" " && update.getNewMEHId()!=update.getLastMEHId())
     {
+        api_->migrateApp(update.getAddress(), update.getNewMEHId(), update.getLastMEHId());
+        /*
         EV << "MigrateOnChange::reactOnUpdate - newMEHId and lastMEHId are not empty -> starting migration" << endl;
         // remove the acr: part of the address and convertit to inet::L3Address
         std::string ueAddress = update.getAddress();
@@ -83,7 +88,7 @@ void MigrateOnChange::reactOnUpdate(const UserMEHUpdate &update)
             4. Wait for the ACK from the UE (through the UALCMP)-> To be done on the mecOrchestrator
             5. Stop the MEC app on the old MEH -> To be done on the mecOrchestrator
         */ 
-
+        /*
         // 1. Start the MEC app on the new MEH
         // 1.1 find the contextId that has the same ueAddress
         int contextId = -1;
@@ -200,10 +205,10 @@ void MigrateOnChange::reactOnUpdate(const UserMEHUpdate &update)
 
             return;
         }   
+        */
     }
     else if (update.getLastMEHId()==" " && update.getNewMEHId()!=" ")
     {
-        EV << "MigrateOnChange::reactOnUpdate - lastMEHId is empty, new user detected by RAVENS. We need to check if migration is needed!" << endl;
         /*
             This process will include:
             1. Check if the UE has already a MEC app instantiated on the MEH with newMEHId
@@ -212,6 +217,10 @@ void MigrateOnChange::reactOnUpdate(const UserMEHUpdate &update)
                 3.2 and if it is instantiated on another MEH, migrate the instance to the MEH with newMEHId
             3. If it is already instantiated on the MEH with newMEHId, do nothing
         */
+
+        api_->checkIfMigrationIsNeeded(update.getAddress(), update.getLastMEHId(), update.getNewMEHId());
+
+        /*
 
         // remove the acr: part of the address and convertit to inet::L3Address
         std::string ueAddress = update.getAddress();
@@ -342,10 +351,11 @@ void MigrateOnChange::reactOnUpdate(const UserMEHUpdate &update)
                 return;
             }
         }
+        */
     }
     else
     {
-        EV << "MigrateOnChange::reactOnUpdate - ERROR: update fields not recognized!" << endl;
+        
     }
 }
 
