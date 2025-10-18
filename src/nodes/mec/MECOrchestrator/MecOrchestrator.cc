@@ -50,11 +50,13 @@ namespace simu5g
 
     MecOrchestrator::MecOrchestrator()
     {
-        meAppMap.clear();
+        //meAppMap.clear();
         mecApplicationDescriptors_.clear();
         mecHostSelectionPolicy_ = nullptr;
         userMEHMap.clear();
         reactionOnUpdate_ = nullptr;
+        // NEW
+        mecAppRegistry_ = nullptr;
     }
 
     void MecOrchestrator::initialize(int stage)
@@ -99,6 +101,9 @@ namespace simu5g
 
         getConnectedMecHosts();
         onboardApplicationPackages();
+
+        // NEW
+        mecAppRegistry_ = std::make_unique<MecAppRegistry>();
     }
 
     void MecOrchestrator::handleMessage(cMessage *msg)
@@ -297,15 +302,9 @@ namespace simu5g
          * The Mec orchestrator has to decide where to deploy the MEC application.
          * - It checks if the MEC app has been already deployed
          * - It selects the most suitable MEC host     *
-         */
 
         for (const auto &contextApp : meAppMap)
         {
-            /*
-             * TODO
-             * set the check to provide multi UE to one mec application scenario.
-             * For now the scenario is one to one, since the device application ID is used
-             */
             if (contextApp.second.mecUeAppID == ueAppID && contextApp.second.appDId.compare(contAppMsg->getAppDId()) == 0)
             {
                 //        meAppMap[ueAppID].lastAckStartSeqNum = pkt->getSno();
@@ -316,6 +315,24 @@ namespace simu5g
                 EV << "MecOrchestrator::startMECApp  - sending ackMEAppPacket with " << ACK_CREATE_CONTEXT_APP << endl;
                 sendCreateAppContextAck(true, contAppMsg->getRequestId(), contextApp.first);
                 return;
+            }
+        }
+        */
+
+        // NEW - Check if the MEC app is already running
+        if(mecAppRegistry_->isAppAlreadyRunning((ueAppID), contAppMsg->getAppDId()))
+        {
+            EV << "MecOrchestrator::startMECApp - MEC app already running" << endl;
+            auto result = mecAppRegistry_->findAppByUeAddress(contAppMsg->getAppDId());
+            if(result.found)
+            {
+                EV << "MecOrchestrator::startMECApp - MEC app found" << endl;
+                sendCreateAppContextAck(true, contAppMsg->getRequestId(), result.contextId);
+                return;
+            }
+            else
+            {
+                EV << "MecOrchestrator::startMECApp - MEC app not found" << endl;
             }
         }
 
@@ -434,10 +451,18 @@ namespace simu5g
             newMecApp.mecAppPort = appInfo->endPoint.port;
             newMecApp.mecAppIsntanceId = appInfo->instanceId;
             newMecApp.contextId = contextIdCounter;
-            meAppMap[contextIdCounter] = newMecApp;
+            //meAppMap[contextIdCounter] = newMecApp;
+            
+            
+            // NEW
+            MecAppRegistry::AppEntry appEntry = mecAppRegistry_->createAppEntry(contextIdCounter, appDid, desc.getAppName().c_str(), ueAppID, newMecApp.mecHost, newMecApp.ueAddress);
+            appEntry.updateFromInstanceInfo(appInfo);
+            mecAppRegistry_->registerApp(appEntry);
 
             MECOrchestratorMessage *msg = new MECOrchestratorMessage("MECOrchestratorMessage");
-            msg->setContextId(contextIdCounter);
+            //msg->setContextId(contextIdCounter);
+            // NEW
+            msg->setContextId(appEntry.contextId);
             msg->setType(CREATE_CONTEXT_APP);
             msg->setRequestId(contAppMsg->getRequestId());
             msg->setSuccess(true);
@@ -475,6 +500,7 @@ namespace simu5g
 
         int contextId = contAppMsg->getContextId();
         EV << "MecOrchestrator::stopMECApp - processing contextId: " << contextId << endl;
+        /*
         // checking if ueAppIdToMeAppMapKey entry map does exist
         if (meAppMap.empty() || (meAppMap.find(contextId) == meAppMap.end()))
         {
@@ -484,17 +510,33 @@ namespace simu5g
             //        throw cRuntimeError("MecOrchestrator::stopMECApp - \tERROR ueAppIdToMeAppMapKey entry not found!");
             return;
         }
+        */
+
+        // NEW 
+        auto result = mecAppRegistry_->findAppByContextId(contextId);
+        if(!result.found)
+        {
+            EV << "MecOrchestrator::stopMECApp - MEC app not found" << endl;
+            sendDeleteAppContextAck(false, contAppMsg->getRequestId(), contextId);
+            return;
+        }
 
         // call the methods of resource manager and virtualization infrastructure of the selected mec host to deallocate the resources
 
-        MecPlatformManager *mecpm = check_and_cast<MecPlatformManager *>(meAppMap[contextId].mecpm);
+        /*MecPlatformManager *mecpm = check_and_cast<MecPlatformManager *>(meAppMap[contextId].mecpm);
         //     VirtualisationInfrastructureManager* vim = check_and_cast<VirtualisationInfrastructureManager*>(meAppMap[contextId].vim);
 
         DeleteAppMessage *deleteAppMsg = new DeleteAppMessage();
         deleteAppMsg->setUeAppID(meAppMap[contextId].mecUeAppID);
+        */
 
+        // NEW
+        MecPlatformManager *mecpm = check_and_cast<MecPlatformManager *>(result.appEntry->mecpm);
+        DeleteAppMessage *deleteAppMsg = new DeleteAppMessage();
+        deleteAppMsg->setUeAppID(result.appEntry->mecUeAppID);
+        
         bool isTerminated;
-        if (meAppMap[contextId].isEmulated)
+        if (result.appEntry->isEmulated)
         {
             isTerminated = mecpm->terminateEmulatedMEApp(deleteAppMsg);
             std::cout << "terminateEmulatedMEApp with result: " << isTerminated << std::endl;
@@ -510,13 +552,15 @@ namespace simu5g
         mecoMsg->setContextId(contAppMsg->getContextId());
         if (isTerminated)
         {
-            EV << "MecOrchestrator::stopMECApp - mec Application [" << meAppMap[contextId].mecUeAppID << "] removed" << endl;
-            meAppMap.erase(contextId);
+            //EV << "MecOrchestrator::stopMECApp - mec Application [" << meAppMap[contextId].mecUeAppID << "] removed" << endl;
+            //meAppMap.erase(contextId);
+            // NEW
+            mecAppRegistry_->unregisterApp(result.appEntry->contextId);
             mecoMsg->setSuccess(true);
         }
         else
         {
-            EV << "MecOrchestrator::stopMECApp - mec Application [" << meAppMap[contextId].mecUeAppID << "] not removed" << endl;
+            //EV << "MecOrchestrator::stopMECApp - mec Application [" << meAppMap[contextId].mecUeAppID << "] not removed" << endl;
             mecoMsg->setSuccess(false);
         }
 
@@ -557,6 +601,7 @@ namespace simu5g
 
         if (result)
         {
+            /*
             if (meAppMap.empty() || meAppMap.find(contextId) == meAppMap.end())
             {
                 EV << "MecOrchestrator::ackMEAppPacket - ERROR meApp[" << contextId << "] does not exist!" << endl;
@@ -565,16 +610,31 @@ namespace simu5g
             }
 
             mecAppMapEntry mecAppStatus = meAppMap[contextId];
+            */
+
+            // NEW 
+            auto result = mecAppRegistry_->findAppByContextId(contextId);
+            if(!result.found)
+            {
+                EV << "MecOrchestrator::sendCreateAppContextAck - ERROR meApp[" << contextId << "] does not exist!" << endl;
+                return;
+            }
+
+            const MecAppRegistry::AppEntry& mecAppStatus = *result.appEntry;
 
             ack->setSuccess(true);
             ack->setContextId(contextId);
-            ack->setAppInstanceId(mecAppStatus.mecAppIsntanceId.c_str());
+            //ack->setAppInstanceId(mecAppStatus.mecAppIsntanceId.c_str());
             ack->setRequestId(requestSno);
-            std::stringstream uri;
+            //std::stringstream uri;
 
-            uri << mecAppStatus.mecAppAddress.str() << ":" << mecAppStatus.mecAppPort;
+            //uri << mecAppStatus.mecAppAddress.str() << ":" << mecAppStatus.mecAppPort;
 
-            ack->setAppInstanceUri(uri.str().c_str());
+            //ack->setAppInstanceUri(uri.str().c_str());
+
+            //NEW
+            ack->setAppInstanceId(mecAppStatus.mecAppInstanceId.c_str());
+            ack->setAppInstanceUri(mecAppStatus.getEndpointString().c_str());
         }
         else
         {
@@ -793,7 +853,7 @@ namespace simu5g
         int requestId = 0; // I've changed the starting value of the request counter to 1
 
         // find the contextId that has the same ueAddress
-        int contextId = -1;
+        /*int contextId = -1;
         for (auto &it : meAppMap)
         {
             if (it.second.ueAddress == ueL3Address)
@@ -803,6 +863,16 @@ namespace simu5g
                 break;
             }
         }
+        */
+        // NEW
+        auto result = mecAppRegistry_->findAppByUeAddress(ueAddress);
+        if(!result.found)
+        {
+            EV << "RemoveOnExit::reactOnUpdate - ERROR: contextId not found for ueAddress " << ueAddress << endl;
+            return;
+        }
+        int contextId = result.contextId;
+
 
         if (contextId == -1)
         {
@@ -827,7 +897,7 @@ namespace simu5g
         std::string ueIp = ueAddress.substr(4);
         inet::L3Address ueL3Address = inet::L3AddressResolver().resolve(ueIp.c_str());
 
-        int contextId = -1;
+        /*int contextId = -1;
         for (auto &it : meAppMap)
         {
             if (it.second.ueAddress == ueL3Address)
@@ -837,7 +907,17 @@ namespace simu5g
                 break;
             }
         }
-
+        */
+       
+        // NEW
+        auto result = mecAppRegistry_->findAppByUeAddress(ueAddress);
+        if(!result.found)
+        {
+            EV << "MecOrchestrator::MigrateAppTime - ERROR: contextId not found for ueAddress " << ueAddress << endl;
+            return;
+        }
+        int contextId = result.contextId;
+        
         if (contextId == -1)
         {
             EV << "MecOrchestrator::MigrateAppTime - contextId not found for ueAddress " << ueAddress << endl;
@@ -845,12 +925,12 @@ namespace simu5g
         }
         else
         {
-            auto meAppMapEntry = meAppMap.find(contextId);
-            const ApplicationDescriptor &desc = mecApplicationDescriptors_.at(meAppMapEntry->second.appDId);
+            auto meAppMapEntry = mecAppRegistry_->findAppByContextId(contextId);
+            const ApplicationDescriptor &desc = mecApplicationDescriptors_.at(meAppMapEntry.appEntry->appDId);
 
             standByElement standBy;
-            standBy.mecUeAppID = meAppMapEntry->second.mecUeAppID;
-            standBy.mecpm = meAppMapEntry->second.mecpm;
+            standBy.mecUeAppID = meAppMapEntry.appEntry->mecUeAppID;
+            standBy.mecpm = meAppMapEntry.appEntry->mecpm;
 
             cModule *newMEH = nullptr;
             for (auto &it : mecHosts)
@@ -894,23 +974,18 @@ namespace simu5g
                 msg->setRequiredService(desc.getOmnetppServiceRequired().c_str());
             else
                 msg->setRequiredService("NULL");
-            msg->setContextId(meAppMapEntry->first);
+            msg->setContextId(meAppMapEntry.appEntry->contextId);
 
             // change de mecapp in the map structure
-            meAppMapEntry->second.mecHost = newMEH;
-            meAppMapEntry->second.vim = vim;
-            meAppMapEntry->second.mecpm = newMEH->getSubmodule("mecPlatformManager");
-            meAppMapEntry->second.appDId = desc.getAppDId();
-            meAppMapEntry->second.mecUeAppID = standBy.mecUeAppID;
-            meAppMapEntry->second.ueAddress = ueL3Address;
+            mecAppRegistry_->updateApp(meAppMapEntry.appEntry->contextId, *meAppMapEntry.appEntry);
 
-            MecPlatformManager *mecpm = check_and_cast<MecPlatformManager *>(meAppMapEntry->second.mecpm);
+            MecPlatformManager *mecpm = check_and_cast<MecPlatformManager *>(meAppMapEntry.appEntry->mecpm);
 
             MecAppInstanceInfo *appInfo = nullptr;
             appInfo = mecpm->instantiateMEApp(msg);
 
             // print the result of the instantiation
-            EV << "MigrateOnChange::reactOnUpdate - new MEC application with name: " << appInfo->instanceId << " instantiated on MEC host []" << meAppMapEntry->second.mecHost << " at " << appInfo->endPoint.addr.str() << ":" << appInfo->endPoint.port << endl;
+            EV << "MigrateOnChange::reactOnUpdate - new MEC application with name: " << appInfo->instanceId << " instantiated on MEC host []" << meAppMapEntry.appEntry->mecHost << " at " << appInfo->endPoint.addr.str() << ":" << appInfo->endPoint.port << endl;
 
             if (!appInfo->status)
             {
@@ -918,14 +993,9 @@ namespace simu5g
                 return;
             }
 
-            EV << "MigrateOnChange::reactOnUpdate - new MEC application with name: " << appInfo->instanceId << " instantiated on MEC host []" << meAppMapEntry->second.mecHost << " at " << appInfo->endPoint.addr.str() << ":" << appInfo->endPoint.port << endl;
+            EV << "MigrateOnChange::reactOnUpdate - new MEC application with name: " << appInfo->instanceId << " instantiated on MEC host []" << meAppMapEntry.appEntry->mecHost << " at " << appInfo->endPoint.addr.str() << ":" << appInfo->endPoint.port << endl;
 
-            meAppMapEntry->second.mecAppAddress = appInfo->endPoint.addr;
-            meAppMapEntry->second.mecAppPort = appInfo->endPoint.port;
-            meAppMapEntry->second.mecAppIsntanceId = appInfo->instanceId;
-
-            // update the meAppMap
-            meAppMap[meAppMapEntry->first] = meAppMapEntry->second;
+            mecAppRegistry_->updateApp(meAppMapEntry.appEntry->contextId, *meAppMapEntry.appEntry);
 
             standBy.request = requestCounter;
             requestCounter++;
@@ -957,7 +1027,7 @@ namespace simu5g
         inet::L3Address ueL3Address = inet::L3AddressResolver().resolve(ueIp.c_str());
 
         // 1. check if the UE has a mecAppMapEntry on the meAppMap and if so, check which MEH is serving it
-        int contextId = -1;
+        /*int contextId = -1;
         for (auto &it : meAppMap)
         {
             if (it.second.ueAddress == ueL3Address)
@@ -967,6 +1037,17 @@ namespace simu5g
                 break;
             }
         }
+        */
+       
+        
+        // NEW
+        auto result = mecAppRegistry_->findAppByUeAddress(ueAddress);
+        if(!result.found)
+        {
+            EV << "MigrateOnChange::reactOnUpdate - ERROR: contextId not found for ueAddress " << ueAddress << endl;
+            return;
+        }
+        int contextId = result.contextId;
 
         if (contextId == -1)
         {
@@ -977,8 +1058,8 @@ namespace simu5g
         else
         {
             // UE already has the MEC App instantiated in one MEH -> but in which?
-            auto meAppMapEntry = meAppMap.find(contextId);
-            if (meAppMapEntry->second.mecHost->getName() == newMEHId)
+            auto meAppMapEntry = mecAppRegistry_->findAppByContextId(contextId);
+            if (meAppMapEntry.appEntry->mecHost->getName() == newMEHId)
             {
                 // UE is already being served by the newMEHId -> nothing to do
                 EV << "MigrateOnChange::reactOnUpdate - UE is already being served by the " << newMEHId << " -> nothing to do" << endl;
@@ -988,11 +1069,11 @@ namespace simu5g
             {
                 // UE is under a different MEH -> we should migrate the instance to the newMEHId
                 EV << "MigrateOnChange::reactOnUpdate - UE is in a different MEH -> we should migrate the instance to the " << newMEHId << " " << endl;
-                const ApplicationDescriptor &desc = mecApplicationDescriptors_.at(meAppMapEntry->second.appDId);
+                const ApplicationDescriptor &desc = mecApplicationDescriptors_.at(meAppMapEntry.appEntry->appDId);
 
                 standByElement standBy;
-                standBy.mecUeAppID = meAppMapEntry->second.mecUeAppID;
-                standBy.mecpm = meAppMapEntry->second.mecpm;
+                standBy.mecUeAppID = meAppMapEntry.appEntry->mecUeAppID;
+                standBy.mecpm = meAppMapEntry.appEntry->mecpm;
 
                 cModule *newMEH = nullptr;
                 for (auto &it : mecHosts)
@@ -1031,14 +1112,9 @@ namespace simu5g
                 msg->setRequiredDisk(desc.getVirtualResources().disk);
 
                 // change de mecapp in the map structure
-                meAppMapEntry->second.mecHost = newMEH;
-                meAppMapEntry->second.vim = vim;
-                meAppMapEntry->second.mecpm = newMEH->getSubmodule("mecPlatformManager");
-                meAppMapEntry->second.appDId = desc.getAppDId();
-                meAppMapEntry->second.mecUeAppID = standBy.mecUeAppID;
-                meAppMapEntry->second.ueAddress = ueL3Address;
+                mecAppRegistry_->updateApp(meAppMapEntry.appEntry->contextId, *meAppMapEntry.appEntry);
 
-                MecPlatformManager *mecpm = check_and_cast<MecPlatformManager *>(meAppMapEntry->second.mecpm);
+                MecPlatformManager *mecpm = check_and_cast<MecPlatformManager *>(meAppMapEntry.appEntry->mecpm);
 
                 MecAppInstanceInfo *appInfo = nullptr;
                 appInfo = mecpm->instantiateMEApp(msg);
@@ -1049,14 +1125,9 @@ namespace simu5g
                     return;
                 }
 
-                EV << "MigrateOnChange::reactOnUpdate - new MEC application with name: " << appInfo->instanceId << " instantiated on MEC host []" << meAppMapEntry->second.mecHost << " at " << appInfo->endPoint.addr.str() << ":" << appInfo->endPoint.port << endl;
+                EV << "MigrateOnChange::reactOnUpdate - new MEC application with name: " << appInfo->instanceId << " instantiated on MEC host []" << meAppMapEntry.appEntry->mecHost << " at " << appInfo->endPoint.addr.str() << ":" << appInfo->endPoint.port << endl;
 
-                meAppMapEntry->second.mecAppAddress = appInfo->endPoint.addr;
-                meAppMapEntry->second.mecAppPort = appInfo->endPoint.port;
-                meAppMapEntry->second.mecAppIsntanceId = appInfo->instanceId;
-
-                // update the meAppMap
-                meAppMap[meAppMapEntry->first] = meAppMapEntry->second;
+                mecAppRegistry_->updateApp(meAppMapEntry.appEntry->contextId, *meAppMapEntry.appEntry);
 
                 standBy.request = requestCounter;
                 requestCounter++;

@@ -31,8 +31,11 @@
 
 #include "nodes/mec/MECOrchestrator/ApplicationDescriptor/ApplicationDescriptor.h"
 
+//Services
+#include "nodes/mec/MECOrchestrator/services/MecAppRegistry/MecAppRegistry.h"
+
 //Interfaces
-#include "nodes/mec/MECOrchestrator/Interfaces/IOrchestrationApi.h"
+#include "nodes/mec/MECOrchestrator/interfaces/IOrchestrationApi.h"
 
 namespace simu5g {
 
@@ -109,8 +112,11 @@ class MecOrchestrator : public cSimpleModule, public IOrchestratorApi
 
     //storing the UEApp and MEApp informations
     //key = contextId - value mecAppMapEntry
-    std::map<int, mecAppMapEntry> meAppMap;
+    //std::map<int, mecAppMapEntry> meAppMap;
     std::map<std::string, ApplicationDescriptor> mecApplicationDescriptors_;
+
+    // NEW
+    std::unique_ptr<MecAppRegistry> mecAppRegistry_;
 
     unsigned int requestCounter;
     std::map<unsigned int, standByElement> standByList;
