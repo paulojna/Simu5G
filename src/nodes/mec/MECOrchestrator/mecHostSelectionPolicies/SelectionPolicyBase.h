@@ -25,10 +25,10 @@ class SelectionPolicyBase
 
   protected:
     MecOrchestrator* mecOrchestrator_;
-    virtual cModule* findBestMecHost(const ApplicationDescriptor&,inet::L3Address) = 0;
 
   public:
     SelectionPolicyBase(MecOrchestrator* mecOrchestrator){mecOrchestrator_ = mecOrchestrator;}
+    virtual cModule* findBestMecHost(const ApplicationDescriptor&,inet::L3Address) = 0;
     virtual ~SelectionPolicyBase() {}
 };
 

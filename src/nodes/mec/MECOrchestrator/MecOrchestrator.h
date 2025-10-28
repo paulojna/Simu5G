@@ -33,6 +33,7 @@
 
 //Services
 #include "nodes/mec/MECOrchestrator/services/MecAppRegistry/MecAppRegistry.h"
+#include "nodes/mec/MECOrchestrator/services/MecAppLifecycleManager/MecAppLifecycleManager.h"
 
 //Interfaces
 #include "nodes/mec/MECOrchestrator/interfaces/IOrchestrationApi.h"
@@ -117,6 +118,7 @@ class MecOrchestrator : public cSimpleModule, public IOrchestratorApi
 
     // NEW
     std::unique_ptr<MecAppRegistry> mecAppRegistry_;
+    std::unique_ptr<MecAppLifecycleManager> mecAppLifecycleManager_;
 
     unsigned int requestCounter;
     std::map<unsigned int, standByElement> standByList;

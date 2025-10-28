@@ -2,7 +2,7 @@
 #define NODES_MEC_MECORCHESTRATOR_REACTIONONUPDATE_H_
 
 
-#include "nodes/mec/MECOrchestrator/Interfaces/IOrchestrationApi.h"
+#include "nodes/mec/MECOrchestrator/interfaces/IOrchestrationApi.h"
 #include "apps/mec/RavensApps/RavensControllerApp/DataUpdates/UserMEHUpdate.h"
 #include "apps/mec/RavensApps/RavensControllerApp/DataUpdates/UserEntryUpdate.h"
 

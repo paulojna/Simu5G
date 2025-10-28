@@ -57,6 +57,7 @@ namespace simu5g
         reactionOnUpdate_ = nullptr;
         // NEW
         mecAppRegistry_ = nullptr;
+        mecAppLifecycleManager_ = nullptr;
     }
 
     void MecOrchestrator::initialize(int stage)
@@ -104,6 +105,8 @@ namespace simu5g
 
         // NEW
         mecAppRegistry_ = std::make_unique<MecAppRegistry>();
+        mecAppLifecycleManager_ = std::make_unique<MecAppLifecycleManager>(mecAppRegistry_.get(), mecHostSelectionPolicy_);
+        mecAppLifecycleManager_->initialize(onboardingTime, instantiationTime, terminationTime);
     }
 
     void MecOrchestrator::handleMessage(cMessage *msg)
@@ -224,11 +227,26 @@ namespace simu5g
 
         /* Handling CREATE_CONTEXT_APP */
         if (!strcmp(lcmMsg->getType(), CREATE_CONTEXT_APP))
-            startMECApp(lcmMsg);
-
+        {
+            LifecycleResult result = mecAppLifecycleManager_->startApplication(lcmMsg);
+            if(result.success) {
+                sendCreateAppContextAck(true, lcmMsg->getRequestId(), result.contextId);
+            }
+            else {
+                sendCreateAppContextAck(false, lcmMsg->getRequestId());
+            }
+        }
         /* Handling DELETE_CONTEXT_APP */
         else if (!strcmp(lcmMsg->getType(), DELETE_CONTEXT_APP))
-            stopMECApp(lcmMsg);
+        {
+            LifecycleResult result = mecAppLifecycleManager_->stopApplication(lcmMsg);
+            if(result.success) {
+                sendDeleteAppContextAck(true, lcmMsg->getRequestId(), result.contextId);
+            }
+            else {
+                sendDeleteAppContextAck(false, lcmMsg->getRequestId());
+            }
+        }
 
         /* Handling confirmation of MEH change*/
         else if (!strcmp(lcmMsg->getType(), ACK_UPDATE_MEH_IP))
