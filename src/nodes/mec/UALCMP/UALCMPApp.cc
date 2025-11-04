@@ -331,7 +331,7 @@ void UALCMPApp::handleGETRequest(const HttpRequestMessage *currentRequestMessage
 
         else { //no query params
             nlohmann::ordered_json appList;
-            auto appDescs = mecOrchestrator_->getApplicationDescriptors();
+            auto appDescs = mecOrchestrator_->getAllApplicationDescriptors();
             auto it = appDescs->begin();
             for(; it != appDescs->end() ; ++it)
             {

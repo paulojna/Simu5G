@@ -22,6 +22,8 @@
 #include "inet/networklayer/common/L3Address.h"
 #include "inet/networklayer/common/L3AddressResolver.h"
 
+#include <utility>
+
 //MEAppPacket
 #include "nodes/mec/MECPlatform/MEAppPacket_Types.h"
 #include "nodes/mec/MECPlatform/MEAppPacket_m.h"
@@ -114,7 +116,7 @@ class MecOrchestrator : public cSimpleModule, public IOrchestratorApi
     //storing the UEApp and MEApp informations
     //key = contextId - value mecAppMapEntry
     //std::map<int, mecAppMapEntry> meAppMap;
-    std::map<std::string, ApplicationDescriptor> mecApplicationDescriptors_;
+    //std::map<std::string, ApplicationDescriptor> mecApplicationDescriptors_;
 
     // NEW
     std::unique_ptr<MecAppRegistry> mecAppRegistry_;
@@ -136,7 +138,7 @@ class MecOrchestrator : public cSimpleModule, public IOrchestratorApi
     public:
         MecOrchestrator();
         const ApplicationDescriptor* getApplicationDescriptorByAppName(std::string& appName) const;
-        const std::map<std::string, ApplicationDescriptor>* getApplicationDescriptors() const { return &mecApplicationDescriptors_;}
+        const std::map<std::string, ApplicationDescriptor>* getAllApplicationDescriptors() const;
 
         /*
          * This method registers the MEC service on all the Service Registry of the MEC host associated
@@ -148,9 +150,9 @@ class MecOrchestrator : public cSimpleModule, public IOrchestratorApi
         nlohmann::json formatDataFromRAVENS(std::vector<UserEntryUpdate> UserEntryUpdatedList) override;
         std::string postRequestPrediction(const std::string &url, const nlohmann::json &jsonObject) override;
         // IOrchestratorApi methods
-        void migrateApp(std::string ueAddress, std::string newMEHId, std::string oldMEHId) override;
+        //void migrateApp(std::string ueAddress, std::string newMEHId, std::string oldMEHId) override;
         void removeAppFromSystem(std::string ueAddress, std::string oldMEHId) override;
-        void checkIfMigrationIsNeeded(std::string ueAddress, std::string newMEHId, std::string oldMEHId) override;
+        //void checkIfMigrationIsNeeded(std::string ueAddress, std::string newMEHId, std::string oldMEHId) override;
 
         int getMigrationTime() const { return migrationTime; }
 
@@ -169,13 +171,13 @@ class MecOrchestrator : public cSimpleModule, public IOrchestratorApi
         // handling CREATE_CONTEXT_APP type
         // it selects the most suitable MEC host and calls the method of its MEC platform manager to require
         // the MEC app instantiation
-        void startMECApp(UALCMPMessage*);
+        //void startMECApp(UALCMPMessage*);
 
         // handling DELETE_CONTEXT_APP type
         // it calls the method of the MEC platform manager of the MEC host where the MEC app has been deployed
         // to delete the MEC app
-        void stopMECApp(UALCMPMessage*);
-        void stopMECApp(unsigned int ref);
+        //void stopMECApp(UALCMPMessage*);
+        //void stopMECApp(unsigned int ref);
 
 
         // sending ACK_CREATE_CONTEXT_APP or ACK_DELETE_CONTEXT_APP

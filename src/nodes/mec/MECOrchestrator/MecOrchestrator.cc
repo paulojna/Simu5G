@@ -43,6 +43,18 @@
 namespace simu5g
 {
 
+// Helper function to replace check_and_cast for IDE compatibility
+template<typename T, typename U>
+T* safe_check_and_cast(U* ptr) {
+    T* result = dynamic_cast<T*>(ptr);
+    if (result == nullptr) {
+        const char* className = ptr ? (ptr->getClassName() ? ptr->getClassName() : "unknown") : "nullptr";
+        throw cRuntimeError("check_and_cast failed: cannot cast %s to %s", 
+                          className, opp_typename(typeid(T)));
+    }
+    return result;
+}
+
 #define USERS_UPDATE 7
 #define USERS_ENTRY 8
 
@@ -51,7 +63,7 @@ namespace simu5g
     MecOrchestrator::MecOrchestrator()
     {
         //meAppMap.clear();
-        mecApplicationDescriptors_.clear();
+        //mecApplicationDescriptors_.clear();
         mecHostSelectionPolicy_ = nullptr;
         userMEHMap.clear();
         reactionOnUpdate_ = nullptr;
@@ -84,8 +96,8 @@ namespace simu5g
         // MecOrchestrator::initialize(...)
         if (!strcmp(par("reactionStrategy"), "RemoveOnExit"))
             reactionOnUpdate_ = new RemoveOnExit(static_cast<IOrchestratorApi *>(this));
-        else if (!strcmp(par("reactionStrategy"), "MigrateOnChange"))
-            reactionOnUpdate_ = new MigrateOnChange(static_cast<IOrchestratorApi *>(this));
+        /*else if (!strcmp(par("reactionStrategy"), "MigrateOnChange"))
+            reactionOnUpdate_ = new MigrateOnChange(static_cast<IOrchestratorApi *>(this));*/
         else
             throw cRuntimeError("MecOrchestrator::initialize - Reaction strategy %s not present!", par("reactionStrategy").stringValue());
 
@@ -101,12 +113,14 @@ namespace simu5g
         requestCounter = 0;
 
         getConnectedMecHosts();
-        onboardApplicationPackages();
+        //onboardApplicationPackages();
 
         // NEW
         mecAppRegistry_ = std::make_unique<MecAppRegistry>();
         mecAppLifecycleManager_ = std::make_unique<MecAppLifecycleManager>(mecAppRegistry_.get(), mecHostSelectionPolicy_);
         mecAppLifecycleManager_->initialize(onboardingTime, instantiationTime, terminationTime);
+
+        mecAppLifecycleManager_->onboardApplicationPackages(par("mecApplicationPackageList").stringValue());
     }
 
     void MecOrchestrator::handleMessage(cMessage *msg)
@@ -116,7 +130,7 @@ namespace simu5g
             if (strcmp(msg->getName(), "MECOrchestratorMessage") == 0)
             {
                 EV << "MecOrchestrator::handleMessage - " << msg->getName() << endl;
-                MECOrchestratorMessage *meoMsg = check_and_cast<MECOrchestratorMessage *>(msg);
+                MECOrchestratorMessage *meoMsg = safe_check_and_cast<MECOrchestratorMessage>(msg);
                 if (strcmp(meoMsg->getType(), CREATE_CONTEXT_APP) == 0)
                 {
                     if (meoMsg->getSuccess())
@@ -133,7 +147,11 @@ namespace simu5g
             }
             else if (strcmp(msg->getName(), "MigrateAppMessage") == 0)
             {
-                MigrateAppMessage *migrateMsg = check_and_cast<MigrateAppMessage *>(msg);
+                MigrateAppMessage *migrateMsg = dynamic_cast<MigrateAppMessage *>(msg);
+                if (migrateMsg == nullptr) {
+                    throw cRuntimeError("check_and_cast failed: cannot cast %s to MigrateAppMessage", 
+                                 msg ? msg->getClassName() : "nullptr");
+                }
                 if (migrateMsg->getType() == 0)
                 {
                     // remove the user from the MEC system
@@ -142,8 +160,8 @@ namespace simu5g
                 }
                 else
                 {
-                    // std::cout << "BE AWARE: We should migrate the user" << migrateMsg->getUeAddress() << " from the MEC system" << std::endl;
-                    migrateApp(migrateMsg->getUeAddress(), migrateMsg->getNewMEHId(), migrateMsg->getOldMEHId());
+                    std::cout << "BE AWARE: We should migrate the user" << migrateMsg->getUeAddress() << " from the MEC system" << std::endl;
+                    //migrateApp(migrateMsg->getUeAddress(), migrateMsg->getNewMEHId(), migrateMsg->getOldMEHId());
                 }
                 // std::cout << "MecOrchestrator::MigrateOnTime message received with fields:" << migrateMsg->getUeAddress() << " " << migrateMsg->getNewMEHId() << " " << migrateMsg->getOldMEHId() << std::endl;
                 // migrateAppTime(migrateMsg->getUeAddress(), migrateMsg->getNewMEHId(), migrateMsg->getOldMEHId());
@@ -161,7 +179,7 @@ namespace simu5g
         {
             EV << "MecOrchestrator::handleMessage fromRavensController - " << msg->getName() << endl;
 
-            inet::Packet *packet = check_and_cast<inet::Packet *>(msg);
+            inet::Packet *packet = safe_check_and_cast<inet::Packet>(msg);
             auto received_packet = packet->peekAtFront<RavensControllerUpdatePacket>();
             std::vector<UserMEHUpdate> UserMEHUpdatedList_toPrint;
             if (received_packet->getType() == USERS_UPDATE)
@@ -171,8 +189,8 @@ namespace simu5g
                 for (auto user : UserMEHUpdatedList_toPrint)
                 {
                     EV << "MecOrchestrator::socketDataArrived - user address: " << user.getAddress() << " last MEH: " << user.getLastMEHId() << " new MEH: " << user.getNewMEHId() << endl;
-                    userMEHMap[user.getAddress()] = std::make_pair(user.getAddress(), user.getNewMEHId());
-                    reactionOnUpdate_->reactOnUpdate(user);
+                    userMEHMap[user.getAddress()] = {user.getAddress(), user.getNewMEHId()};
+                     reactionOnUpdate_->reactOnUpdate(user);
                     EV << "MecOrchestrator::socketDataArrived - reactOnUpdate done!" << endl;
                 }
             }
@@ -183,7 +201,7 @@ namespace simu5g
                 reactionOnUpdate_->reactOnUpdate(UserEntryList_toPrint);
                 for (auto user : UserEntryList_toPrint)
                 {
-                    userMEHMap[user.getAddress()] = std::make_pair(user.getAddress(), user.getCurrentMEHId());
+                    userMEHMap[user.getAddress()] = {user.getAddress(), user.getCurrentMEHId()};
                 }
             }
         }
@@ -223,16 +241,18 @@ namespace simu5g
 
     void MecOrchestrator::handleUALCMPMessage(cMessage *msg)
     {
-        UALCMPMessage *lcmMsg = check_and_cast<UALCMPMessage *>(msg);
+        UALCMPMessage *lcmMsg = safe_check_and_cast<UALCMPMessage>(msg);
 
         /* Handling CREATE_CONTEXT_APP */
         if (!strcmp(lcmMsg->getType(), CREATE_CONTEXT_APP))
         {
             LifecycleResult result = mecAppLifecycleManager_->startApplication(lcmMsg);
             if(result.success) {
+                std::cout << "MecOrchestrator::handleUALCMPMessage - CREATE_CONTEXT_APP success, contextId: " << result.contextId << std::endl;
                 sendCreateAppContextAck(true, lcmMsg->getRequestId(), result.contextId);
             }
             else {
+                std::cout << "MecOrchestrator::handleUALCMPMessage - CREATE_CONTEXT_APP failed, contextId: " << result.contextId << std::endl;
                 sendCreateAppContextAck(false, lcmMsg->getRequestId());
             }
         }
@@ -241,9 +261,11 @@ namespace simu5g
         {
             LifecycleResult result = mecAppLifecycleManager_->stopApplication(lcmMsg);
             if(result.success) {
+                std::cout << "MecOrchestrator::handleUALCMPMessage - DELETE_CONTEXT_APP success, contextId: " << result.contextId << std::endl;
                 sendDeleteAppContextAck(true, lcmMsg->getRequestId(), result.contextId);
             }
             else {
+                std::cout << "MecOrchestrator::handleUALCMPMessage - DELETE_CONTEXT_APP failed, contextId: " << result.contextId << std::endl;
                 sendDeleteAppContextAck(false, lcmMsg->getRequestId());
             }
         }
@@ -259,7 +281,11 @@ namespace simu5g
     void MecOrchestrator::handleMehChangeAck(UALCMPMessage *msg)
     {
         EV << "MecOrchestrator::handleMehChangeAck - processing..." << endl;
-        UpdateMEHAckMessage *mehChangeAck = check_and_cast<UpdateMEHAckMessage *>(msg);
+        UpdateMEHAckMessage *mehChangeAck = dynamic_cast<UpdateMEHAckMessage *>(msg);
+        if (mehChangeAck == nullptr) {
+            throw cRuntimeError("check_and_cast failed: cannot cast %s to UpdateMEHAckMessage", 
+                             msg ? msg->getClassName() : "nullptr");
+        }
 
         unsigned int request = mehChangeAck->getRequestNumber();
         bool result = mehChangeAck->getSucess();
@@ -276,7 +302,7 @@ namespace simu5g
                 standByElement element = standByList[request];
                 int mecUeAppId = element.mecUeAppID;
 
-                MecPlatformManager *mecpm = check_and_cast<MecPlatformManager *>(element.mecpm);
+                MecPlatformManager *mecpm = safe_check_and_cast<MecPlatformManager>(element.mecpm);
 
                 DeleteAppMessage *deleteAppMsg = new DeleteAppMessage();
                 deleteAppMsg->setUeAppID(mecUeAppId);
@@ -305,285 +331,6 @@ namespace simu5g
         {
             EV << "MecOrchestrator::handleMehChangeAck - MEH change request [" << mehChangeAck->getRequestNumber() << "] failed" << endl;
         }
-    }
-
-    void MecOrchestrator::startMECApp(UALCMPMessage *msg)
-    {
-        CreateContextAppMessage *contAppMsg = check_and_cast<CreateContextAppMessage *>(msg);
-
-        EV << "MecOrchestrator::createMeApp - processing... request id: " << contAppMsg->getRequestId() << endl;
-
-        // retrieve UE App ID
-        int ueAppID = atoi(contAppMsg->getDevAppId());
-
-        /*
-         * The Mec orchestrator has to decide where to deploy the MEC application.
-         * - It checks if the MEC app has been already deployed
-         * - It selects the most suitable MEC host     *
-
-        for (const auto &contextApp : meAppMap)
-        {
-            if (contextApp.second.mecUeAppID == ueAppID && contextApp.second.appDId.compare(contAppMsg->getAppDId()) == 0)
-            {
-                //        meAppMap[ueAppID].lastAckStartSeqNum = pkt->getSno();
-                // Sending ACK to the UEApp to confirm the instantiation in case of previous ack lost!
-                //        ackMEAppPacket(ueAppID, ACK_START_MEAPP);
-                // testing
-                EV << "MecOrchestrator::startMECApp - \tWARNING: required MEC App instance ALREADY STARTED on MEC host: " << contextApp.second.mecHost->getName() << endl;
-                EV << "MecOrchestrator::startMECApp  - sending ackMEAppPacket with " << ACK_CREATE_CONTEXT_APP << endl;
-                sendCreateAppContextAck(true, contAppMsg->getRequestId(), contextApp.first);
-                return;
-            }
-        }
-        */
-
-        // NEW - Check if the MEC app is already running
-        if(mecAppRegistry_->isAppAlreadyRunning((ueAppID), contAppMsg->getAppDId()))
-        {
-            EV << "MecOrchestrator::startMECApp - MEC app already running" << endl;
-            auto result = mecAppRegistry_->findAppByUeAddress(contAppMsg->getAppDId());
-            if(result.found)
-            {
-                EV << "MecOrchestrator::startMECApp - MEC app found" << endl;
-                sendCreateAppContextAck(true, contAppMsg->getRequestId(), result.contextId);
-                return;
-            }
-            else
-            {
-                EV << "MecOrchestrator::startMECApp - MEC app not found" << endl;
-            }
-        }
-
-        std::string appDid;
-        double processingTime = 0.0;
-
-        if (contAppMsg->getOnboarded() == false)
-        {
-            // onboard app descriptor
-            EV << "MecOrchestrator::startMECApp - onboarding appDescriptor from: " << contAppMsg->getAppPackagePath() << endl;
-            const ApplicationDescriptor &appDesc = onboardApplicationPackage(contAppMsg->getAppPackagePath());
-            appDid = appDesc.getAppDId();
-            processingTime += onboardingTime;
-        }
-        else
-        {
-            appDid = contAppMsg->getAppDId();
-        }
-
-        auto it = mecApplicationDescriptors_.find(appDid);
-        if (it == mecApplicationDescriptors_.end())
-        {
-            EV << "MecOrchestrator::startMECApp - Application package with AppDId[" << contAppMsg->getAppDId() << "] not onboarded." << endl;
-            sendCreateAppContextAck(false, contAppMsg->getRequestId());
-            //        throw cRuntimeError("MecOrchestrator::startMECApp - Application package with AppDId[%s] not onboarded", contAppMsg->getAppDId());
-        }
-
-        const ApplicationDescriptor &desc = it->second;
-
-        inet::L3Address ueAddress = inet::L3AddressResolver().resolve(contAppMsg->getUeIpAddress());
-
-        cModule *bestHost = mecHostSelectionPolicy_->findBestMecHost(desc, ueAddress);
-
-        if (bestHost != nullptr)
-        {
-            CreateAppMessage *createAppMsg = new CreateAppMessage();
-
-            createAppMsg->setUeAppID(atoi(contAppMsg->getDevAppId()));
-            createAppMsg->setMEModuleName(desc.getAppName().c_str());
-            createAppMsg->setMEModuleType(desc.getAppProvider().c_str());
-
-            createAppMsg->setRequiredCpu(desc.getVirtualResources().cpu);
-            createAppMsg->setRequiredRam(desc.getVirtualResources().ram);
-            createAppMsg->setRequiredDisk(desc.getVirtualResources().disk);
-
-            // This field is useful for mec services no etsi mec compliant (e.g. omnet++ like)
-            // In such case, the vim has to connect the gates between the mec application and the service
-
-            // insert OMNeT like services, only one is supported, for now
-            if (!desc.getOmnetppServiceRequired().empty())
-                createAppMsg->setRequiredService(desc.getOmnetppServiceRequired().c_str());
-            else
-                createAppMsg->setRequiredService("NULL");
-
-            createAppMsg->setContextId(contextIdCounter);
-
-            // add the new mec app in the map structure
-            mecAppMapEntry newMecApp;
-            newMecApp.appDId = appDid;
-            newMecApp.mecUeAppID = ueAppID;
-            newMecApp.mecHost = bestHost;
-            newMecApp.ueAddress = inet::L3AddressResolver().resolve(contAppMsg->getUeIpAddress());
-            newMecApp.vim = bestHost->getSubmodule("vim");
-            newMecApp.mecpm = bestHost->getSubmodule("mecPlatformManager");
-
-            newMecApp.mecAppName = desc.getAppName().c_str();
-            //        newMecApp.lastAckStartSeqNum = pkt->getSno();
-
-            MecPlatformManager *mecpm = check_and_cast<MecPlatformManager *>(newMecApp.mecpm);
-
-            /*
-             * If the application descriptor refers to a simulated mec app, the system eventually instances the mec app object.
-             * If the application descriptor refers to a mec application running outside the simulator, i.e emulation mode,
-             * the system allocates the resources, without instantiate any module.
-             * The application descriptor contains the address and port information to communicate with the mec application
-             */
-
-            MecAppInstanceInfo *appInfo = nullptr;
-
-            if (desc.isMecAppEmulated())
-            {
-                EV << "MecOrchestrator::startMECApp - MEC app is emulated" << endl;
-                bool result = mecpm->instantiateEmulatedMEApp(createAppMsg);
-                appInfo = new MecAppInstanceInfo();
-                appInfo->status = result;
-                appInfo->endPoint.addr = inet::L3Address(desc.getExternalAddress().c_str());
-                appInfo->endPoint.port = desc.getExternalPort();
-                appInfo->instanceId = "emulated_" + desc.getAppName();
-                newMecApp.isEmulated = true;
-
-                // register the address of the MEC app to the Binder, so as the GTP knows the endpoint (UPF_MEC) where to forward packets to
-                inet::L3Address gtpAddress = inet::L3AddressResolver().resolve(newMecApp.mecHost->getSubmodule("upf_mec")->getFullPath().c_str());
-                binder_->registerMecHostUpfAddress(appInfo->endPoint.addr, gtpAddress);
-            }
-            else
-            {
-                appInfo = mecpm->instantiateMEApp(createAppMsg);
-                newMecApp.isEmulated = false;
-            }
-
-            if (!appInfo->status)
-            {
-                EV << "MecOrchestrator::startMECApp - something went wrong during MEC app instantiation" << endl;
-                MECOrchestratorMessage *msg = new MECOrchestratorMessage("MECOrchestratorMessage");
-                msg->setType(CREATE_CONTEXT_APP);
-                msg->setRequestId(contAppMsg->getRequestId());
-                msg->setSuccess(false);
-                processingTime += instantiationTime;
-                scheduleAt(simTime() + processingTime, msg);
-                return;
-            }
-
-            EV << "MecOrchestrator::startMECApp - new MEC application with name: " << appInfo->instanceId << " instantiated on MEC host []" << newMecApp.mecHost << " at " << appInfo->endPoint.addr.str() << ":" << appInfo->endPoint.port << endl;
-
-            newMecApp.mecAppAddress = appInfo->endPoint.addr;
-            newMecApp.mecAppPort = appInfo->endPoint.port;
-            newMecApp.mecAppIsntanceId = appInfo->instanceId;
-            newMecApp.contextId = contextIdCounter;
-            //meAppMap[contextIdCounter] = newMecApp;
-            
-            
-            // NEW
-            MecAppRegistry::AppEntry appEntry = mecAppRegistry_->createAppEntry(contextIdCounter, appDid, desc.getAppName().c_str(), ueAppID, newMecApp.mecHost, newMecApp.ueAddress);
-            appEntry.updateFromInstanceInfo(appInfo);
-            mecAppRegistry_->registerApp(appEntry);
-
-            MECOrchestratorMessage *msg = new MECOrchestratorMessage("MECOrchestratorMessage");
-            //msg->setContextId(contextIdCounter);
-            // NEW
-            msg->setContextId(appEntry.contextId);
-            msg->setType(CREATE_CONTEXT_APP);
-            msg->setRequestId(contAppMsg->getRequestId());
-            msg->setSuccess(true);
-
-            contextIdCounter++;
-
-            processingTime += instantiationTime;
-            scheduleAt(simTime() + processingTime, msg);
-
-            delete appInfo;
-        }
-        else
-        {
-            // throw cRuntimeError("MecOrchestrator::startMECApp - A suitable MEC host has not been selected");
-            EV << "MecOrchestrator::startMECApp - A suitable MEC host has not been selected" << endl;
-            MECOrchestratorMessage *msg = new MECOrchestratorMessage("MECOrchestratorMessage");
-            msg->setType(CREATE_CONTEXT_APP);
-            msg->setRequestId(contAppMsg->getRequestId());
-            msg->setSuccess(false);
-            processingTime += instantiationTime / 2;
-            scheduleAt(simTime() + processingTime, msg);
-        }
-    }
-
-    void MecOrchestrator::stopMECApp(unsigned int ref)
-    {
-        EV << "MeccOrchestrator::stopMECApp - processing... ref: " << ref << " to stop the correspondent app on the meh" << endl;
-    }
-
-    void MecOrchestrator::stopMECApp(UALCMPMessage *msg)
-    {
-        EV << "MecOrchestrator::stopMECApp - processing..." << endl;
-
-        DeleteContextAppMessage *contAppMsg = check_and_cast<DeleteContextAppMessage *>(msg);
-
-        int contextId = contAppMsg->getContextId();
-        EV << "MecOrchestrator::stopMECApp - processing contextId: " << contextId << endl;
-        /*
-        // checking if ueAppIdToMeAppMapKey entry map does exist
-        if (meAppMap.empty() || (meAppMap.find(contextId) == meAppMap.end()))
-        {
-            // maybe it has already been deleted
-            EV << "MecOrchestrator::stopMECApp - \tWARNING Mec Application [" << meAppMap[contextId].mecUeAppID << "] not found!" << endl;
-            sendDeleteAppContextAck(false, contAppMsg->getRequestId(), contextId);
-            //        throw cRuntimeError("MecOrchestrator::stopMECApp - \tERROR ueAppIdToMeAppMapKey entry not found!");
-            return;
-        }
-        */
-
-        // NEW 
-        auto result = mecAppRegistry_->findAppByContextId(contextId);
-        if(!result.found)
-        {
-            EV << "MecOrchestrator::stopMECApp - MEC app not found" << endl;
-            sendDeleteAppContextAck(false, contAppMsg->getRequestId(), contextId);
-            return;
-        }
-
-        // call the methods of resource manager and virtualization infrastructure of the selected mec host to deallocate the resources
-
-        /*MecPlatformManager *mecpm = check_and_cast<MecPlatformManager *>(meAppMap[contextId].mecpm);
-        //     VirtualisationInfrastructureManager* vim = check_and_cast<VirtualisationInfrastructureManager*>(meAppMap[contextId].vim);
-
-        DeleteAppMessage *deleteAppMsg = new DeleteAppMessage();
-        deleteAppMsg->setUeAppID(meAppMap[contextId].mecUeAppID);
-        */
-
-        // NEW
-        MecPlatformManager *mecpm = check_and_cast<MecPlatformManager *>(result.appEntry->mecpm);
-        DeleteAppMessage *deleteAppMsg = new DeleteAppMessage();
-        deleteAppMsg->setUeAppID(result.appEntry->mecUeAppID);
-        
-        bool isTerminated;
-        if (result.appEntry->isEmulated)
-        {
-            isTerminated = mecpm->terminateEmulatedMEApp(deleteAppMsg);
-            std::cout << "terminateEmulatedMEApp with result: " << isTerminated << std::endl;
-        }
-        else
-        {
-            isTerminated = mecpm->terminateMEApp(deleteAppMsg);
-        }
-
-        MECOrchestratorMessage *mecoMsg = new MECOrchestratorMessage("MECOrchestratorMessage");
-        mecoMsg->setType(DELETE_CONTEXT_APP);
-        mecoMsg->setRequestId(contAppMsg->getRequestId());
-        mecoMsg->setContextId(contAppMsg->getContextId());
-        if (isTerminated)
-        {
-            //EV << "MecOrchestrator::stopMECApp - mec Application [" << meAppMap[contextId].mecUeAppID << "] removed" << endl;
-            //meAppMap.erase(contextId);
-            // NEW
-            mecAppRegistry_->unregisterApp(result.appEntry->contextId);
-            mecoMsg->setSuccess(true);
-        }
-        else
-        {
-            //EV << "MecOrchestrator::stopMECApp - mec Application [" << meAppMap[contextId].mecUeAppID << "] not removed" << endl;
-            mecoMsg->setSuccess(false);
-        }
-
-        double processingTime = terminationTime;
-        scheduleAt(simTime() + processingTime, mecoMsg);
     }
 
     void MecOrchestrator::sendMehChangeRequest(std::string ueAddress, std::string newMehId, int newPort, unsigned int requestNumber)
@@ -670,7 +417,10 @@ namespace simu5g
 
         for (auto mecHost : mecHosts)
         {
-            VirtualisationInfrastructureManager *vim = check_and_cast<VirtualisationInfrastructureManager *>(mecHost->getSubmodule("vim"));
+            VirtualisationInfrastructureManager *vim = dynamic_cast<VirtualisationInfrastructureManager *>(mecHost->getSubmodule("vim"));
+            if (vim == nullptr) {
+                throw cRuntimeError("check_and_cast failed: cannot cast submodule 'vim' to VirtualisationInfrastructureManager");
+            }
             ResourceDescriptor resources = appDesc.getVirtualResources();
             bool res = vim->isAllocable(resources.ram, resources.disk, resources.cpu);
             if (!res)
@@ -683,7 +433,10 @@ namespace simu5g
             EV << "MecOrchestrator::findBestMecHost - MEC host []" << mecHost << " temporally chosen as bet MEC host, checking for the required MEC services.." << endl;
             bestHost = mecHost;
 
-            MecPlatformManager *mecpm = check_and_cast<MecPlatformManager *>(mecHost->getSubmodule("mecPlatformManager"));
+            MecPlatformManager *mecpm = dynamic_cast<MecPlatformManager *>(mecHost->getSubmodule("mecPlatformManager"));
+            if (mecpm == nullptr) {
+                throw cRuntimeError("check_and_cast failed: cannot cast submodule 'mecPlatformManager' to MecPlatformManager");
+            }
             auto mecServices = mecpm->getAvailableMecServices();
             std::string serviceName;
 
@@ -738,6 +491,7 @@ namespace simu5g
         }
     }
 
+    /*
     const ApplicationDescriptor &MecOrchestrator::onboardApplicationPackage(const char *fileName)
     {
         EV << "MecOrchestrator::onBoardApplicationPackages - onboarding application package (from request): " << fileName << endl;
@@ -755,7 +509,7 @@ namespace simu5g
         }
 
         return mecApplicationDescriptors_[appDesc.getAppDId()];
-    }
+    }*/
 
     void MecOrchestrator::registerMecService(ServiceDescriptor &serviceDescriptor) const
     {
@@ -772,6 +526,7 @@ namespace simu5g
         }
     }
 
+    /*
     void MecOrchestrator::onboardApplicationPackages()
     {
         // getting the list of mec hosts associated to this mec system from parameter
@@ -795,7 +550,7 @@ namespace simu5g
         {
             EV << "MecOrchestrator::onboardApplicationPackages - No mecApplicationPackageList found" << endl;
         }
-    }
+    }*/
 
     // Callback function to write response data
     static size_t WriteCallback(void *contents, size_t size, size_t nmemb, void *userp)
@@ -906,9 +661,10 @@ namespace simu5g
 
         // invoke stopMECApp method from MecOrchestrator
         EV << "RemoveOnExit::reactOnUpdate - sending DeleteContextAppMessage to MecOrchestrator to stop MEC app with contextId " << contextId << endl;
-        stopMECApp(msg);
+        mecAppLifecycleManager_->stopApplication(msg);
     }
 
+    /*
     void MecOrchestrator::migrateApp(std::string ueAddress, std::string newMEHId, std::string oldMEHId)
     {
         // this is a replication of what happens on the MigrationOnChange class. TODO: That class will use this method in the future.
@@ -925,7 +681,7 @@ namespace simu5g
                 break;
             }
         }
-        */
+        
        
         // NEW
         auto result = mecAppRegistry_->findAppByUeAddress(ueAddress);
@@ -1038,7 +794,7 @@ namespace simu5g
             2.1 and if it is not instantiated on any MEH, do nothing and wait for the UE to ask for a MEC app
             2.2 and if it is instantiated on another MEH, migrate the instance to the MEH with newMEHId
         3. If it is already instantiated on the MEH with newMEHId, do nothing
-        */
+        
 
         // remove the acr: part of the address and convertit to inet::L3Address
         std::string ueIp = ueAddress.substr(4);
@@ -1055,7 +811,7 @@ namespace simu5g
                 break;
             }
         }
-        */
+        
        
         
         // NEW
@@ -1161,17 +917,28 @@ namespace simu5g
                 return;
             }
         }
+        
     }
+    */
 
-    const ApplicationDescriptor *MecOrchestrator::getApplicationDescriptorByAppName(std::string &appName) const
+    const ApplicationDescriptor* MecOrchestrator::getApplicationDescriptorByAppName(std::string& appName) const
     {
-        for (const auto &appDesc : mecApplicationDescriptors_)
+        if(!mecAppLifecycleManager_)
         {
-            if (appDesc.second.getAppName().compare(appName) == 0)
-                return &(appDesc.second);
+            EV << "MecOrchestrator::getApplicationDescriptorByAppName - ERROR: mecAppLifecycleManager_ not found" << endl;
+            return nullptr;
         }
-
-        return nullptr;
+        const ApplicationDescriptor* appDescriptor = mecAppLifecycleManager_->getApplicationDescriptorByAppName(appName);
+        return appDescriptor ? appDescriptor : nullptr;
     }
 
+    const std::map<std::string, ApplicationDescriptor>* MecOrchestrator::getAllApplicationDescriptors() const
+    {
+        if(!mecAppLifecycleManager_)
+        {
+            EV << "MecOrchestrator::getAllApplicationDescriptors - ERROR: mecAppLifecycleManager_ not found" << endl;
+            return nullptr;
+        }
+        return mecAppLifecycleManager_->getAllApplicationDescriptors();
+    }
 } // namespace

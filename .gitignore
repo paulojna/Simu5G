@@ -15,6 +15,8 @@ precompiled_*.h.*
 
 *.csv
 
+*CLAUDE*
+
 # output and result files
 .settings/
 .ccls-cache/

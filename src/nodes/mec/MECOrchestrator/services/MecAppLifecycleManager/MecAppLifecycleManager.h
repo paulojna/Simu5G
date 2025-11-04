@@ -39,7 +39,8 @@ public:
     const ApplicationDescriptor& onboardApplicationPackage(const char* fileName); 
     void onboardApplicationPackages(const std::string& appList);
 
-    const ApplicationDescriptor& getApplicationDescriptor(const std::string& appDId) const;
+    const ApplicationDescriptor* getApplicationDescriptor(const std::string& appDId) const;
+    const ApplicationDescriptor* getApplicationDescriptorByAppName(const std::string& appName) const;
     const std::map<std::string, ApplicationDescriptor>* getAllApplicationDescriptors() const;
 
     LifecycleResult startApplication(UALCMPMessage* msg);
@@ -50,7 +51,9 @@ public:
     double getInstantiationTime() const { return instantiationTime_; }
     double getTerminationTime() const { return terminationTime_; }
 
-    int getNextContextId() { return contextIdCounter_++; }
+    //int getNextContextId() { return contextIdCounter_++; }
+    int getContextIdCounter() { return contextIdCounter_; }
+    void incrementContextIdCounter() { contextIdCounter_++; }
 
 private:
 

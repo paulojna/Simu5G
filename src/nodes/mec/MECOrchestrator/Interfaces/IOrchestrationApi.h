@@ -14,8 +14,8 @@ namespace simu5g {
 class IOrchestratorApi {
     public:
         virtual void removeAppFromSystem(std::string ueAddress, std::string oldMEHId) = 0;
-        virtual void migrateApp(std::string ueAddress, std::string newMEHId, std::string oldMEHId) = 0;
-        virtual void checkIfMigrationIsNeeded(std::string ueAddress, std::string newMEHId, std::string oldMEHId) = 0;
+        //virtual void migrateApp(std::string ueAddress, std::string newMEHId, std::string oldMEHId) = 0;
+        //virtual void checkIfMigrationIsNeeded(std::string ueAddress, std::string newMEHId, std::string oldMEHId) = 0;
         virtual nlohmann::json formatDataFromRAVENS(std::vector<UserEntryUpdate> UserEntryUpdatedList) = 0;
         virtual std::string postRequestPrediction(const std::string &url, const nlohmann::json &jsonObject) = 0;
         virtual ~IOrchestratorApi() = default;

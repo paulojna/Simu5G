@@ -42,12 +42,14 @@ const ApplicationDescriptor& MecAppLifecycleManager::onboardApplicationPackage(c
 void MecAppLifecycleManager::onboardApplicationPackages(const std::string& appList) {
     if (appList.empty()) {
         EV << "MecAppLifecycleManager::onboardApplicationPackages - No package list provided" << endl;
+        std::cout << "MecAppLifecycleManager::onboardApplicationPackages - No package list provided" << std::endl;
         return;
     }
     
     char* token = strtok((char*)appList.c_str(), ", ");
     while (token != nullptr) {
         std::string fileName = "ApplicationDescriptors/" + std::string(token) + ".json";
+        std::cout << "MecAppLifecycleManager::onboardApplicationPackages - Onboarding package: " << fileName << std::endl;
         onboardApplicationPackage(fileName.c_str());
         token = strtok(nullptr, ", ");
     }
@@ -57,9 +59,18 @@ void MecAppLifecycleManager::onboardApplicationPackages(const std::string& appLi
     Method to get an application descriptor by its appDId.
     It returns the ApplicationDescriptor object if found, otherwise an empty ApplicationDescriptor object.
 */
-const ApplicationDescriptor& MecAppLifecycleManager::getApplicationDescriptor(const std::string& appDId) const {
+const ApplicationDescriptor* MecAppLifecycleManager::getApplicationDescriptor(const std::string& appDId) const {
     auto it = applicationDescriptors_.find(appDId);
-    return (it != applicationDescriptors_.end()) ? it->second : ApplicationDescriptor();
+    return (it != applicationDescriptors_.end()) ? &it->second : nullptr;
+}
+
+/*
+    Method to get an application descriptor by its app name.
+    It returns the ApplicationDescriptor object if found, otherwise nullptr.
+*/
+const ApplicationDescriptor* MecAppLifecycleManager::getApplicationDescriptorByAppName(const std::string& appName) const {
+    auto it = applicationDescriptors_.find(appName);
+    return (it != applicationDescriptors_.end()) ? &it->second : nullptr;
 }
 
 /*
@@ -101,15 +112,17 @@ LifecycleResult MecAppLifecycleManager::startApplication(UALCMPMessage* msg) {
         appDid = createContextAppMsg->getAppDId();
     }
 
-    const ApplicationDescriptor& appDesc = getApplicationDescriptor(appDid);
-
-    if(appDesc.getAppDId().empty()) {
+    const ApplicationDescriptor* appDescPtr = getApplicationDescriptor(appDid);
+    if(appDescPtr == nullptr || appDescPtr->getAppDId().empty()) {
         EV << "MecAppLifecycleManager::startApplication - Application package not onboarded" << endl;
         return LifecycleResult(false, "Application package not onboarded", -1, 0.0);
     }
 
+    const ApplicationDescriptor& appDesc = *appDescPtr;
+
     inet::L3Address ueAddress = inet::L3AddressResolver().resolve(createContextAppMsg->getUeIpAddress());
     cModule *bestHost = hostSelectionPolicy_->findBestMecHost(appDesc, ueAddress);
+    std::cout << "MecAppLifecycleManager::startApplication - Best host found: " << bestHost->getFullPath() << std::endl;
     if(bestHost == nullptr) {
         EV << "MecAppLifecycleManager::startApplication - No best host found" << endl;
         processingTime += instantiationTime_ / 2;
@@ -137,10 +150,10 @@ LifecycleResult MecAppLifecycleManager::instantiateApplication(const Application
     else {
         createAppMsg->setRequiredService("NULL");
     }
-    createAppMsg->setContextId(getNextContextId());
+    createAppMsg->setContextId(getContextIdCounter());
 
     // add the new mec app in the map structure
-    mecAppMapEntry newMecApp;
+    MecAppRegistry::AppEntry newMecApp;
     newMecApp.appDId = appDesc.getAppDId();
     newMecApp.mecUeAppID = atoi(msg->getDevAppId());
     newMecApp.mecHost = bestHost;
@@ -163,8 +176,9 @@ LifecycleResult MecAppLifecycleManager::instantiateApplication(const Application
 
     newMecApp.mecAppAddress = appInfo->endPoint.addr;
     newMecApp.mecAppPort = appInfo->endPoint.port;
-    newMecApp.mecAppIsntanceId = appInfo->instanceId;
-    newMecApp.contextId = createAppMsg->getContextId();
+    newMecApp.mecAppInstanceId = appInfo->instanceId;   
+    newMecApp.contextId = getContextIdCounter();
+    incrementContextIdCounter();
    
     MecAppRegistry::AppEntry appEntry = mecAppRegistry_->createAppEntry(newMecApp.contextId, newMecApp.appDId, newMecApp.mecAppName.c_str(), newMecApp.mecUeAppID, newMecApp.mecHost, newMecApp.ueAddress);
     appEntry.updateFromInstanceInfo(appInfo);

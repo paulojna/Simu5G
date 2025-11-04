@@ -68,7 +68,7 @@ void MigrateOnChange::reactOnUpdate(const UserMEHUpdate &update)
     }
     else if(update.getNewMEHId()!=" " && update.getLastMEHId()!=" " && update.getNewMEHId()!=update.getLastMEHId())
     {
-        api_->migrateApp(update.getAddress(), update.getNewMEHId(), update.getLastMEHId());
+        //api_->migrateApp(update.getAddress(), update.getNewMEHId(), update.getLastMEHId());
         /*
         EV << "MigrateOnChange::reactOnUpdate - newMEHId and lastMEHId are not empty -> starting migration" << endl;
         // remove the acr: part of the address and convertit to inet::L3Address
@@ -218,7 +218,7 @@ void MigrateOnChange::reactOnUpdate(const UserMEHUpdate &update)
             3. If it is already instantiated on the MEH with newMEHId, do nothing
         */
 
-        api_->checkIfMigrationIsNeeded(update.getAddress(), update.getLastMEHId(), update.getNewMEHId());
+        //api_->checkIfMigrationIsNeeded(update.getAddress(), update.getLastMEHId(), update.getNewMEHId());
 
         /*
 
