@@ -39,6 +39,7 @@ simple MecOrchestrator
         double terminationTime @unit(s) = default(50ms);
 
         double migrationTime @unit("s") = default(15s); 
+        double migrationTimeout @unit("s") = default(5s);
 
     gates:
 

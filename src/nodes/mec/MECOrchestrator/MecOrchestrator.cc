@@ -43,12 +43,12 @@
 namespace simu5g
 {
 
-// Helper function to replace check_and_cast for IDE compatibility
+// Helper function to replace check_and_cast for IDE compatibility (it is not recognized by OMNET++ IDE)
 template<typename T, typename U>
 T* safe_check_and_cast(U* ptr) {
     T* result = dynamic_cast<T*>(ptr);
     if (result == nullptr) {
-        const char* className = ptr ? (ptr->getClassName() ? ptr->getClassName() : "unknown") : "nullptr";
+        const char* className = ptr ? (ptr->getClassName() ? ptr->getClassName() : "unknown") : nullptr;
         throw cRuntimeError("check_and_cast failed: cannot cast %s to %s", 
                           className, opp_typename(typeid(T)));
     }
@@ -70,6 +70,7 @@ T* safe_check_and_cast(U* ptr) {
         // NEW
         mecAppRegistry_ = nullptr;
         mecAppLifecycleManager_ = nullptr;
+        mecAppMigrationManager_ = nullptr;
     }
 
     void MecOrchestrator::initialize(int stage)
@@ -93,34 +94,46 @@ T* safe_check_and_cast(U* ptr) {
         else
             throw cRuntimeError("MecOrchestrator::initialize - Selection policy %s not present!", par("selectionPolicy").stringValue());
 
-        // MecOrchestrator::initialize(...)
-        if (!strcmp(par("reactionStrategy"), "RemoveOnExit"))
-            reactionOnUpdate_ = new RemoveOnExit(static_cast<IOrchestratorApi *>(this));
-        /*else if (!strcmp(par("reactionStrategy"), "MigrateOnChange"))
-            reactionOnUpdate_ = new MigrateOnChange(static_cast<IOrchestratorApi *>(this));*/
-        else
-            throw cRuntimeError("MecOrchestrator::initialize - Reaction strategy %s not present!", par("reactionStrategy").stringValue());
-
-        if (!reactionOnUpdate_)
-            throw cRuntimeError("MecOrchestrator::initialize - reactionOnUpdate_ is null");
-
         onboardingTime = par("onboardingTime").doubleValue();
         instantiationTime = par("instantiationTime").doubleValue();
         terminationTime = par("terminationTime").doubleValue();
-
-        migrationTime = par("migrationTime").doubleValue();
-
-        requestCounter = 0;
+        migrationTime_ = par("migrationTime").doubleValue();
+        migrationTimeout_ = par("migrationTimeout").doubleValue();
 
         getConnectedMecHosts();
         //onboardApplicationPackages();
 
         // NEW
         mecAppRegistry_ = std::make_unique<MecAppRegistry>();
-        mecAppLifecycleManager_ = std::make_unique<MecAppLifecycleManager>(mecAppRegistry_.get(), mecHostSelectionPolicy_);
+        mecAppLifecycleManager_ = std::make_unique<MecAppLifecycleManager>(
+            mecAppRegistry_.get(), mecHostSelectionPolicy_
+        );
         mecAppLifecycleManager_->initialize(onboardingTime, instantiationTime, terminationTime);
 
+        if (!strcmp(par("reactionStrategy"), "RemoveOnExit"))
+        {
+            reactionOnUpdate_ = new RemoveOnExit(static_cast<IOrchestratorApi *>(this));
+        }
+        else if (!strcmp(par("reactionStrategy"), "MigrateOnChange"))
+        {
+            mecAppMigrationManager_ = std::make_unique<MecAppMigrationManager>(
+              mecAppRegistry_.get(),
+              mecAppLifecycleManager_.get(),
+              &mecHosts,
+              this
+            );
+            mecAppMigrationManager_->initialize(migrationTime_, migrationTimeout_);
+
+            reactionOnUpdate_ = new MigrateOnChange(static_cast<IOrchestratorApi *>(this));
+        }
+        else
+            throw cRuntimeError("MecOrchestrator::initialize - Reaction strategy %s not present!", par("reactionStrategy").stringValue());
+
+        if (!reactionOnUpdate_)
+            throw cRuntimeError("MecOrchestrator::initialize - reactionOnUpdate_ is null");
+
         mecAppLifecycleManager_->onboardApplicationPackages(par("mecApplicationPackageList").stringValue());
+
     }
 
     void MecOrchestrator::handleMessage(cMessage *msg)
@@ -145,36 +158,18 @@ T* safe_check_and_cast(U* ptr) {
             {
                 EV << "I'm going to do something here" << endl;
             }
-            else if (strcmp(msg->getName(), "MigrateAppMessage") == 0)
+            else if (strcmp(msg->getName(), "MigrationTimeout") == 0) 
             {
-                MigrateAppMessage *migrateMsg = dynamic_cast<MigrateAppMessage *>(msg);
-                if (migrateMsg == nullptr) {
-                    throw cRuntimeError("check_and_cast failed: cannot cast %s to MigrateAppMessage", 
-                                 msg ? msg->getClassName() : "nullptr");
-                }
-                if (migrateMsg->getType() == 0)
-                {
-                    // remove the user from the MEC system
-                    // std::cout << "BE AWARE: We should remove the user" << migrateMsg->getUeAddress() << " from the MEC system" << std::endl;
-                    removeAppFromSystem(migrateMsg->getUeAddress(), migrateMsg->getOldMEHId());
-                }
-                else
-                {
-                    std::cout << "BE AWARE: We should migrate the user" << migrateMsg->getUeAddress() << " from the MEC system" << std::endl;
-                    //migrateApp(migrateMsg->getUeAddress(), migrateMsg->getNewMEHId(), migrateMsg->getOldMEHId());
-                }
-                // std::cout << "MecOrchestrator::MigrateOnTime message received with fields:" << migrateMsg->getUeAddress() << " " << migrateMsg->getNewMEHId() << " " << migrateMsg->getOldMEHId() << std::endl;
-                // migrateAppTime(migrateMsg->getUeAddress(), migrateMsg->getNewMEHId(), migrateMsg->getOldMEHId());
+                MigrateTimeoutMessage* timeoutMsg = check_and_cast<MigrateTimeoutMessage*>(msg);
+                mecAppMigrationManager_->handleMigrationTimeout(timeoutMsg->getRequestNumber());
             }
         }
-
         // handle message from the LCM proxy
         else if (msg->arrivedOn("fromUALCMP"))
         {
             EV << "MecOrchestrator::handleMessage - " << msg->getName() << endl;
             handleUALCMPMessage(msg);
         }
-
         else if (msg->arrivedOn("fromRavensController"))
         {
             EV << "MecOrchestrator::handleMessage fromRavensController - " << msg->getName() << endl;
@@ -269,68 +264,27 @@ T* safe_check_and_cast(U* ptr) {
                 sendDeleteAppContextAck(false, lcmMsg->getRequestId());
             }
         }
-
         /* Handling confirmation of MEH change*/
         else if (!strcmp(lcmMsg->getType(), ACK_UPDATE_MEH_IP))
-            handleMehChangeAck(lcmMsg);
+        {
+            if (!mecAppMigrationManager_) 
+            {
+                EV << "MecOrchestrator::handleUALCMPMessage - Migration manager not initialized" << endl;
+                return;
+            }
 
+            MigrationResult result = mecAppMigrationManager_->completeMigration(lcmMsg);
+            if (!result.success) 
+            {
+                EV << "MecOrchestrator::handleUALCMPMessage - Migration completion failed: " << result.errorMessage << endl;
+            } 
+            else 
+            {
+                EV << "MecOrchestrator::handleUALCMPMessage - Migration completed successfully" << endl;
+            }
+        }
         else
             throw cRuntimeError("MecOrchestrator::handleUALCMPMessage - Message type %s not recognized", lcmMsg->getType());
-    }
-
-    void MecOrchestrator::handleMehChangeAck(UALCMPMessage *msg)
-    {
-        EV << "MecOrchestrator::handleMehChangeAck - processing..." << endl;
-        UpdateMEHAckMessage *mehChangeAck = dynamic_cast<UpdateMEHAckMessage *>(msg);
-        if (mehChangeAck == nullptr) {
-            throw cRuntimeError("check_and_cast failed: cannot cast %s to UpdateMEHAckMessage", 
-                             msg ? msg->getClassName() : "nullptr");
-        }
-
-        unsigned int request = mehChangeAck->getRequestNumber();
-        bool result = mehChangeAck->getSucess();
-
-        EV << "MecOrchestrator::handleMehChangeAck - MEH change request [" << request << "] result: " << result << endl;
-
-        if (result)
-        {
-            EV << "MecOrchestrator::handleMehChangeAck - MEH change request " << request << " successfully processed" << endl;
-
-            // now we need to check the requestNumber is in the standByList, if so we need to stop the app and remove the entry from the standByList
-            if (standByList.find(request) != standByList.end())
-            {
-                standByElement element = standByList[request];
-                int mecUeAppId = element.mecUeAppID;
-
-                MecPlatformManager *mecpm = safe_check_and_cast<MecPlatformManager>(element.mecpm);
-
-                DeleteAppMessage *deleteAppMsg = new DeleteAppMessage();
-                deleteAppMsg->setUeAppID(mecUeAppId);
-
-                bool isTerminated;
-                isTerminated = mecpm->terminateMEApp(deleteAppMsg);
-
-                if (isTerminated)
-                {
-                    EV << "MecOrchestrator::handleMehChangeAck - mec Application with mecUeAppId [" << element.mecUeAppID << "] removed" << endl;
-                    // std::cout << "MigrateOnChange" << endl;
-                    standByList.erase(mehChangeAck->getRequestNumber());
-                    EV << "MecOrchestrator::handleMehChangeAck - standByList entry removed" << endl;
-                }
-                else
-                {
-                    EV << "MecOrchestrator::handleMehChangeAck - something went wrong during MEC app termination" << endl;
-                }
-            }
-            else
-            {
-                EV << "MecOrchestrator::handleMehChangeAck - standByList entry with request number " << request << " not found" << endl;
-            }
-        }
-        else
-        {
-            EV << "MecOrchestrator::handleMehChangeAck - MEH change request [" << mehChangeAck->getRequestNumber() << "] failed" << endl;
-        }
     }
 
     void MecOrchestrator::sendMehChangeRequest(std::string ueAddress, std::string newMehId, int newPort, unsigned int requestNumber)
@@ -344,7 +298,7 @@ T* safe_check_and_cast(U* ptr) {
         mehChangeRequest->setRequestNumber(requestNumber);
 
         // send(mehChangeRequest, "toUALCMP");
-        sendDelayed(mehChangeRequest, migrationTime, "toUALCMP");
+        sendDelayed(mehChangeRequest, migrationTime_, "toUALCMP");
     }
 
     void MecOrchestrator::sendDeleteAppContextAck(bool result, unsigned int requestSno, int contextId)
@@ -366,17 +320,6 @@ T* safe_check_and_cast(U* ptr) {
 
         if (result)
         {
-            /*
-            if (meAppMap.empty() || meAppMap.find(contextId) == meAppMap.end())
-            {
-                EV << "MecOrchestrator::ackMEAppPacket - ERROR meApp[" << contextId << "] does not exist!" << endl;
-                //            throw cRuntimeError("MecOrchestrator::ackMEAppPacket - ERROR meApp[%d] does not exist!", contextId);
-                return;
-            }
-
-            mecAppMapEntry mecAppStatus = meAppMap[contextId];
-            */
-
             // NEW 
             auto result = mecAppRegistry_->findAppByContextId(contextId);
             if(!result.found)
@@ -389,13 +332,7 @@ T* safe_check_and_cast(U* ptr) {
 
             ack->setSuccess(true);
             ack->setContextId(contextId);
-            //ack->setAppInstanceId(mecAppStatus.mecAppIsntanceId.c_str());
             ack->setRequestId(requestSno);
-            //std::stringstream uri;
-
-            //uri << mecAppStatus.mecAppAddress.str() << ":" << mecAppStatus.mecAppPort;
-
-            //ack->setAppInstanceUri(uri.str().c_str());
 
             //NEW
             ack->setAppInstanceId(mecAppStatus.mecAppInstanceId.c_str());
@@ -491,26 +428,6 @@ T* safe_check_and_cast(U* ptr) {
         }
     }
 
-    /*
-    const ApplicationDescriptor &MecOrchestrator::onboardApplicationPackage(const char *fileName)
-    {
-        EV << "MecOrchestrator::onBoardApplicationPackages - onboarding application package (from request): " << fileName << endl;
-        ApplicationDescriptor appDesc(fileName);
-        if (mecApplicationDescriptors_.find(appDesc.getAppDId()) != mecApplicationDescriptors_.end())
-        {
-            EV << "MecOrchestrator::onboardApplicationPackages() - Application descriptor with appName [" << fileName << "] is already present.\n"
-               << endl;
-            //        throw cRuntimeError("MecOrchestrator::onboardApplicationPackages() - Application descriptor with appName [%s] is already present.\n"
-            //                            "Duplicate appDId or application package already onboarded?", fileName);
-        }
-        else
-        {
-            mecApplicationDescriptors_[appDesc.getAppDId()] = appDesc; // add to the mecApplicationDescriptors_
-        }
-
-        return mecApplicationDescriptors_[appDesc.getAppDId()];
-    }*/
-
     void MecOrchestrator::registerMecService(ServiceDescriptor &serviceDescriptor) const
     {
         EV << "MecOrchestrator::registerMecService - Registering MEC service [" << serviceDescriptor.name << "]" << endl;
@@ -525,32 +442,6 @@ T* safe_check_and_cast(U* ptr) {
             }
         }
     }
-
-    /*
-    void MecOrchestrator::onboardApplicationPackages()
-    {
-        // getting the list of mec hosts associated to this mec system from parameter
-        if (this->hasPar("mecApplicationPackageList") && strcmp(par("mecApplicationPackageList").stringValue(), ""))
-        {
-
-            char *token = strtok((char *)par("mecApplicationPackageList").stringValue(), ", "); // split by commas
-
-            while (token != NULL)
-            {
-                int len = strlen(token);
-                char buf[len + strlen(".json") + strlen("ApplicationDescriptors/") + 1];
-                strcpy(buf, "ApplicationDescriptors/");
-                strcat(buf, token);
-                strcat(buf, ".json");
-                onboardApplicationPackage(buf);
-                token = strtok(NULL, ", ");
-            }
-        }
-        else
-        {
-            EV << "MecOrchestrator::onboardApplicationPackages - No mecApplicationPackageList found" << endl;
-        }
-    }*/
 
     // Callback function to write response data
     static size_t WriteCallback(void *contents, size_t size, size_t nmemb, void *userp)
@@ -625,18 +516,6 @@ T* safe_check_and_cast(U* ptr) {
         // requestId will be zero so the UALCMP will not try to send a response to the UE when receives the ack from the MEO
         int requestId = 0; // I've changed the starting value of the request counter to 1
 
-        // find the contextId that has the same ueAddress
-        /*int contextId = -1;
-        for (auto &it : meAppMap)
-        {
-            if (it.second.ueAddress == ueL3Address)
-            {
-                EV << "RemoveOnExit::reactOnUpdate - contextId found for ueAddress " << ueAddress << " is " << it.first << endl;
-                contextId = it.first;
-                break;
-            }
-        }
-        */
         // NEW
         auto result = mecAppRegistry_->findAppByUeAddress(ueAddress);
         if(!result.found)
@@ -664,262 +543,17 @@ T* safe_check_and_cast(U* ptr) {
         mecAppLifecycleManager_->stopApplication(msg);
     }
 
-    /*
-    void MecOrchestrator::migrateApp(std::string ueAddress, std::string newMEHId, std::string oldMEHId)
-    {
-        // this is a replication of what happens on the MigrationOnChange class. TODO: That class will use this method in the future.
-        std::string ueIp = ueAddress.substr(4);
-        inet::L3Address ueL3Address = inet::L3AddressResolver().resolve(ueIp.c_str());
-
-        /*int contextId = -1;
-        for (auto &it : meAppMap)
-        {
-            if (it.second.ueAddress == ueL3Address)
-            {
-                EV << "MecOrchestrator::MigrateAppTime - contextId found for ueAddress " << ueAddress << " is " << it.first << endl;
-                contextId = it.first;
-                break;
-            }
-        }
-        
-       
-        // NEW
-        auto result = mecAppRegistry_->findAppByUeAddress(ueAddress);
-        if(!result.found)
-        {
-            EV << "MecOrchestrator::MigrateAppTime - ERROR: contextId not found for ueAddress " << ueAddress << endl;
-            return;
-        }
-        int contextId = result.contextId;
-        
-        if (contextId == -1)
-        {
-            EV << "MecOrchestrator::MigrateAppTime - contextId not found for ueAddress " << ueAddress << endl;
-            return;
-        }
-        else
-        {
-            auto meAppMapEntry = mecAppRegistry_->findAppByContextId(contextId);
-            const ApplicationDescriptor &desc = mecApplicationDescriptors_.at(meAppMapEntry.appEntry->appDId);
-
-            standByElement standBy;
-            standBy.mecUeAppID = meAppMapEntry.appEntry->mecUeAppID;
-            standBy.mecpm = meAppMapEntry.appEntry->mecpm;
-
-            cModule *newMEH = nullptr;
-            for (auto &it : mecHosts)
-            {
-                if (it->getName() == newMEHId)
-                {
-                    EV << "MigrateOnChange::reactOnUpdate - newMEH found on mecHosts list" << endl;
-                    newMEH = it;
-                    break;
-                }
-            }
-
-            if (newMEH == nullptr)
-            {
-                EV << "MigrateOnChange::reactOnUpdate - ERROR: newMEH not found on mecHosts list" << endl;
-                return;
-            }
-
-            // check if the newMEH has enought resources
-            VirtualisationInfrastructureManager *vim = check_and_cast<VirtualisationInfrastructureManager *>(newMEH->getSubmodule("vim"));
-            ResourceDescriptor resources = desc.getVirtualResources();
-            bool res = vim->isAllocable(resources.ram, resources.disk, resources.cpu);
-
-            if (!res)
-            {
-                EV << "MigrateOnChange::reactOnUpdate - ERROR: newMEH does not have enought resources" << endl;
-                return;
-            }
-
-            // 1.4 create the message to start the MEC app on the new MEH
-            CreateAppMessage *msg = new CreateAppMessage();
-            msg->setUeAppID(standBy.mecUeAppID);
-            msg->setMEModuleName(desc.getAppName().c_str());
-            msg->setMEModuleType(desc.getAppProvider().c_str());
-
-            msg->setRequiredCpu(desc.getVirtualResources().cpu);
-            msg->setRequiredRam(desc.getVirtualResources().ram);
-            msg->setRequiredDisk(desc.getVirtualResources().disk);
-
-            if (!desc.getOmnetppServiceRequired().empty())
-                msg->setRequiredService(desc.getOmnetppServiceRequired().c_str());
-            else
-                msg->setRequiredService("NULL");
-            msg->setContextId(meAppMapEntry.appEntry->contextId);
-
-            // change de mecapp in the map structure
-            mecAppRegistry_->updateApp(meAppMapEntry.appEntry->contextId, *meAppMapEntry.appEntry);
-
-            MecPlatformManager *mecpm = check_and_cast<MecPlatformManager *>(meAppMapEntry.appEntry->mecpm);
-
-            MecAppInstanceInfo *appInfo = nullptr;
-            appInfo = mecpm->instantiateMEApp(msg);
-
-            // print the result of the instantiation
-            EV << "MigrateOnChange::reactOnUpdate - new MEC application with name: " << appInfo->instanceId << " instantiated on MEC host []" << meAppMapEntry.appEntry->mecHost << " at " << appInfo->endPoint.addr.str() << ":" << appInfo->endPoint.port << endl;
-
-            if (!appInfo->status)
-            {
-                EV << "MigrateOnChange::reactOnUpdate - ERROR: MEC app could not be instantiated on the newMEH" << endl;
-                return;
-            }
-
-            EV << "MigrateOnChange::reactOnUpdate - new MEC application with name: " << appInfo->instanceId << " instantiated on MEC host []" << meAppMapEntry.appEntry->mecHost << " at " << appInfo->endPoint.addr.str() << ":" << appInfo->endPoint.port << endl;
-
-            mecAppRegistry_->updateApp(meAppMapEntry.appEntry->contextId, *meAppMapEntry.appEntry);
-
-            standBy.request = requestCounter;
-            requestCounter++;
-
-            // 2. Inform the UE about the new MEH (through the UALCMP)
-            sendMehChangeRequest(ueIp, appInfo->endPoint.addr.str(), appInfo->endPoint.port, standBy.request);
-
-            // 3. Add the UE to a standby list until the ACK from the UE is received
-            standByList[standBy.request] = standBy;
-
-            delete appInfo;
-        }
+    MigrationResult MecOrchestrator::migrateApp(std::string ueAddress, std::string newMEHId, std::string oldMEHId) {
+        return mecAppMigrationManager_->migrateApp(ueAddress, newMEHId, oldMEHId);
     }
 
-    void MecOrchestrator::checkIfMigrationIsNeeded(std::string ueAddress, std::string newMEHId, std::string oldMEHId)
-    {
-        // sometimes RAVENS detects the user before it is instantiated on a MEH. In this case, we need to check if the user is already instantiated on a MEH and if so, migrate it to the newMEHId.
-        /*
-        This process will include:
-        1. Check if the UE has already a MEC app instantiated on the MEH with newMEHId
-        2. If not:
-            2.1 and if it is not instantiated on any MEH, do nothing and wait for the UE to ask for a MEC app
-            2.2 and if it is instantiated on another MEH, migrate the instance to the MEH with newMEHId
-        3. If it is already instantiated on the MEH with newMEHId, do nothing
-        
-
-        // remove the acr: part of the address and convertit to inet::L3Address
-        std::string ueIp = ueAddress.substr(4);
-        inet::L3Address ueL3Address = inet::L3AddressResolver().resolve(ueIp.c_str());
-
-        // 1. check if the UE has a mecAppMapEntry on the meAppMap and if so, check which MEH is serving it
-        /*int contextId = -1;
-        for (auto &it : meAppMap)
-        {
-            if (it.second.ueAddress == ueL3Address)
-            {
-                EV << "MigrateOnChange::reactOnUpdate - contextId found for ueAddress " << ueAddress << " is " << it.first << endl;
-                contextId = it.first;
-                break;
-            }
-        }
-        
-       
-        
-        // NEW
-        auto result = mecAppRegistry_->findAppByUeAddress(ueAddress);
-        if(!result.found)
-        {
-            EV << "MigrateOnChange::reactOnUpdate - ERROR: contextId not found for ueAddress " << ueAddress << endl;
-            return;
-        }
-        int contextId = result.contextId;
-
-        if (contextId == -1)
-        {
-            // UE does not have the MEC App instantiated in any MEH. We should wait for a UE Request.
-            EV << "MigrateOnChange::reactOnUpdate - WARNING: contextId not found for ueAddress! Nothing to do!" << ueAddress << endl;
-            return;
-        }
-        else
-        {
-            // UE already has the MEC App instantiated in one MEH -> but in which?
-            auto meAppMapEntry = mecAppRegistry_->findAppByContextId(contextId);
-            if (meAppMapEntry.appEntry->mecHost->getName() == newMEHId)
-            {
-                // UE is already being served by the newMEHId -> nothing to do
-                EV << "MigrateOnChange::reactOnUpdate - UE is already being served by the " << newMEHId << " -> nothing to do" << endl;
-                return;
-            }
-            else
-            {
-                // UE is under a different MEH -> we should migrate the instance to the newMEHId
-                EV << "MigrateOnChange::reactOnUpdate - UE is in a different MEH -> we should migrate the instance to the " << newMEHId << " " << endl;
-                const ApplicationDescriptor &desc = mecApplicationDescriptors_.at(meAppMapEntry.appEntry->appDId);
-
-                standByElement standBy;
-                standBy.mecUeAppID = meAppMapEntry.appEntry->mecUeAppID;
-                standBy.mecpm = meAppMapEntry.appEntry->mecpm;
-
-                cModule *newMEH = nullptr;
-                for (auto &it : mecHosts)
-                {
-                    if (it->getName() == newMEHId)
-                    {
-                        EV << "MecOrchestrator::checkIfMigrationIsNeeded - newMEH found on mecHosts list" << endl;
-                        newMEH = it;
-                        break;
-                    }
-                }
-
-                if (newMEH == nullptr)
-                {
-                    EV << "MecOrchestrator::checkIfMigrationIsNeeded - ERROR: newMEH not found on mecHosts list" << endl;
-                    return;
-                }
-
-                VirtualisationInfrastructureManager *vim = check_and_cast<VirtualisationInfrastructureManager *>(newMEH->getSubmodule("vim"));
-                ResourceDescriptor resources = desc.getVirtualResources();
-                bool res = vim->isAllocable(resources.ram, resources.disk, resources.cpu);
-
-                if (!res)
-                {
-                    EV << "MecOrchestrator::checkIfMigrationIsNeeded - ERROR: newMEH does not have enought resources" << endl;
-                    return;
-                }
-
-                CreateAppMessage *msg = new CreateAppMessage();
-                msg->setUeAppID(standBy.mecUeAppID);
-                msg->setMEModuleName(desc.getAppName().c_str());
-                msg->setMEModuleType(desc.getAppProvider().c_str());
-
-                msg->setRequiredCpu(desc.getVirtualResources().cpu);
-                msg->setRequiredRam(desc.getVirtualResources().ram);
-                msg->setRequiredDisk(desc.getVirtualResources().disk);
-
-                // change de mecapp in the map structure
-                mecAppRegistry_->updateApp(meAppMapEntry.appEntry->contextId, *meAppMapEntry.appEntry);
-
-                MecPlatformManager *mecpm = check_and_cast<MecPlatformManager *>(meAppMapEntry.appEntry->mecpm);
-
-                MecAppInstanceInfo *appInfo = nullptr;
-                appInfo = mecpm->instantiateMEApp(msg);
-
-                if (!appInfo->status)
-                {
-                    EV << "MigrateOnChange::reactOnUpdate - ERROR: MEC app could not be instantiated on the newMEH" << endl;
-                    return;
-                }
-
-                EV << "MigrateOnChange::reactOnUpdate - new MEC application with name: " << appInfo->instanceId << " instantiated on MEC host []" << meAppMapEntry.appEntry->mecHost << " at " << appInfo->endPoint.addr.str() << ":" << appInfo->endPoint.port << endl;
-
-                mecAppRegistry_->updateApp(meAppMapEntry.appEntry->contextId, *meAppMapEntry.appEntry);
-
-                standBy.request = requestCounter;
-                requestCounter++;
-
-                // 2. Inform the UE about the new MEH (through the UALCMP)
-                sendMehChangeRequest(ueIp, appInfo->endPoint.addr.str(), appInfo->endPoint.port, standBy.request);
-
-                // 3. Add the UE to a standby list until the ACK from the UE is received
-                standByList[standBy.request] = standBy;
-
-                delete appInfo;
-
-                return;
-            }
-        }
-        
+    MigrationResult MecOrchestrator::checkIfMigrationIsNeeded(std::string ueAddress, std::string newMEHId, std::string oldMEHId) {
+        return mecAppMigrationManager_->checkIfMigrationIsNeeded(ueAddress, newMEHId, oldMEHId);
     }
-    */
+
+    MigrationResult MecOrchestrator::completeMigration(UALCMPMessage* ackMsg) {
+        return mecAppMigrationManager_->completeMigration(ackMsg);
+    }
 
     const ApplicationDescriptor* MecOrchestrator::getApplicationDescriptorByAppName(std::string& appName) const
     {

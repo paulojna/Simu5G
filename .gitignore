@@ -16,6 +16,7 @@ precompiled_*.h.*
 *.csv
 
 *CLAUDE*
+*.sublime*
 
 # output and result files
 .settings/

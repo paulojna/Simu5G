@@ -42,7 +42,7 @@ public:
         
         // Constructor for easy initialization
         AppEntry(int id, const std::string& appId, const std::string& name, int ueId, cModule* host, const inet::L3Address& addr): 
-              contextId(id), appDId(appId), mecAppName(name), mecUeAppID(ueId), mecHost(nullptr), vim(nullptr), mecpm(nullptr),
+              contextId(id), appDId(appId), mecAppName(name), mecUeAppID(ueId), mecHost(host), vim(nullptr), mecpm(nullptr),
               ueAddress(addr), uePort(0), mecAppPort(0), isEmulated(false), lastAckStartSeqNum(0), lastAckStopSeqNum(0) {
                 if(host)
                 {
