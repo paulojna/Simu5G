@@ -30,6 +30,7 @@ UEPerfApp::~UEPerfApp()
     cancelAndDelete(selfStart_);
     cancelAndDelete(selfStop_);
 
+
     // run through ueRequestMsgs and ueTimeoutMsgs and delete or cancel them
     for(auto & ueRequestMsg : ueRequestMsgs)
     {

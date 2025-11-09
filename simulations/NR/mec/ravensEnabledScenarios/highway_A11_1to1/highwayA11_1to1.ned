@@ -134,11 +134,6 @@ network highwayA11_1to1
 
     connections:
 
-        // 5G Core Network connections
-        //iUpf0.pppg++ <--> Eth10G <--> iUpf1.pppg++;
-        //mecHost1.ppp++ <--> Eth10G <--> centralUpf.pppg++;
-        //mecHost1.ppp++ <--> Eth10G <--> centralUpf.pppg++;
-
         mecHost1.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf1.pppg++;
         mecHost2.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf2.pppg++;
         mecHost3.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf3.pppg++;
@@ -146,7 +141,7 @@ network highwayA11_1to1
         mecHost5.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf5.pppg++;
         mecHost6.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf6.pppg++;
 
-        //mecHost1.ppp++ <--> Eth10G {  delay=0.002s; } <--> upf.pppg++;
+
         iUpf1.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
         iUpf2.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
         iUpf3.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;

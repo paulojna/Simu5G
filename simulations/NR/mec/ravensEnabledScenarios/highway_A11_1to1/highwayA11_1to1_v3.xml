@@ -1,0 +1,232 @@
+<config>
+    <!-- ========================================= -->
+    <!-- CORE NETWORK STATIC ADDRESSING           -->
+    <!-- Using 192.168.x.x to avoid conflict      -->
+    <!-- with Simu5G cellular (10.0.0.0/8)        -->
+    <!-- ========================================= -->
+
+    <!-- MecHost virtualisationInfrastructure external interfaces (to iUpf) -->
+    <!-- Each link gets its own /30 subnet using separate third octet -->
+    <interface hosts="mecHost1.virtualisationInfrastructure" names="pppIf0" address="192.168.1.x" netmask="255.255.255.252"/>
+    <interface hosts="mecHost2.virtualisationInfrastructure" names="pppIf0" address="192.168.2.x" netmask="255.255.255.252"/>
+    <interface hosts="mecHost3.virtualisationInfrastructure" names="pppIf0" address="192.168.3.x" netmask="255.255.255.252"/>
+    <interface hosts="mecHost4.virtualisationInfrastructure" names="pppIf0" address="192.168.4.x" netmask="255.255.255.252"/>
+    <interface hosts="mecHost5.virtualisationInfrastructure" names="pppIf0" address="192.168.5.x" netmask="255.255.255.252"/>
+    <interface hosts="mecHost6.virtualisationInfrastructure" names="pppIf0" address="192.168.6.x" netmask="255.255.255.252"/>
+
+    <!-- MecHost internal upf_mec interfaces -->
+    <!-- Using separate subnets 192.168.41-46.x for internal connections -->
+    <interface hosts="mecHost1.upf_mec" names="pppIf" address="192.168.41.x" netmask="255.255.255.252"/>
+    <interface hosts="mecHost2.upf_mec" names="pppIf" address="192.168.42.x" netmask="255.255.255.252"/>
+    <interface hosts="mecHost3.upf_mec" names="pppIf" address="192.168.43.x" netmask="255.255.255.252"/>
+    <interface hosts="mecHost4.upf_mec" names="pppIf" address="192.168.44.x" netmask="255.255.255.252"/>
+    <interface hosts="mecHost5.upf_mec" names="pppIf" address="192.168.45.x" netmask="255.255.255.252"/>
+    <interface hosts="mecHost6.upf_mec" names="pppIf" address="192.168.46.x" netmask="255.255.255.252"/>
+
+    <!-- MecHost virtualisationInfrastructure internal connection to upf_mec -->
+    <interface hosts="mecHost1.virtualisationInfrastructure" names="pppIf1" address="192.168.41.x" netmask="255.255.255.252"/>
+    <interface hosts="mecHost2.virtualisationInfrastructure" names="pppIf1" address="192.168.42.x" netmask="255.255.255.252"/>
+    <interface hosts="mecHost3.virtualisationInfrastructure" names="pppIf1" address="192.168.43.x" netmask="255.255.255.252"/>
+    <interface hosts="mecHost4.virtualisationInfrastructure" names="pppIf1" address="192.168.44.x" netmask="255.255.255.252"/>
+    <interface hosts="mecHost5.virtualisationInfrastructure" names="pppIf1" address="192.168.45.x" netmask="255.255.255.252"/>
+    <interface hosts="mecHost6.virtualisationInfrastructure" names="pppIf1" address="192.168.46.x" netmask="255.255.255.252"/>
+
+    <!-- iUpf interfaces: ppp0=mecHost, ppp1=upf, ppp2=gnb -->
+    <!-- ppp0 connects to mecHost - using same subnet as mecHost -->
+    <interface hosts="iUpf1" names="ppp0" address="192.168.1.x" netmask="255.255.255.252"/>
+    <interface hosts="iUpf2" names="ppp0" address="192.168.2.x" netmask="255.255.255.252"/>
+    <interface hosts="iUpf3" names="ppp0" address="192.168.3.x" netmask="255.255.255.252"/>
+    <interface hosts="iUpf4" names="ppp0" address="192.168.4.x" netmask="255.255.255.252"/>
+    <interface hosts="iUpf5" names="ppp0" address="192.168.5.x" netmask="255.255.255.252"/>
+    <interface hosts="iUpf6" names="ppp0" address="192.168.6.x" netmask="255.255.255.252"/>
+
+    <!-- ppp1 connects to central UPF - using 192.168.11-16.x -->
+    <interface hosts="iUpf1" names="ppp1" address="192.168.11.x" netmask="255.255.255.252"/>
+    <interface hosts="iUpf2" names="ppp1" address="192.168.12.x" netmask="255.255.255.252"/>
+    <interface hosts="iUpf3" names="ppp1" address="192.168.13.x" netmask="255.255.255.252"/>
+    <interface hosts="iUpf4" names="ppp1" address="192.168.14.x" netmask="255.255.255.252"/>
+    <interface hosts="iUpf5" names="ppp1" address="192.168.15.x" netmask="255.255.255.252"/>
+    <interface hosts="iUpf6" names="ppp1" address="192.168.16.x" netmask="255.255.255.252"/>
+
+    <!-- ppp2 connects to gNB - using 192.168.21-26.x -->
+    <interface hosts="iUpf1" names="ppp2" address="192.168.21.x" netmask="255.255.255.252"/>
+    <interface hosts="iUpf2" names="ppp2" address="192.168.22.x" netmask="255.255.255.252"/>
+    <interface hosts="iUpf3" names="ppp2" address="192.168.23.x" netmask="255.255.255.252"/>
+    <interface hosts="iUpf4" names="ppp2" address="192.168.24.x" netmask="255.255.255.252"/>
+    <interface hosts="iUpf5" names="ppp2" address="192.168.25.x" netmask="255.255.255.252"/>
+    <interface hosts="iUpf6" names="ppp2" address="192.168.26.x" netmask="255.255.255.252"/>
+
+    <!-- Central UPF interfaces: ppp0-5 connect to iUpf1-6 -->
+    <interface hosts="upf" names="ppp0" address="192.168.11.x" netmask="255.255.255.252"/>
+    <interface hosts="upf" names="ppp1" address="192.168.12.x" netmask="255.255.255.252"/>
+    <interface hosts="upf" names="ppp2" address="192.168.13.x" netmask="255.255.255.252"/>
+    <interface hosts="upf" names="ppp3" address="192.168.14.x" netmask="255.255.255.252"/>
+    <interface hosts="upf" names="ppp4" address="192.168.15.x" netmask="255.255.255.252"/>
+    <interface hosts="upf" names="ppp5" address="192.168.16.x" netmask="255.255.255.252"/>
+
+    <!-- gNB backhaul interfaces to iUpfs -->
+    <interface hosts="gnb1" names="pppIf" address="192.168.21.x" netmask="255.255.255.252"/>
+    <interface hosts="gnb2" names="pppIf" address="192.168.22.x" netmask="255.255.255.252"/>
+    <interface hosts="gnb3" names="pppIf" address="192.168.23.x" netmask="255.255.255.252"/>
+    <interface hosts="gnb4" names="pppIf" address="192.168.24.x" netmask="255.255.255.252"/>
+    <interface hosts="gnb5" names="pppIf" address="192.168.25.x" netmask="255.255.255.252"/>
+    <interface hosts="gnb6" names="pppIf" address="192.168.26.x" netmask="255.255.255.252"/>
+
+    <!-- X2 interfaces between gNBs for handover - using 192.168.31-35.x -->
+    <!-- gnb1 <--> gnb2 link -->
+    <interface hosts="gnb1" names="x2ppp0" address="192.168.31.x" netmask="255.255.255.252"/>
+    <interface hosts="gnb2" names="x2ppp0" address="192.168.31.x" netmask="255.255.255.252"/>
+
+    <!-- gnb2 <--> gnb3 link -->
+    <interface hosts="gnb2" names="x2ppp1" address="192.168.32.x" netmask="255.255.255.252"/>
+    <interface hosts="gnb3" names="x2ppp0" address="192.168.32.x" netmask="255.255.255.252"/>
+
+    <!-- gnb3 <--> gnb4 link -->
+    <interface hosts="gnb3" names="x2ppp1" address="192.168.33.x" netmask="255.255.255.252"/>
+    <interface hosts="gnb4" names="x2ppp0" address="192.168.33.x" netmask="255.255.255.252"/>
+
+    <!-- gnb4 <--> gnb5 link -->
+    <interface hosts="gnb4" names="x2ppp1" address="192.168.34.x" netmask="255.255.255.252"/>
+    <interface hosts="gnb5" names="x2ppp0" address="192.168.34.x" netmask="255.255.255.252"/>
+
+    <!-- gnb5 <--> gnb6 link -->
+    <interface hosts="gnb5" names="x2ppp1" address="192.168.35.x" netmask="255.255.255.252"/>
+    <interface hosts="gnb6" names="x2ppp0" address="192.168.35.x" netmask="255.255.255.252"/>
+
+    <!-- ========================================= -->
+    <!-- MANAGEMENT/CONTROL PLANE ADDRESSING      -->
+    <!-- Router, UALCMP, RAVENS Controller        -->
+    <!-- Using 192.168.51-53.x                    -->
+    <!-- ========================================= -->
+
+    <!-- UPF filterGate interface (connection to router) -->
+    <interface hosts="upf" names="pppIf" address="192.168.51.x" netmask="255.255.255.252"/>
+
+    <!-- Router interfaces -->
+    <interface hosts="router" names="ppp0" address="192.168.51.x" netmask="255.255.255.252"/>  <!-- to upf -->
+    <interface hosts="router" names="ppp1" address="192.168.52.x" netmask="255.255.255.252"/>  <!-- to ualcmp -->
+    <interface hosts="router" names="ppp2" address="192.168.53.x" netmask="255.255.255.252"/>  <!-- to server -->
+
+    <!-- UALCMP interface -->
+    <interface hosts="ualcmp" names="pppIf" address="192.168.52.x" netmask="255.255.255.252"/>
+
+    <!-- RAVENS Controller (server) interface -->
+    <interface hosts="server" names="pppIf" address="192.168.53.x" netmask="255.255.255.252"/>
+
+    <!-- ========================================= -->
+    <!-- STATIC ROUTES ON CENTRAL UPF             -->
+    <!-- Routes to reach mecHost subnets via iUpfs -->
+    <!-- ========================================= -->
+
+    <route hosts="upf" destination="192.168.1.0" netmask="255.255.255.252" interface="ppp0"/>   <!-- mecHost1 via iUpf1 -->
+    <route hosts="upf" destination="192.168.2.0" netmask="255.255.255.252" interface="ppp1"/>   <!-- mecHost2 via iUpf2 -->
+    <route hosts="upf" destination="192.168.3.0" netmask="255.255.255.252" interface="ppp2"/>   <!-- mecHost3 via iUpf3 -->
+    <route hosts="upf" destination="192.168.4.0" netmask="255.255.255.252" interface="ppp3"/>  <!-- mecHost4 via iUpf4 -->
+    <route hosts="upf" destination="192.168.5.0" netmask="255.255.255.252" interface="ppp4"/>  <!-- mecHost5 via iUpf5 -->
+    <route hosts="upf" destination="192.168.6.0" netmask="255.255.255.252" interface="ppp5"/>  <!-- mecHost6 via iUpf6 -->
+
+    <!-- Routes from UPF to management plane via router -->
+    <route hosts="upf" destination="192.168.52.0" netmask="255.255.255.252" interface="pppIf"/>  <!-- to UALCMP via router -->
+    <route hosts="upf" destination="192.168.53.0" netmask="255.255.255.252" interface="pppIf"/>  <!-- to server via router -->
+
+    <!-- ========================================= -->
+    <!-- STATIC ROUTES ON gNBs                    -->
+    <!-- Send all IP traffic via iUpf             -->
+    <!-- ========================================= -->
+
+    <route hosts="gnb1" destination="10.0.0.0" netmask="255.0.0.0" interface="pppIf"/>  <!-- cellular via iUpf1 -->
+    <route hosts="gnb1" destination="192.168.0.0" netmask="255.255.0.0" interface="pppIf"/>  <!-- core network via iUpf1 -->
+
+    <route hosts="gnb2" destination="10.0.0.0" netmask="255.0.0.0" interface="pppIf"/>  <!-- cellular via iUpf2 -->
+    <route hosts="gnb2" destination="192.168.0.0" netmask="255.255.0.0" interface="pppIf"/>  <!-- core network via iUpf2 -->
+
+    <route hosts="gnb3" destination="10.0.0.0" netmask="255.0.0.0" interface="pppIf"/>  <!-- cellular via iUpf3 -->
+    <route hosts="gnb3" destination="192.168.0.0" netmask="255.255.0.0" interface="pppIf"/>  <!-- core network via iUpf3 -->
+
+    <route hosts="gnb4" destination="10.0.0.0" netmask="255.0.0.0" interface="pppIf"/>  <!-- cellular via iUpf4 -->
+    <route hosts="gnb4" destination="192.168.0.0" netmask="255.255.0.0" interface="pppIf"/>  <!-- core network via iUpf4 -->
+
+    <route hosts="gnb5" destination="10.0.0.0" netmask="255.0.0.0" interface="pppIf"/>  <!-- cellular via iUpf5 -->
+    <route hosts="gnb5" destination="192.168.0.0" netmask="255.255.0.0" interface="pppIf"/>  <!-- core network via iUpf5 -->
+
+    <route hosts="gnb6" destination="10.0.0.0" netmask="255.0.0.0" interface="pppIf"/>  <!-- cellular via iUpf6 -->
+    <route hosts="gnb6" destination="192.168.0.0" netmask="255.255.0.0" interface="pppIf"/>  <!-- core network via iUpf6 -->
+
+    <!-- ========================================= -->
+    <!-- STATIC ROUTES ON iUpfs                   -->
+    <!-- Each iUpf needs to route traffic         -->
+    <!-- ========================================= -->
+
+    <!-- iUpf1 routes -->
+    <route hosts="iUpf1" destination="192.168.1.0" netmask="255.255.255.252" interface="ppp0"/>  <!-- mecHost1 (most specific first) -->
+    <route hosts="iUpf1" destination="10.0.0.0" netmask="255.0.0.0" interface="ppp1"/>  <!-- cellular to UPF -->
+    <route hosts="iUpf1" destination="192.168.0.0" netmask="255.255.0.0" interface="ppp1"/>  <!-- all other 192.168.x.x to UPF -->
+
+    <!-- iUpf2 routes -->
+    <route hosts="iUpf2" destination="192.168.2.0" netmask="255.255.255.252" interface="ppp0"/>  <!-- mecHost2 (most specific first) -->
+    <route hosts="iUpf2" destination="10.0.0.0" netmask="255.0.0.0" interface="ppp1"/>  <!-- cellular to UPF -->
+    <route hosts="iUpf2" destination="192.168.0.0" netmask="255.255.0.0" interface="ppp1"/>  <!-- all other 192.168.x.x to UPF -->
+
+    <!-- iUpf3 routes -->
+    <route hosts="iUpf3" destination="192.168.3.0" netmask="255.255.255.252" interface="ppp0"/>  <!-- mecHost3 (most specific first) -->
+    <route hosts="iUpf3" destination="10.0.0.0" netmask="255.0.0.0" interface="ppp1"/>  <!-- cellular to UPF -->
+    <route hosts="iUpf3" destination="192.168.0.0" netmask="255.255.0.0" interface="ppp1"/>  <!-- all other 192.168.x.x to UPF -->
+
+    <!-- iUpf4 routes -->
+    <route hosts="iUpf4" destination="192.168.4.0" netmask="255.255.255.252" interface="ppp0"/>  <!-- mecHost4 (most specific first) -->
+    <route hosts="iUpf4" destination="10.0.0.0" netmask="255.0.0.0" interface="ppp1"/>  <!-- cellular to UPF -->
+    <route hosts="iUpf4" destination="192.168.0.0" netmask="255.255.0.0" interface="ppp1"/>  <!-- all other 192.168.x.x to UPF -->
+
+    <!-- iUpf5 routes -->
+    <route hosts="iUpf5" destination="192.168.5.0" netmask="255.255.255.252" interface="ppp0"/>  <!-- mecHost5 (most specific first) -->
+    <route hosts="iUpf5" destination="10.0.0.0" netmask="255.0.0.0" interface="ppp1"/>  <!-- cellular to UPF -->
+    <route hosts="iUpf5" destination="192.168.0.0" netmask="255.255.0.0" interface="ppp1"/>  <!-- all other 192.168.x.x to UPF -->
+
+    <!-- iUpf6 routes -->
+    <route hosts="iUpf6" destination="192.168.6.0" netmask="255.255.255.252" interface="ppp0"/>  <!-- mecHost6 (most specific first) -->
+    <route hosts="iUpf6" destination="10.0.0.0" netmask="255.0.0.0" interface="ppp1"/>  <!-- cellular to UPF -->
+    <route hosts="iUpf6" destination="192.168.0.0" netmask="255.255.0.0" interface="ppp1"/>  <!-- all other 192.168.x.x to UPF -->
+
+    <!-- ========================================= -->
+    <!-- STATIC ROUTES ON ROUTER                  -->
+    <!-- Routes for return traffic to cellular    -->
+    <!-- ========================================= -->
+
+    <route hosts="router" destination="10.0.0.0" netmask="255.0.0.0" interface="ppp0"/>  <!-- cellular network via UPF -->
+
+    <!-- Specific routes to mecHosts via UPF (avoid catch-all to prevent cycles) -->
+    <route hosts="router" destination="192.168.1.0" netmask="255.255.255.252" interface="ppp0"/>  <!-- mecHost1 via UPF -->
+    <route hosts="router" destination="192.168.2.0" netmask="255.255.255.252" interface="ppp0"/>  <!-- mecHost2 via UPF -->
+    <route hosts="router" destination="192.168.3.0" netmask="255.255.255.252" interface="ppp0"/>  <!-- mecHost3 via UPF -->
+    <route hosts="router" destination="192.168.4.0" netmask="255.255.255.252" interface="ppp0"/>  <!-- mecHost4 via UPF -->
+    <route hosts="router" destination="192.168.5.0" netmask="255.255.255.252" interface="ppp0"/>  <!-- mecHost5 via UPF -->
+    <route hosts="router" destination="192.168.6.0" netmask="255.255.255.252" interface="ppp0"/>  <!-- mecHost6 via UPF -->
+
+    <!-- Routes to iUpf subnets via UPF -->
+    <route hosts="router" destination="192.168.11.0" netmask="255.255.255.252" interface="ppp0"/>  <!-- iUpf1-upf link -->
+    <route hosts="router" destination="192.168.12.0" netmask="255.255.255.252" interface="ppp0"/>  <!-- iUpf2-upf link -->
+    <route hosts="router" destination="192.168.13.0" netmask="255.255.255.252" interface="ppp0"/>  <!-- iUpf3-upf link -->
+    <route hosts="router" destination="192.168.14.0" netmask="255.255.255.252" interface="ppp0"/>  <!-- iUpf4-upf link -->
+    <route hosts="router" destination="192.168.15.0" netmask="255.255.255.252" interface="ppp0"/>  <!-- iUpf5-upf link -->
+    <route hosts="router" destination="192.168.16.0" netmask="255.255.255.252" interface="ppp0"/>  <!-- iUpf6-upf link -->
+
+    <!-- Return path for MEC traffic -->
+    <route hosts="mecHost1.virtualisationInfrastructure" destination="10.0.0.0" netmask="255.0.0.0" interface="pppIf0"/>
+    <route hosts="mecHost2.virtualisationInfrastructure" destination="10.0.0.0" netmask="255.0.0.0" interface="pppIf0"/>
+    <route hosts="mecHost3.virtualisationInfrastructure" destination="10.0.0.0" netmask="255.0.0.0" interface="pppIf0"/>
+    <route hosts="mecHost4.virtualisationInfrastructure" destination="10.0.0.0" netmask="255.0.0.0" interface="pppIf0"/>
+    <route hosts="mecHost5.virtualisationInfrastructure" destination="10.0.0.0" netmask="255.0.0.0" interface="pppIf0"/>
+    <route hosts="mecHost6.virtualisationInfrastructure" destination="10.0.0.0" netmask="255.0.0.0" interface="pppIf0"/>
+
+
+    <!-- ========================================= -->
+    <!-- STATIC ROUTES ON UALCMP AND SERVER       -->
+    <!-- Default routes to reach cellular network -->
+    <!-- ========================================= -->
+
+    <route hosts="ualcmp" destination="10.0.0.0" netmask="255.0.0.0" gateway="router"/>  <!-- cellular network -->
+    <route hosts="ualcmp" destination="192.168.0.0" netmask="255.255.0.0" gateway="router"/>  <!-- core network -->
+
+    <route hosts="server" destination="10.0.0.0" netmask="255.0.0.0" gateway="router"/>  <!-- cellular network -->
+    <route hosts="server" destination="192.168.0.0" netmask="255.255.0.0" gateway="router"/>  <!-- core network -->
+</config>
