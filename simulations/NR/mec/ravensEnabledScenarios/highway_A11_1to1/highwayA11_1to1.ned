@@ -162,25 +162,7 @@ network highwayA11_1to1
         iUpf6.pppg++ <--> Eth10G {  delay = 0.001s; } <--> gnb6.ppp;
 
         // intra iUPF connections
-        iUpf1.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf2.pppg++;
-        iUpf1.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf3.pppg++;
-        iUpf1.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf4.pppg++;
-        iUpf1.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf5.pppg++;
-        iUpf1.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf6.pppg++;
 
-        iUpf2.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf3.pppg++;
-        iUpf2.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf4.pppg++;
-        iUpf2.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf5.pppg++;
-        iUpf2.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf6.pppg++;
-
-        iUpf3.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf4.pppg++;
-        iUpf3.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf5.pppg++;
-        iUpf3.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf6.pppg++;
-
-        iUpf4.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf5.pppg++;
-        iUpf4.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf6.pppg++;
-
-        iUpf5.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf6.pppg++;
 
         //connect mecHost with upf
         //mecHost1.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
@@ -210,9 +192,9 @@ network highwayA11_1to1
         server.hostInGate <-- mecOrchestrator.toRavensController;
 
         // X2 connections
-        gnb1.x2++ <--> Eth10G <--> gnb2.x2++;
-        gnb2.x2++ <--> Eth10G <--> gnb3.x2++;
-        gnb3.x2++ <--> Eth10G <--> gnb4.x2++;
-        gnb4.x2++ <--> Eth10G <--> gnb5.x2++;
-        gnb5.x2++ <--> Eth10G <--> gnb6.x2++;
+        gnb1.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb2.x2++;
+        gnb2.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb3.x2++;
+        gnb3.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb4.x2++;
+        gnb4.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb5.x2++;
+        gnb5.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb6.x2++;
 }

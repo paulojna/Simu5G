@@ -16,7 +16,8 @@ precompiled_*.h.*
 *.csv
 
 *CLAUDE*
-*.sublime*
+
+*.idea/*
 
 # output and result files
 .settings/
@@ -97,6 +98,14 @@ xxx
 *.ERROR
 .cproject
 .project
+
+# Xcode
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+*.xccheckout
+*.moved-aside
 
 # ignore result folders
 /simulations/gtpNetwork/ResultLteCoreNetwork/

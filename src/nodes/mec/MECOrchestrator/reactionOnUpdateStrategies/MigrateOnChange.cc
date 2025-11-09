@@ -30,7 +30,7 @@ void MigrateOnChange::reactOnUpdate(const std::vector<UserEntryUpdate> &updatedL
 void MigrateOnChange::reactOnUpdate(const UserMEHUpdate &update)
 {
     // scenario 1 - (described above)
-    if (update.getNewMEHId()==" ")
+    if (update.getNewMEHId()=="")
     {
         EV << "MigrateOnChange::reactOnUpdate - UE left system!" << endl;
         EV << "  UE: " << update.getAddress() << endl;
@@ -39,7 +39,7 @@ void MigrateOnChange::reactOnUpdate(const UserMEHUpdate &update)
         api_->removeAppFromSystem(update.getAddress(), update.getLastMEHId());
     }
     // scenario 2
-    else if(update.getNewMEHId()!=" " && update.getLastMEHId()!=" " && update.getNewMEHId()!=update.getLastMEHId())
+    else if(update.getNewMEHId()!="" && update.getLastMEHId()!="" && update.getNewMEHId()!=update.getLastMEHId())
     {
         EV << "MigrateOnChange::reactOnUpdate - Migration between MEHs detected" << endl;
         EV << "  UE: " << update.getAddress() << endl;
@@ -58,10 +58,11 @@ void MigrateOnChange::reactOnUpdate(const UserMEHUpdate &update)
             EV << "MigrateOnChange::reactOnUpdate - Migration initiated successfully" << endl;
             EV << "  Request Number: " << result.requestNumber << endl;
             EV << "  New Context ID: " << result.contextId << endl;
+            std::cout << "NEW MIGRATION STARTED WITH CONTEXT ID " << result.contextId << " FOR UE " << update.getAddress() << endl;
         }
     }
     // scenario 3
-    else if (update.getLastMEHId()==" " && update.getNewMEHId()!=" ")
+    else if (update.getLastMEHId()=="" && update.getNewMEHId()!="")
     {
         EV << "MigrateOnChange::reactOnUpdate - New UE detected by RAVENS" << endl;
         EV << "  UE: " << update.getAddress() << endl;

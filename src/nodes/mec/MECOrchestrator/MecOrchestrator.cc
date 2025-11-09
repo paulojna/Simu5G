@@ -62,8 +62,6 @@ T* safe_check_and_cast(U* ptr) {
 
     MecOrchestrator::MecOrchestrator()
     {
-        //meAppMap.clear();
-        //mecApplicationDescriptors_.clear();
         mecHostSelectionPolicy_ = nullptr;
         userMEHMap.clear();
         reactionOnUpdate_ = nullptr;
@@ -267,9 +265,11 @@ T* safe_check_and_cast(U* ptr) {
         /* Handling confirmation of MEH change*/
         else if (!strcmp(lcmMsg->getType(), ACK_UPDATE_MEH_IP))
         {
+            std::cout << "ACK_UPDATE_MEH_IP RECEIVED!!" << endl;
             if (!mecAppMigrationManager_) 
             {
                 EV << "MecOrchestrator::handleUALCMPMessage - Migration manager not initialized" << endl;
+                std::cout << "BIG PROBLEMS!!" << endl;
                 return;
             }
 
@@ -507,7 +507,11 @@ T* safe_check_and_cast(U* ptr) {
 
     void MecOrchestrator::removeAppFromSystem(std::string ueAddress, std::string oldMEHId)
     {
-        std::string ueIp = ueAddress.substr(4);
+        std::string ueIp = ueAddress;
+        if (ueAddress.find("acr:") == 0) {
+            ueIp = ueAddress.substr(4);
+        }
+
         inet::L3Address ueL3Address = inet::L3AddressResolver().resolve(ueIp.c_str());
 
         // remove user from the userMEHMap
@@ -516,11 +520,11 @@ T* safe_check_and_cast(U* ptr) {
         // requestId will be zero so the UALCMP will not try to send a response to the UE when receives the ack from the MEO
         int requestId = 0; // I've changed the starting value of the request counter to 1
 
-        // NEW
-        auto result = mecAppRegistry_->findAppByUeAddress(ueAddress);
+        // NEW - Search with IP (without prefix)
+        auto result = mecAppRegistry_->findAppByUeAddress(ueIp);
         if(!result.found)
         {
-            EV << "RemoveOnExit::reactOnUpdate - ERROR: contextId not found for ueAddress " << ueAddress << endl;
+            EV << "RemoveOnExit::reactOnUpdate - ERROR: contextId not found for ueAddress " << ueIp << endl;
             return;
         }
         int contextId = result.contextId;
@@ -528,7 +532,7 @@ T* safe_check_and_cast(U* ptr) {
 
         if (contextId == -1)
         {
-            EV << "RemoveOnExit::reactOnUpdate - ERROR: contextId not found for ueAddress " << ueAddress << endl;
+            EV << "RemoveOnExit::reactOnUpdate - ERROR: contextId not found for ueAddress " << ueIp << endl;
             return;
         }
 

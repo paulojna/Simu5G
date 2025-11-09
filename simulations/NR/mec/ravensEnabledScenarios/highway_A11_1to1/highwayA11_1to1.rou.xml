@@ -16,20 +16,14 @@
     
 
     <!-- Brg <-> Gmr constant flows -->
-    <flow id="normal_brg_gmr" type="normal" begin="0.00" departLane="random" departSpeed="desired" from="1089949569" to="1093403775" end="400.00" number="2"/>
-    <flow id="normal_gmr_brg" type="normal" begin="0.00" departLane="random" departSpeed="desired" from="95794934" to="538544553" end="400.00" number="2"/>
+    <flow id="normal_brg_gmr" type="normal" begin="0.00" departLane="random" departSpeed="desired" from="1089949569" to="1093403775" end="3600.00" number="100"/>
+    <flow id="normal_gmr_brg" type="normal" begin="0.00" departLane="random" departSpeed="desired" from="95794934" to="538544553" end="3600.00" number="100"/>
     
-    <flow id="slow_brg_gmr" type="slow" begin="0.00" departLane="best" departSpeed="desired" from="1089949569" to="1093403775" end="400.00" vehsPerHour="2.00"/>
-    <flow id="slow_gmr_brg" type="slow" begin="0.00" departLane="best" departSpeed="desired" from="95794934" to="538544553" end="400.00" vehsPerHour="2.00"/> 
+    <flow id="slow_brg_gmr" type="slow" begin="0.00" departLane="best" departSpeed="desired" from="1089949569" to="1093403775" end="3600.00" vehsPerHour="25.00"/>
+    <flow id="slow_gmr_brg" type="slow" begin="0.00" departLane="best" departSpeed="desired" from="95794934" to="538544553" end="3600.00" vehsPerHour="25.00"/>
     
         <!-- Brg <-> Gmr constant flows -->
-    <flow id="sport_brg_gmr" type="sport" begin="0.00" departLane="best" departSpeed="desired" from="1089949569" to="1093403775" end="400.00" vehsPerHour="2.00"/>
-    <flow id="sport_gmr_brg" type="sport" begin="0.00" departLane="best" departSpeed="desired" from="95794934" to="538544553" end="400.00" vehsPerHour="2.00"/>
-
-    <flow id="normal_brg_gmr_1" type="normal" begin="0.00" departLane="random" departSpeed="desired" from="1089949569" to="1093403775" end="400.00" number="1"/>
-    <flow id="normal_gmr_brg_1" type="normal" begin="0.00" departLane="random" departSpeed="desired" from="95794934" to="538544553" end="400.00" number="1"/>
-
-    <flow id="normal_brg_gmr_2" type="normal" begin="0.00" departLane="random" departSpeed="desired" from="1089949569" to="1093403775" end="400.00" number="2"/>
-    <flow id="normal_gmr_brg_2" type="normal" begin="0.00" departLane="random" departSpeed="desired" from="95794934" to="538544553" end="400.00" number="2"/>
+    <flow id="sport_brg_gmr" type="sport" begin="0.00" departLane="best" departSpeed="desired" from="1089949569" to="1093403775" end="3600.00" vehsPerHour="25.00"/>
+    <flow id="sport_gmr_brg" type="sport" begin="0.00" departLane="best" departSpeed="desired" from="95794934" to="538544553" end="3600.00" vehsPerHour="25.00"/>
    
 </routes>

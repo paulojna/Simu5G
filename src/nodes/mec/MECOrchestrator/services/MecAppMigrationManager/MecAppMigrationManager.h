@@ -6,13 +6,14 @@
 #include "nodes/mec/UALCMP/UALCMPMessages/UALCMPMessages_m.h"
 #include <map>
 #include <string>
+#include <queue>
 #include <vector>
 
 namespace simu5g {
 using namespace omnetpp;
 
 class MecPlatformManager;
-class VirtualisationInfraestructureManager;
+class VirtualisationInfrastructureManager;
 class ApplicationDescriptor;
 
 struct MigrationResult {
@@ -41,9 +42,10 @@ struct StandByElement
     int mecUeAppID; 
     simtime_t migrationStartTime;
     int contextId;
+    std::string ueAddress;
 
     StandByElement()
-    : request(0), oldMecpm(nullptr), mecUeAppID(-1), migrationStartTime(0), contextId(-1) {}
+    : request(0), oldMecpm(nullptr), mecUeAppID(-1), migrationStartTime(0), contextId(-1), ueAddress("") {}
 
 };
 
@@ -71,6 +73,17 @@ public:
     double getMigrationTimeout() const { return migrationTimeout_; }
 
 private:
+    struct PendingMigration {
+        std::string ueAddress;
+        std::string newMEHId;
+        std::string oldMEHId;
+        simtime_t requestTime;
+
+        PendingMigration() : requestTime(0) {}
+    };
+
+    std::map<std::string, std::queue<PendingMigration>> pendingMigrations_;
+
     // Dependencies
     MecAppRegistry* mecAppRegistry_;
     MecAppLifecycleManager* mecAppLifecycleManager_;

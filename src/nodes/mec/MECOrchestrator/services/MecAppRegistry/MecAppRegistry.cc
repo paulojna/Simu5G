@@ -20,12 +20,12 @@ MecAppRegistry::AppLookupResult MecAppRegistry::findAppByContextId(int contextId
     return AppLookupResult(false, -1, nullptr);
 }
 
-MecAppRegistry::AppLookupResult MecAppRegistry::findAppByUeAddress(const std::string& ueAddress) 
+MecAppRegistry::AppLookupResult MecAppRegistry::findAppByUeAddress(const std::string& ueAddress)
 {
     EV << "MecAppRegistry::findAppByUeAddress - Searching for app with UE address: " << ueAddress << endl;
-    
-    std::string ueIP = ueAddress.substr(4);
-    inet::L3Address ueL3Address = inet::L3AddressResolver().resolve(ueIP.c_str());
+
+    // ueAddress should already be an IP without prefix (prefix stripped by caller)
+    inet::L3Address ueL3Address = inet::L3AddressResolver().resolve(ueAddress.c_str());
 
     for(auto& pair: appMap_) 
     {

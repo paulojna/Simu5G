@@ -25,6 +25,7 @@ MecAppMigrationManager::MecAppMigrationManager(
 
 MecAppMigrationManager::~MecAppMigrationManager() 
 {
+    pendingMigrations_.clear();
     // Cancel and delete all pending timeout messages
     for (auto& pair : timeoutMessages_) 
     {
@@ -77,9 +78,9 @@ MigrationResult MecAppMigrationManager::checkIfMigrationIsNeeded(std::string ueA
     EV << "  UE: " << ueAddress << endl;
     EV << "  NewMEH: " << newMEHId << " OldMEH: " << oldMEHId << endl;
 
-    // Remove "car:" prefix if present to get IP address
+    // Remove "acr:" prefix if present to get IP address
     std::string ueIp = ueAddress;
-    if (ueAddress.find("car:") == 0) {
+    if (ueAddress.find("acr:") == 0) {
         ueIp = ueAddress.substr(4);
     }
 
@@ -112,9 +113,9 @@ MigrationResult MecAppMigrationManager::migrateApp(std::string ueAddress, std::s
     EV << "  UE: " << ueAddress << endl;
     EV << "  From: " << oldMEHId << " To: " << newMEHId << endl;
 
-    // Remove "car:" prefix if present
+    // Remove "acr:" prefix if present
     std::string ueIp = ueAddress;
-    if (ueAddress.find("car:") == 0) {
+    if (ueAddress.find("acr:") == 0) {
         ueIp = ueAddress.substr(4);
     }
 
@@ -127,6 +128,44 @@ MigrationResult MecAppMigrationManager::migrateApp(std::string ueAddress, std::s
 
     int contextId = lookupResult.contextId;
     const MecAppRegistry::AppEntry* appEntry = lookupResult.appEntry;
+
+    // PENDING MIGRATION - NEW CHECK! Skip if app is already on target MEH
+    std::string currentMEHId = appEntry->mecHost->getName();
+    if (currentMEHId == newMEHId) {
+        EV << "MecAppMigrationManager::migrateApp - App already on target MEH: " << newMEHId << endl;
+        EV << "  Skipping redundant migration" << endl;
+        return MigrationResult(false, "App already on target MEH", contextId, 0, newMEHId, oldMEHId);
+    }
+
+
+    // PENDING MIGRATION - CHECK IF THE UE IS ALREADY MIGRATING
+    //std::cout << "DEBUG migrateApp: Checking standByList for UE: '" << ueAddress << "'" << std::endl;
+    //std::cout << "DEBUG migrateApp: standByList size: " << standByList_.size() << std::endl;
+
+    for (const auto& pair : standByList_) {
+        //std::cout << "DEBUG migrateApp: Comparing against standBy UE: '" << pair.second.ueAddress << "'" << std::endl;
+        if (pair.second.ueAddress == ueIp) {
+            EV << "MecAppMigrationManager::migrateApp - Migration already in progress for UE: " << ueAddress << endl;
+            //std::cout << "MATCH FOUND! Queueing migration" << std::endl;
+            EV << "  Current migration request: " << pair.first << endl;
+            EV << "  Queueing new migration: " << oldMEHId << " → " << newMEHId << endl;
+
+            // Add to pending queue
+            PendingMigration pending;
+            pending.ueAddress = ueAddress;
+            pending.newMEHId = newMEHId;
+            pending.oldMEHId = oldMEHId;
+            pending.requestTime = simTime();
+
+            //std::cout << "Migration queued for UE: " << ueAddress << ", queue size: " << pendingMigrations_[ueIp].size() << std::endl;
+
+            pendingMigrations_[ueIp].push(pending);
+
+            EV << "MecAppMigrationManager::migrateApp - Migration queued. Queue size: " << pendingMigrations_[ueIp].size() << endl;
+
+            return MigrationResult(false, "Migration queued - another migration in progress", contextId, 0, newMEHId, oldMEHId);
+        }
+    }
 
     // Step 2: Find target MEH
     cModule* targetMEH = findMecHostByName(newMEHId);
@@ -156,14 +195,15 @@ MigrationResult MecAppMigrationManager::migrateApp(std::string ueAddress, std::s
 
 MigrationResult MecAppMigrationManager::completeMigration(UALCMPMessage* ackMsg)
 {
-    UpdateMEHMessage* updateMehMsg = check_and_cast<UpdateMEHMessage*>(ackMsg);
-    unsigned int requestNumber = updateMehMsg->getRequestNumber();
+    UpdateMEHAckMessage* updateMehAck = check_and_cast<UpdateMEHAckMessage*>(ackMsg);
+    unsigned int requestNumber = updateMehAck->getRequestNumber();
 
     EV << "MecAppMigrationManager::completeMigration - ACK received for request: " << requestNumber << endl;
 
     // Find the standby entry
     auto it = standByList_.find(requestNumber);
     if (it == standByList_.end()) {
+        std::cout << "ERROR completeMigration: Request " << requestNumber << " NOT FOUND in standByList!" << std::endl;
         EV << "MecAppMigrationManager::completeMigration - Request not found in standByList: " << requestNumber << endl;
         return MigrationResult(false, "Request not found in standByList", -1, requestNumber, "", "");
     }
@@ -175,6 +215,7 @@ MigrationResult MecAppMigrationManager::completeMigration(UALCMPMessage* ackMsg)
     EV << "  RequestNumber: " << requestNumber << endl;
     EV << "  ContextId: " << standBy.contextId << endl;
     EV << "  Duration: " << migrationDuration << "s" << endl;
+    std::cout << "MIGRATION COMPLETED WITH CONTEXTID " << standBy.contextId << endl;
 
     // Cancel timeout
     cancelTimeout(requestNumber);
@@ -190,6 +231,29 @@ MigrationResult MecAppMigrationManager::completeMigration(UALCMPMessage* ackMsg)
     standByList_.erase(it);
 
     EV << "MecAppMigrationManager::completeMigration - Migration completed successfully" << endl;
+
+    // PENDING MIGRATION - CHECK IF THERE ARE PENDING MIGRATIONS FOR THIS UE
+    auto pendingIt = pendingMigrations_.find(standBy.ueAddress);
+    if (pendingIt != pendingMigrations_.end() && !pendingIt->second.empty()) {
+        PendingMigration nextMigration = pendingIt->second.front();
+        pendingIt->second.pop();
+
+        EV << "MecAppMigrationManager::completeMigration - Processing queued migration" << endl;
+        EV << "  UE: " << nextMigration.ueAddress << endl;
+        EV << "  From: " << nextMigration.oldMEHId << " To: " << nextMigration.newMEHId << endl;
+        EV << "  Queued at: " << nextMigration.requestTime << endl;
+        EV << "  Remaining in queue: " << pendingIt->second.size() << endl;
+
+        // Clean up queue if empty
+        if (pendingIt->second.empty()) {
+            pendingMigrations_.erase(pendingIt);
+        }
+
+        // Start the next migration (recursive call!!)
+        // Note: We call migrateApp which will return a new MigrationResult
+        // but we ignore it here since we're already returning success for the completed migration
+        migrateApp(nextMigration.ueAddress, nextMigration.newMEHId, nextMigration.oldMEHId);
+    }
 
     return MigrationResult(true, "Migration completed", standBy.contextId, requestNumber, "", "");
 }
@@ -357,6 +421,9 @@ MigrationResult MecAppMigrationManager::performMigration(int contextId, cModule*
 
     sendMehChangeRequest(ueAddress, newMehAddress, newPort, requestNumber);
 
+    //std::cout << "DEBUG performMigration: Adding to standByList with ueAddress: '" << ueAddress << "'" << std::endl;
+    //std::cout << "DEBUG performMigration: requestNumber: " << requestNumber << std::endl;
+
     // Step 4: Add to standByList
     StandByElement standBy;
     standBy.request = requestNumber;
@@ -364,6 +431,7 @@ MigrationResult MecAppMigrationManager::performMigration(int contextId, cModule*
     standBy.mecUeAppID = oldAppEntry->mecUeAppID;
     standBy.migrationStartTime = simTime();
     standBy.contextId = contextId;  // Old context ID for termination
+    standBy.ueAddress = ueAddress;
 
     standByList_[requestNumber] = standBy;
 
@@ -403,7 +471,7 @@ void MecAppMigrationManager::scheduleTimeout(unsigned int requestNumber)
     timeoutMsg->setRequestNumber(requestNumber);
 
     // Schedule timeout
-    owner_->scheduleAt(simTime() + migrationTimeout_, timeoutMsg);
+    owner_->scheduleAt(simTime() + + migrationTime_ + migrationTimeout_, timeoutMsg);
 
     // Store reference for cancellation
     timeoutMessages_[requestNumber] = timeoutMsg;
@@ -446,6 +514,27 @@ void MecAppMigrationManager::forceCompleteMigration(unsigned int requestNumber, 
 
     // Remove from standByList
     standByList_.erase(it);
+
+    // PENDING MIGRATION - CHECK IF THERE ARE PENDING MIGRATIONS FOR THIS UE
+    auto pendingIt = pendingMigrations_.find(standBy.ueAddress);
+    if (pendingIt != pendingMigrations_.end() && !pendingIt->second.empty()) {
+        PendingMigration nextMigration = pendingIt->second.front();
+        pendingIt->second.pop();
+
+        EV << "MecAppMigrationManager::forceCompleteMigration - Processing queued migration" << endl;
+        EV << "  UE: " << nextMigration.ueAddress << endl;
+        EV << "  From: " << nextMigration.oldMEHId << " To: " << nextMigration.newMEHId << endl;
+        EV << "  Queued at: " << nextMigration.requestTime << endl;
+        EV << "  Remaining in queue: " << pendingIt->second.size() << endl;
+
+        // Clean up queue if empty
+        if (pendingIt->second.empty()) {
+            pendingMigrations_.erase(pendingIt);
+        }
+
+        // Start the next migration
+        migrateApp(nextMigration.ueAddress, nextMigration.newMEHId, nextMigration.oldMEHId);
+    }
 
     EV << "MecAppMigrationManager::forceCompleteMigration - Migration force-completed" << endl;
 }
