@@ -146,6 +146,7 @@ void MECPerfApp::handleRequest(cMessage* msg)
     reqInfo->msgArrivedInfo_ = simTime();
     reqInfo->requestMsg_ = msg;
     requestQueue_.push(reqInfo);
+    EV << "MECPerfApp::handleRequest from user at " << reqInfo->requestMsg_ << endl;
     //std::cout << simTime() << " - Request Received! Size of requestQueue: " << requestQueue_.size() << std::endl;
     if(requestQueue_.size() == 1)
     {
@@ -183,10 +184,13 @@ void MECPerfApp::sendResponse()
     pkt->insertAtBack(req);
     
     if(ueAppSocket_.getState() != inet::UdpSocket::CLOSED)
+    {
+        EV << "Sending response to: " << ueAppAddress << endl;
         ueAppSocket_.sendTo(pkt, ueAppAddress, ueAppPort);
+    }
     else
     {
-        EV << "MECPerfApp::sendResponse - socket is not connected" << endl;
+        EV << "MECPerfApp::sendResponse - socket to " << ueAppAddress << " is not connected" << endl;
         return;
     }
 

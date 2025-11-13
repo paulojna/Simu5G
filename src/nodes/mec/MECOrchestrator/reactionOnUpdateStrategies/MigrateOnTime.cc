@@ -8,8 +8,8 @@ namespace simu5g {
 
 void MigrateOnTime::reactOnUpdate(const std::vector<UserEntryUpdate> &updatedList)
 {
-    nlohmann::json jsonObjectToSend = mecOrchestrator_->formatDataFromRAVENS(updatedList);
-    std::string response = mecOrchestrator_->postRequestPrediction(url, jsonObjectToSend);
+    nlohmann::json jsonObjectToSend = api_->formatDataFromRAVENS(updatedList);
+    std::string response = api_->postRequestPrediction(url, jsonObjectToSend);
     //std::cout << simTime() << " - MecOrchestrator::POST_RESPONSE_FROM_FLASK_SERVER - response: " << response << endl;
 
     // we are going to implement a scheduling mechanism to trigger the migration on the MEO itself for each user
@@ -33,8 +33,8 @@ void MigrateOnTime::reactOnUpdate(const std::vector<UserEntryUpdate> &updatedLis
             migrateMsg->setUeAddress(user["Address"].get<std::string>().c_str());
             migrateMsg->setNewMEHId(nextMEHId.c_str());
             migrateMsg->setOldMEHId(currentMEHId.c_str());
-            double migrationTime = user["Duration"].get<double>() - mecOrchestrator_->getMigrationTime() + 30;
-            mecOrchestrator_->scheduleAt(simTime() + simtime_t(migrationTime), migrateMsg);
+            //double migrationTime = user["Duration"].get<double>() - api_->getMigrationTime() + 30;
+            //api_->scheduleAt(simTime() + simtime_t(migrationTime), migrateMsg);
         }
         else
         {
@@ -44,8 +44,8 @@ void MigrateOnTime::reactOnUpdate(const std::vector<UserEntryUpdate> &updatedLis
             migrateMsg->setUeAddress(user["Address"].get<std::string>().c_str());
             migrateMsg->setNewMEHId(nextMEHId.c_str());
             migrateMsg->setOldMEHId(currentMEHId.c_str());
-            double migrationTime = user["Duration"].get<double>() - mecOrchestrator_->getMigrationTime();
-            mecOrchestrator_->scheduleAt(simTime() + simtime_t(migrationTime), migrateMsg);
+            //double migrationTime = user["Duration"].get<double>() - api_->getMigrationTime();
+            //api_->scheduleAt(simTime() + simtime_t(migrationTime), migrateMsg);
         }
     }
 

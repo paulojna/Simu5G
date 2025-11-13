@@ -1,3 +1,4 @@
+
 //
 //                  Simu5G
 //
@@ -22,6 +23,8 @@
 #include "inet/networklayer/common/L3Address.h"
 #include "inet/networklayer/common/L3AddressResolver.h"
 
+#include <utility>
+
 //MEAppPacket
 #include "nodes/mec/MECPlatform/MEAppPacket_Types.h"
 #include "nodes/mec/MECPlatform/MEAppPacket_m.h"
@@ -30,6 +33,14 @@
 #include "apps/mec/RavensApps/RavensControllerUpdatePacket_m.h"
 
 #include "nodes/mec/MECOrchestrator/ApplicationDescriptor/ApplicationDescriptor.h"
+
+//Services
+#include "nodes/mec/MECOrchestrator/services/MecAppRegistry/MecAppRegistry.h"
+#include "nodes/mec/MECOrchestrator/services/MecAppLifecycleManager/MecAppLifecycleManager.h"
+#include "nodes/mec/MECOrchestrator/services/MecAppMigrationManager/MecAppMigrationManager.h"
+
+//Interfaces
+#include "nodes/mec/MECOrchestrator/interfaces/IOrchestrationApi.h"
 
 namespace simu5g {
 
@@ -59,13 +70,6 @@ struct mecAppMapEntry
 
 };
 
-struct standByElement
-{
-    unsigned int request;
-    cModule* mecpm;
-    int mecUeAppID; 
-};
-
 class UALCMPMessage;
 class MECOrchestratorMessage;
 class SelectionPolicyBase;
@@ -83,7 +87,7 @@ class ReactionOnUpdate;
 //   - MEC app run-time onboarding
 //
 
-class MecOrchestrator : public cSimpleModule
+class MecOrchestrator : public cSimpleModule, public IOrchestratorApi
 {
     // Selection Policies modules access grants
     friend class SelectionPolicyBase;
@@ -91,10 +95,6 @@ class MecOrchestrator : public cSimpleModule
     friend class AvailableResourcesSelectionBased;
     friend class MecHostSelectionBased;
     friend class LocationSelectionBased;
-
-    friend class ReactionOnUpdate;
-    friend class RemoveOnExit;
-    friend class MigrateOnChange;
 
     SelectionPolicyBase* mecHostSelectionPolicy_;
     ReactionOnUpdate* reactionOnUpdate_;
@@ -104,17 +104,12 @@ class MecOrchestrator : public cSimpleModule
     Binder* binder_;
     //------------------------------------
 
-    //parent modules
-
     std::vector<cModule*> mecHosts;
 
-    //storing the UEApp and MEApp informations
-    //key = contextId - value mecAppMapEntry
-    std::map<int, mecAppMapEntry> meAppMap;
-    std::map<std::string, ApplicationDescriptor> mecApplicationDescriptors_;
-
-    unsigned int requestCounter;
-    std::map<unsigned int, standByElement> standByList;
+    // NEW
+    std::unique_ptr<MecAppRegistry> mecAppRegistry_;
+    std::unique_ptr<MecAppLifecycleManager> mecAppLifecycleManager_;
+    std::unique_ptr<MecAppMigrationManager> mecAppMigrationManager_;
 
     std::map<std::string, std::pair<std::string, std::string>> userMEHMap;
 
@@ -124,12 +119,13 @@ class MecOrchestrator : public cSimpleModule
     double instantiationTime;
     double terminationTime;
 
-    double migrationTime;
+    double migrationTime_;
+    double migrationTimeout_;
 
     public:
         MecOrchestrator();
         const ApplicationDescriptor* getApplicationDescriptorByAppName(std::string& appName) const;
-        const std::map<std::string, ApplicationDescriptor>* getApplicationDescriptors() const { return &mecApplicationDescriptors_;}
+        const std::map<std::string, ApplicationDescriptor>* getAllApplicationDescriptors() const;
 
         /*
          * This method registers the MEC service on all the Service Registry of the MEC host associated
@@ -138,12 +134,15 @@ class MecOrchestrator : public cSimpleModule
          * @param ServiceDescriptor descriptor of the MEC service to register
          */
         void registerMecService(ServiceDescriptor&) const;
-        nlohmann::json formatDataFromRAVENS(std::vector<UserEntryUpdate> UserEntryUpdatedList);
-        std::string postRequestPrediction(const std::string &url, const nlohmann::json &jsonObject);
-        void migrateAppTime(std::string ueAddress, std::string newMEHId, std::string oldMEHId);
-        void removeAppTime(std::string ueAddress, std::string oldMEHId);
+        nlohmann::json formatDataFromRAVENS(std::vector<UserEntryUpdate> UserEntryUpdatedList) override;
+        std::string postRequestPrediction(const std::string &url, const nlohmann::json &jsonObject) override;
+        // IOrchestratorApi methods
+        void removeAppFromSystem(std::string ueAddress, std::string oldMEHId) override;
+        MigrationResult migrateApp(std::string ueAddress, std::string newMEHId, std::string oldMEHId) override;
+        MigrationResult checkIfMigrationIsNeeded(std::string ueAddress, std::string oldMEHId, std::string newMEHId) override;
+        MigrationResult completeMigration(UALCMPMessage* ackMsg) override;
 
-        int getMigrationTime() const { return migrationTime; }
+        double getMigrationTime() const { return migrationTime_; }
 
     protected:
 
@@ -151,23 +150,7 @@ class MecOrchestrator : public cSimpleModule
         void initialize(int stage);
         virtual void handleMessage(cMessage *msg);
 
-
-
         void handleUALCMPMessage(cMessage* msg);
-
-        void handleMehChangeAck(UALCMPMessage*);
-
-        // handling CREATE_CONTEXT_APP type
-        // it selects the most suitable MEC host and calls the method of its MEC platform manager to require
-        // the MEC app instantiation
-        void startMECApp(UALCMPMessage*);
-
-        // handling DELETE_CONTEXT_APP type
-        // it calls the method of the MEC platform manager of the MEC host where the MEC app has been deployed
-        // to delete the MEC app
-        void stopMECApp(UALCMPMessage*);
-        void stopMECApp(unsigned int ref);
-
 
         // sending ACK_CREATE_CONTEXT_APP or ACK_DELETE_CONTEXT_APP
         void sendCreateAppContextAck(bool result, unsigned int requestSno, int contextId = -1);
