@@ -20,5 +20,4 @@
         <xml-validation value="never"/>
         <xml-validation.net value="never"/>
     </report>
-
 </configuration>
