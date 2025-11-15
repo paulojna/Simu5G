@@ -118,6 +118,9 @@ network highwayA11_1to1
         mecHost6: MECHost {
             @display("p=8567.95,5923.28");
         }
+        mecHost_backup: MECHost {
+            @display("p=5893.6826,1301.9352");
+        }
 
 
         // MEC Orchestrator and UALCMP
@@ -167,10 +170,7 @@ network highwayA11_1to1
         //mecHost5.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
         //mecHost6.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
 
-        //mecHost1.ppp++ <--> Eth10G <--> upf.pppg++;
-        //mecHost1.ppp++ <--> Eth10G <--> upf.pppg++;
-
-        //mecHost1.ppp++ <--> Eth10G <--> mecHost1.ppp++;
+        mecHost_backup.ppp++ <--> Eth10G <--> upf.pppg++;
 
         // MEC-related connections
         router.pppg++ <--> Eth10G <--> upf.filterGate;

@@ -58,6 +58,7 @@ module MECHost
 
         virtualisationInfrastructure: VirtualisationInfrastructure {
             parameters:
+                numIndependentMecApp = parent.numIndependentMecApp;
                 @display("p=500,400");
         }
 

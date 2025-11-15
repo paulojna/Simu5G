@@ -123,6 +123,9 @@ network highwayA11_1to1_v2
         mecHost6: MECHost {
             @display("p=8567.95,5923.28");
         }
+        mecHost7: MECHost {
+            @display("p=5893.6826,1301.9352");
+        }
 
 
         // MEC Orchestrator and UALCMP
@@ -138,6 +141,7 @@ network highwayA11_1to1_v2
         }
 
     connections:
+                
 
                 // connect each MECHost to its local iUPF (MEC host -> iUPF -> gNB)
                 mecHost1.ppp++ <--> Eth10G { delay = 0.001s; } <--> iUpf1.pppg++;
@@ -165,6 +169,7 @@ network highwayA11_1to1_v2
 
                 core_router.pppg++ <--> Eth10G { delay = 0.004s; } <--> upf.pppg++;
 
+				mecHost7.ppp++ <--> Eth10G { delay = 0.05s; } <--> upf.pppg++;
                 // MEC-related connections
                 // connect router to central UPF via upf.filterGate (this is the external data-network gate)
                 router.pppg++ <--> Eth10G <--> upf.filterGate;

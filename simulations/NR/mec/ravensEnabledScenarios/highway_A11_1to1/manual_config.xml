@@ -71,6 +71,8 @@
    <interface hosts="highwayA11_1to1_v2.iUpf6" names="ppp0" address="192.168.37.1" netmask="255.255.255.0" metric="1"/>
    <interface hosts="highwayA11_1to1_v2.mecHost6.upf_mec" names="ppp0" address="192.168.37.2" netmask="255.255.255.0" metric="1"/>
    <interface hosts="highwayA11_1to1_v2.iUpf6" names="pppIf" address="192.168.38.1" netmask="255.255.255.0" metric="1"/>
+    <interface hosts="highwayA11_1to1_v2.mecHost7.upf_mec" names="ppp0" address="192.168.47.2" netmask="255.255.255.0" metric="1"/>
+    <interface hosts="highwayA11_1to1_v2.upf" names="ppp1" address="192.168.47.1" netmask="255.255.255.0" metric="1"/>
    <interface hosts="highwayA11_1to1_v2.mecHost1.virtualisationInfrastructure" names="pppIf0" address="192.168.39.1" netmask="255.255.255.0" metric="1"/>
    <interface hosts="highwayA11_1to1_v2.mecHost1.upf_mec" names="pppIf" address="192.168.39.2" netmask="255.255.255.0" metric="1"/>
    <interface hosts="highwayA11_1to1_v2.mecHost2.virtualisationInfrastructure" names="pppIf0" address="192.168.40.1" netmask="255.255.255.0" metric="1"/>
@@ -83,6 +85,8 @@
    <interface hosts="highwayA11_1to1_v2.mecHost5.upf_mec" names="pppIf" address="192.168.43.2" netmask="255.255.255.0" metric="1"/>
    <interface hosts="highwayA11_1to1_v2.mecHost6.virtualisationInfrastructure" names="pppIf0" address="192.168.44.1" netmask="255.255.255.0" metric="1"/>
    <interface hosts="highwayA11_1to1_v2.mecHost6.upf_mec" names="pppIf" address="192.168.44.2" netmask="255.255.255.0" metric="1"/>
+    <interface hosts="highwayA11_1to1_v2.mecHost7.virtualisationInfrastructure" names="pppIf0" address="192.168.45.1" netmask="255.255.255.0" metric="1"/>
+    <interface hosts="highwayA11_1to1_v2.mecHost7.upf_mec" names="pppIf" address="192.168.45.2" netmask="255.255.255.0" metric="1"/>
    <multicast-group hosts="highwayA11_1to1_v2.gnb1" interfaces="cellular" address="224.0.0.1 224.0.0.2"/>
    <multicast-group hosts="highwayA11_1to1_v2.gnb2" interfaces="cellular" address="224.0.0.1 224.0.0.2"/>
    <multicast-group hosts="highwayA11_1to1_v2.gnb3" interfaces="cellular" address="224.0.0.1 224.0.0.2"/>
@@ -213,6 +217,7 @@
     <route hosts="highwayA11_1to1_v2.gnb1" destination="192.168.33.2" netmask="255.255.255.255" gateway="192.168.0.2" interface="pppIf" metric="0"/>
     <route hosts="highwayA11_1to1_v2.gnb1" destination="192.168.35.2" netmask="255.255.255.255" gateway="192.168.0.2" interface="pppIf" metric="0"/>
     <route hosts="highwayA11_1to1_v2.gnb1" destination="192.168.37.2" netmask="255.255.255.255" gateway="192.168.0.2" interface="pppIf" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.gnb1" destination="192.168.47.2" netmask="255.255.255.255" gateway="192.168.0.2" interface="pppIf" metric="0"/>
    <route hosts="highwayA11_1to1_v2.gnb1" destination="192.168.0.0" netmask="255.255.192.0" gateway="10.0.0.3" interface="cellular" metric="0"/>
    <route hosts="highwayA11_1to1_v2.gnb1" destination="10.0.0.0" netmask="255.0.0.0" gateway="*" interface="cellular" metric="1"/>
    <route hosts="highwayA11_1to1_v2.gnb2" destination="10.0.0.3" netmask="255.255.255.255" gateway="192.168.4.2" interface="x2ppp1" metric="0"/>
@@ -260,8 +265,9 @@
     <route hosts="highwayA11_1to1_v2.gnb2" destination="192.168.33.2" netmask="255.255.255.255" gateway="192.168.3.2" interface="pppIf" metric="0"/>
     <route hosts="highwayA11_1to1_v2.gnb2" destination="192.168.35.2" netmask="255.255.255.255" gateway="192.168.3.2" interface="pppIf" metric="0"/>
     <route hosts="highwayA11_1to1_v2.gnb2" destination="192.168.37.2" netmask="255.255.255.255" gateway="192.168.3.2" interface="pppIf" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.gnb2" destination="192.168.47.2" netmask="255.255.255.255" gateway="192.168.3.2" interface="pppIf" metric="0"/>
    <route hosts="highwayA11_1to1_v2.gnb2" destination="10.0.0.0" netmask="255.0.0.0" gateway="*" interface="cellular" metric="1"/>
-   <route hosts="highwayA11_1to1_v2.gnb2" destination="*" netmask="*" gateway="192.168.1.1" interface="x2ppp0" metric="0"/>
+   <!--route hosts="highwayA11_1to1_v2.gnb2" destination="*" netmask="*" gateway="192.168.1.1" interface="x2ppp0" metric="0"/-->
    <route hosts="highwayA11_1to1_v2.gnb3" destination="10.0.0.2" netmask="255.255.255.255" gateway="192.168.4.1" interface="x2ppp0" metric="0"/>
    <route hosts="highwayA11_1to1_v2.gnb3" destination="10.0.0.4" netmask="255.255.255.255" gateway="192.168.7.2" interface="x2ppp1" metric="0"/>
    <route hosts="highwayA11_1to1_v2.gnb3" destination="192.168.1.2" netmask="255.255.255.255" gateway="192.168.4.1" interface="x2ppp0" metric="0"/>
@@ -309,6 +315,7 @@
     <route hosts="highwayA11_1to1_v2.gnb3" destination="192.168.27.2" netmask="255.255.255.255" gateway="192.168.6.2" interface="pppIf" metric="0"/>
     <route hosts="highwayA11_1to1_v2.gnb3" destination="192.168.35.2" netmask="255.255.255.255" gateway="192.168.6.2" interface="pppIf" metric="0"/>
     <route hosts="highwayA11_1to1_v2.gnb3" destination="192.168.37.2" netmask="255.255.255.255" gateway="192.168.6.2" interface="pppIf" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.gnb3" destination="192.168.47.2" netmask="255.255.255.255" gateway="192.168.6.2" interface="pppIf" metric="0"/>
    <route hosts="highwayA11_1to1_v2.gnb3" destination="10.0.0.0" netmask="255.0.0.0" gateway="*" interface="cellular" metric="1"/>
    <route hosts="highwayA11_1to1_v2.gnb4" destination="10.0.0.3" netmask="255.255.255.255" gateway="192.168.7.1" interface="x2ppp0" metric="0"/>
    <route hosts="highwayA11_1to1_v2.gnb4" destination="10.0.0.6" netmask="255.255.255.255" gateway="*" interface="cellular" metric="0"/>
@@ -362,7 +369,8 @@
     <route hosts="highwayA11_1to1_v2.gnb4" destination="192.168.27.2" netmask="255.255.255.255" gateway="192.168.9.2" interface="pppIf" metric="0"/>
     <route hosts="highwayA11_1to1_v2.gnb4" destination="192.168.29.2" netmask="255.255.255.255" gateway="192.168.9.2" interface="pppIf" metric="0"/>
     <route hosts="highwayA11_1to1_v2.gnb4" destination="192.168.37.2" netmask="255.255.255.255" gateway="192.168.9.2" interface="pppIf" metric="0"/>
-   <route hosts="highwayA11_1to1_v2.gnb4" destination="*" netmask="*" gateway="192.168.10.2" interface="x2ppp1" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.gnb4" destination="192.168.47.2" netmask="255.255.255.255" gateway="192.168.9.2" interface="pppIf" metric="0"/>
+   <!--route hosts="highwayA11_1to1_v2.gnb4" destination="*" netmask="*" gateway="192.168.10.2" interface="x2ppp1" metric="0"/-->
    <route hosts="highwayA11_1to1_v2.gnb5" destination="10.0.0.6" netmask="255.255.255.255" gateway="192.168.13.2" interface="x2ppp1" metric="0"/>
    <route hosts="highwayA11_1to1_v2.gnb5" destination="192.168.1.2" netmask="255.255.255.255" gateway="10.0.0.2" interface="cellular" metric="0"/>
    <route hosts="highwayA11_1to1_v2.gnb5" destination="192.168.4.2" netmask="255.255.255.255" gateway="10.0.0.3" interface="cellular" metric="0"/>
@@ -415,7 +423,8 @@
     <route hosts="highwayA11_1to1_v2.gnb5" destination="192.168.27.2" netmask="255.255.255.255" gateway="192.168.12.2" interface="pppIf" metric="0"/>
     <route hosts="highwayA11_1to1_v2.gnb5" destination="192.168.29.2" netmask="255.255.255.255" gateway="192.168.12.2" interface="pppIf" metric="0"/>
     <route hosts="highwayA11_1to1_v2.gnb5" destination="192.168.31.2" netmask="255.255.255.255" gateway="192.168.12.2" interface="pppIf" metric="0"/>
-   <route hosts="highwayA11_1to1_v2.gnb5" destination="*" netmask="*" gateway="192.168.10.1" interface="x2ppp0" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.gnb5" destination="192.168.47.2" netmask="255.255.255.255" gateway="192.168.12.2" interface="pppIf" metric="0"/>
+   <!--route hosts="highwayA11_1to1_v2.gnb5" destination="*" netmask="*" gateway="192.168.10.1" interface="x2ppp0" metric="0"/-->
    <route hosts="highwayA11_1to1_v2.gnb6" destination="10.0.0.5" netmask="255.255.255.255" gateway="192.168.13.1" interface="x2ppp0" metric="0"/>
    <route hosts="highwayA11_1to1_v2.gnb6" destination="192.168.1.2" netmask="255.255.255.255" gateway="10.0.0.2" interface="cellular" metric="0"/>
    <route hosts="highwayA11_1to1_v2.gnb6" destination="192.168.4.2" netmask="255.255.255.255" gateway="10.0.0.3" interface="cellular" metric="0"/>
@@ -463,6 +472,7 @@
     <route hosts="highwayA11_1to1_v2.gnb6" destination="192.168.29.2" netmask="255.255.255.255" gateway="192.168.15.2" interface="pppIf" metric="0"/>
     <route hosts="highwayA11_1to1_v2.gnb6" destination="192.168.31.2" netmask="255.255.255.255" gateway="192.168.15.2" interface="pppIf" metric="0"/>
     <route hosts="highwayA11_1to1_v2.gnb6" destination="192.168.33.2" netmask="255.255.255.255" gateway="192.168.15.2" interface="pppIf" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.gnb6" destination="192.168.47.2" netmask="255.255.255.255" gateway="192.168.15.2" interface="pppIf" metric="0"/>
    <route hosts="highwayA11_1to1_v2.gnb6" destination="10.0.0.0" netmask="255.0.0.0" gateway="*" interface="cellular" metric="1"/>
    <route hosts="highwayA11_1to1_v2.router" destination="192.168.17.2" netmask="255.255.255.255" gateway="*" interface="ppp0" metric="0"/>
    <route hosts="highwayA11_1to1_v2.router" destination="192.168.17.0" netmask="255.255.255.0" gateway="*" interface="ppp0" metric="1"/>
@@ -497,6 +507,7 @@
    <route hosts="highwayA11_1to1_v2.core_router" destination="192.168.9.0" netmask="255.255.255.252" gateway="192.168.23.2" interface="ppp3" metric="0"/>
    <route hosts="highwayA11_1to1_v2.core_router" destination="192.168.15.0" netmask="255.255.255.252" gateway="192.168.25.2" interface="ppp5" metric="0"/>
    <route hosts="highwayA11_1to1_v2.core_router" destination="192.168.17.0" netmask="255.255.255.252" gateway="192.168.26.2" interface="ppp6" metric="0"/>
+   <route hosts="highwayA11_1to1_v2.core_router" destination="192.168.47.2" netmask="255.255.255.255" gateway="192.168.26.2" interface="ppp6" metric="0"/>
    <route hosts="highwayA11_1to1_v2.core_router" destination="192.168.29.0" netmask="255.255.255.252" gateway="192.168.21.2" interface="ppp1" metric="0"/>
    <route hosts="highwayA11_1to1_v2.core_router" destination="192.168.31.0" netmask="255.255.255.252" gateway="192.168.22.2" interface="ppp2" metric="0"/>
    <route hosts="highwayA11_1to1_v2.core_router" destination="192.168.33.0" netmask="255.255.255.252" gateway="192.168.23.2" interface="ppp3" metric="0"/>
@@ -508,6 +519,7 @@
    <route hosts="highwayA11_1to1_v2.core_router" destination="192.168.24.0" netmask="255.255.255.0" gateway="*" interface="ppp4" metric="1"/>
    <route hosts="highwayA11_1to1_v2.core_router" destination="192.168.25.0" netmask="255.255.255.0" gateway="*" interface="ppp5" metric="1"/>
    <route hosts="highwayA11_1to1_v2.core_router" destination="192.168.26.0" netmask="255.255.255.0" gateway="*" interface="ppp6" metric="1"/>
+   <route hosts="highwayA11_1to1_v2.core_router" destination="192.168.45.0" netmask="255.255.255.0" gateway="*" interface="ppp6" metric="1"/>
    <route hosts="highwayA11_1to1_v2.core_router" destination="192.168.39.0" netmask="255.255.255.0" gateway="192.168.20.2" interface="ppp0" metric="0"/>
    <route hosts="highwayA11_1to1_v2.core_router" destination="192.168.40.0" netmask="255.255.255.0" gateway="192.168.21.2" interface="ppp1" metric="0"/>
    <route hosts="highwayA11_1to1_v2.core_router" destination="192.168.42.0" netmask="255.255.255.0" gateway="192.168.23.2" interface="ppp3" metric="0"/>
@@ -718,7 +730,21 @@
    <route hosts="highwayA11_1to1_v2.upf" destination="192.168.26.0" netmask="255.255.255.0" gateway="*" interface="ppp0" metric="1"/>
    <route hosts="highwayA11_1to1_v2.upf" destination="192.168.18.0" netmask="255.255.254.0" gateway="192.168.17.1" interface="pppIf" metric="0"/>
    <route hosts="highwayA11_1to1_v2.upf" destination="127.0.0.0" netmask="255.0.0.0" gateway="*" interface="lo0" metric="1"/>
+    <route hosts="highwayA11_1to1_v2.upf" destination="10.0.0.0" netmask="255.255.0.0" gateway="192.168.26.1" interface="ppp0" metric="0"/>
    <route hosts="highwayA11_1to1_v2.upf" destination="*" netmask="*" gateway="192.168.26.1" interface="ppp0" metric="0"/>
+   <!-- Add explicit routes on UPF to all iUPF subnets via core_router -->
+    <route hosts="highwayA11_1to1_v2.upf" destination="10.0.0.1" netmask="255.255.255.255" gateway="192.168.26.1" interface="ppp0" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.upf" destination="10.0.0.2" netmask="255.255.255.255" gateway="192.168.26.1" interface="ppp0" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.upf" destination="10.0.0.3" netmask="255.255.255.255" gateway="192.168.26.1" interface="ppp0" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.upf" destination="10.0.0.4" netmask="255.255.255.255" gateway="192.168.26.1" interface="ppp0" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.upf" destination="10.0.0.5" netmask="255.255.255.255" gateway="192.168.26.1" interface="ppp0" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.upf" destination="10.0.0.6" netmask="255.255.255.255" gateway="192.168.26.1" interface="ppp0" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.upf" destination="192.168.20.0" netmask="255.255.255.0" gateway="192.168.26.1" interface="ppp0" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.upf" destination="192.168.21.0" netmask="255.255.255.0" gateway="192.168.26.1" interface="ppp0" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.upf" destination="192.168.22.0" netmask="255.255.255.0" gateway="192.168.26.1" interface="ppp0" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.upf" destination="192.168.23.0" netmask="255.255.255.0" gateway="192.168.26.1" interface="ppp0" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.upf" destination="192.168.24.0" netmask="255.255.255.0" gateway="192.168.26.1" interface="ppp0" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.upf" destination="192.168.25.0" netmask="255.255.255.0" gateway="192.168.26.1" interface="ppp0" metric="0"/>
    <route hosts="highwayA11_1to1_v2.ualcmp" destination="192.168.18.0" netmask="255.255.255.0" gateway="*" interface="pppIf" metric="0"/>
    <route hosts="highwayA11_1to1_v2.ualcmp" destination="192.168.18.0" netmask="255.255.255.0" gateway="*" interface="pppIf" metric="1"/>
    <route hosts="highwayA11_1to1_v2.ualcmp" destination="*" netmask="*" gateway="192.168.18.1" interface="pppIf" metric="0"/>
@@ -782,4 +808,28 @@
    <route hosts="highwayA11_1to1_v2.mecHost6.upf_mec" destination="192.168.44.0" netmask="255.255.255.0" gateway="*" interface="pppIf" metric="1"/>
    <route hosts="highwayA11_1to1_v2.mecHost6.upf_mec" destination="127.0.0.0" netmask="255.0.0.0" gateway="*" interface="lo0" metric="1"/>
    <route hosts="highwayA11_1to1_v2.mecHost6.upf_mec" destination="*" netmask="*" gateway="192.168.37.1" interface="ppp0" metric="0"/>
+    <!--MecHost Backup-->
+    <route hosts="highwayA11_1to1_v2.iUpf1" destination="192.168.45.0" netmask="255.255.255.0" gateway="192.168.20.1" interface="ppp1" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.iUpf2" destination="192.168.45.0" netmask="255.255.255.0" gateway="192.168.21.1" interface="ppp1" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.iUpf3" destination="192.168.45.0" netmask="255.255.255.0" gateway="192.168.22.1" interface="ppp1" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.iUpf4" destination="192.168.45.0" netmask="255.255.255.0" gateway="192.168.23.1" interface="ppp1" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.iUpf5" destination="192.168.45.0" netmask="255.255.255.0" gateway="192.168.24.1" interface="ppp1" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.iUpf6" destination="192.168.45.0" netmask="255.255.255.0" gateway="192.168.25.1" interface="ppp1" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.mecHost7.virtualisationInfrastructure" destination="192.168.47.0" netmask="255.255.255.0" gateway="*" interface="pppIf0" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.mecHost7.virtualisationInfrastructure" destination="192.168.47.0" netmask="255.255.255.0" gateway="*" interface="pppIf0" metric="1"/>
+    <route hosts="highwayA11_1to1_v2.mecHost7.virtualisationInfrastructure" destination="127.0.0.0" netmask="255.0.0.0" gateway="*" interface="lo" metric="1"/>
+    <route hosts="highwayA11_1to1_v2.mecHost7.virtualisationInfrastructure" destination="*" netmask="*" gateway="192.168.45.2" interface="pppIf0" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.mecHost7.upf_mec" destination="192.168.47.1" netmask="255.255.255.255" gateway="*" interface="ppp0" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.mecHost7.upf_mec" destination="192.168.47.0" netmask="255.255.255.0" gateway="*" interface="ppp0" metric="1"/>
+    <route hosts="highwayA11_1to1_v2.mecHost7.upf_mec" destination="192.168.45.0" netmask="255.255.255.0" gateway="*" interface="pppIf" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.mecHost7.upf_mec" destination="192.168.45.0" netmask="255.255.255.0" gateway="*" interface="pppIf" metric="1"/>
+    <route hosts="highwayA11_1to1_v2.mecHost7.upf_mec" destination="127.0.0.0" netmask="255.0.0.0" gateway="*" interface="lo0" metric="1"/>
+    <route hosts="highwayA11_1to1_v2.mecHost7.upf_mec" destination="*" netmask="*" gateway="192.168.47.1" interface="ppp0" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.iUpf1" destination="192.168.47.2" netmask="255.255.255.255" gateway="192.168.20.1" interface="ppp1" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.iUpf2" destination="192.168.47.2" netmask="255.255.255.255" gateway="192.168.21.1" interface="ppp1" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.iUpf3" destination="192.168.47.2" netmask="255.255.255.255" gateway="192.168.22.1" interface="ppp1" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.iUpf4" destination="192.168.47.2" netmask="255.255.255.255" gateway="192.168.23.1" interface="ppp1" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.iUpf5" destination="192.168.47.2" netmask="255.255.255.255" gateway="192.168.24.1" interface="ppp1" metric="0"/>
+    <route hosts="highwayA11_1to1_v2.iUpf6" destination="192.168.47.2" netmask="255.255.255.255" gateway="192.168.25.1" interface="ppp1" metric="0"/>
+    
 </config>

@@ -117,7 +117,7 @@ void UEPerfApp::initialize(int stage)
 
     ueId_ = deviceAppAddress_.str(); 
 
-    std::cout << ueId_ << std::endl;
+    std::cout << "Starting " << ueId_ << std::endl;
 
     // dive the ueId_ into 4 parts divided by the dots and emit the signal for ip_0, ip_1, ip_2, ip_3
     std::string ip = deviceAppAddress_.str();
@@ -433,7 +433,7 @@ void UEPerfApp::recvResponse(cMessage* msg)
     }
     else
     {
-        EV << "UEPerfApp::recvResponse - Received a response with sno [" << res->getSno() << "] that is not in the map" << endl;
+        EV << simTime() << " - UEPerfApp::recvResponse - Received a response with sno [" << res->getSno() << "] that is not in the map" << endl;
         //std::cout << "entramos aqui" << std::endl;
         delete packet;
         return;
@@ -447,7 +447,7 @@ void UEPerfApp::recvResponse(cMessage* msg)
 
     //std::cout << "MEC HOST ID" << mecHostId << std::endl;
 
-    EV << "UEPerfApp::recvResponse - message with sno [" << res->getSno() << "] " <<
+    std::cout << simTime() << " - UEPerfApp::recvResponse - message with sno [" << res->getSno() << "] " <<
             "upLinkDelay [" << upLinkDelay << "ms]\t" <<
             "downLinkDelay [" << downLinkDelay << "ms]\t" <<
             "processingTime [" << res->getProcessingTime() << "ms]\t" <<
