@@ -33,8 +33,7 @@
 #include <fstream>
 
 namespace simu5g {
-
-using namespace omnetpp;
+	using namespace omnetpp;
 
 // the most updated state of a given user 
 struct UserState

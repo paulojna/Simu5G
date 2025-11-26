@@ -12,6 +12,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <set>
 
 namespace simu5g {
 
@@ -68,7 +69,7 @@ class UEPerfApp: public cSimpleModule
 
     // map to store the UE Requests while they are not confirmed
     std::map<unsigned int, inet::Ptr<RequestResponseAppPacket>> ueRequestMap;
-    std::vector<UeTimeoutMessage*> ueTimeoutMsgs;
+    std::set<UeTimeoutMessage*> ueTimeoutMsgs;
     std::vector<requestMsg*> ueRequestMsgs; 
 
     //scheduling
@@ -93,6 +94,9 @@ class UEPerfApp: public cSimpleModule
     simsignal_t ip_1_;
     simsignal_t ip_2_;
     simsignal_t ip_3_;
+
+	simsignal_t sTime;
+	simsignal_t eTime;
 
     
 

@@ -40,6 +40,10 @@ protected:
     simtime_t sendInterval;
     int localSnapshotCounter;
 
+	// to work with our Lazy Heartbeat logic
+	simtime_t forceUpdateInterval_;
+	simtime_t lastSentTimestamp_;
+
     std::string mecHostId;
 
     inet::UdpSocket controllerSocket_;

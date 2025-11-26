@@ -28,20 +28,21 @@ cModule* AvailableResourcesSelectionBased::findBestMecHost(const ApplicationDesc
        bool res = vim->isAllocable(resources.ram, resources.disk, resources.cpu);
        if(!res)
        {
-           EV << "AvailableResourcesSelectionBased::findBestMecHost - MEC host ["<< mecHost->getName() << "] has not got enough resources. Searching again..." << endl;
+           std::cout << "AvailableResourcesSelectionBased::findBestMecHost - MEC host ["<< mecHost->getName() << "] has not got enough resources. Searching again..." << endl;
+           std::cout << "RES " << res << endl;
            continue;
        }
        if(vim->getAvailableResources().cpu > maxCpuSpeed)
        {
            // Temporally select this mec host as the best
-           EV << "AvailableResourcesSelectionBased::findBestMecHost - MEC host ["<< mecHost->getName() << "] temporally chosen as bet MEC host. Available resources: " << endl;
+           std::cout << "AvailableResourcesSelectionBased::findBestMecHost - MEC host ["<< mecHost->getName() << "] temporally chosen as bet MEC host. Available resources: " << endl;
            vim->printResources();
            bestHost = mecHost;
            maxCpuSpeed = vim->getAvailableResources().cpu;
        }
     }
     if(bestHost != nullptr)
-        EV << "AvailableResourcesSelectionBased::findBestMecHost - MEC host ["<< bestHost->getName() << "] has been chosen as the best Mec Host" << endl;
+        std::cout << "AvailableResourcesSelectionBased::findBestMecHost - MEC host ["<< bestHost->getName() << "] has been chosen as the best Mec Host" << endl;
     else
         EV << "AvailableResourcesSelectionBased::findBestMecHost - No Mec Host found" << endl;
     return bestHost;

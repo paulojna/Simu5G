@@ -6,16 +6,16 @@
 "appDescription" : "appDescription_",
 "virtualComputeDescriptor" :{
     "virtualDisk": 10,
-    "virtualCpu" : 500,
+    "virtualCpu" : 70000,
     "virtualMemory":10
     },
-"appServiceRequired": [
+    "appServiceRequired": [
     {
-        "ServiceDependency" :{
-            "serName" : "LocationService",
-            "version" : "v2",
-            "serCategory": "Location"
-        }
+      "ServiceDependency" :{
+        "serName" : "LocationService",
+        "version" : "v2",
+        "serCategory": "Location"
+      }
     }
-]
+  ]
 }

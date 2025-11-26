@@ -54,9 +54,10 @@ MECPerfApp::~MECPerfApp()
     //if(serviceSocket_->getState() == inet::TcpSocket::CONNECTED)
     //    serviceSocket_->close();
 
-    //std::cout << "APP IN MECHOST " << mecHost->getName() << " FINISHED" << std::endl;
-
-    
+	//print the IP of the UE app connected to this MEC app
+	std::cout << simTime() << " - MECPerfApp Destructor - MEC Host: " << mecHost->getName() << " connected to UE IP: " << ueAppAddress.str() << std::endl;
+	//print the number of requests processed
+	//std::cout << simTime() << " - MECPerfApp Destructor - MEC Host: " << mecHost->getName() << " To be processed: " << requestQueue_.size() << " requests." << std::endl;
 }
 
 void MECPerfApp::initialize(int stage)
@@ -147,7 +148,7 @@ void MECPerfApp::handleRequest(cMessage* msg)
     reqInfo->requestMsg_ = msg;
     requestQueue_.push(reqInfo);
     EV << "MECPerfApp::handleRequest from user at " << reqInfo->requestMsg_ << endl;
-    //std::cout << simTime() << " - Request Received! Size of requestQueue: " << requestQueue_.size() << std::endl;
+    EV << simTime() << " MECPerfApp - Request Received! Size of requestQueue: " << requestQueue_.size() << std::endl;
     if(requestQueue_.size() == 1)
     {
         sendGetRequest();
@@ -311,7 +312,7 @@ void MECPerfApp::sendGetRequest()
         uri << "/example/location/v2/queries/users"; //TODO filter the request to get less data
         EV << "MECPerfApp::requestLocation(): uri: " << uri.str() << endl;
         std::string host = serviceSocket_->getRemoteAddress().str() + ":" + std::to_string(serviceSocket_->getRemotePort());
-        //std::cout << "MECPerfApp::sendGetRequest"<< std::endl;    
+        EV << "MECPerfApp::sendGetRequest"<< std::endl;
         Http::sendGetRequest(serviceSocket_, host.c_str(), uri.str().c_str());
         // save the time when the request was sent into the oldest request in the queue
         requestQueue_.front()->getRequestSentInfo_ = simTime();

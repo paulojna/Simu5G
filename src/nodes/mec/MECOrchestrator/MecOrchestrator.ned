@@ -26,9 +26,9 @@ simple MecOrchestrator
 {
     parameters:
         @display("i=device/mainframe;bgb=1006.50995,692.76");
-        string selectionPolicy = default("LocationBased"); // available policies: "MecHostBased", "MecServiceBased", "AvailableResourcesBased"
+        string selectionPolicy = default("LocationBased"); // available policies: "MecHostBased", "MecServiceBased", "AvailableResourcesBased", "LocationBased"
         string reactionStrategy = default("MigrateOnChange"); // available strategies: "RemoveOnExit" and "MigrateOnChange" and "MigrateOnTime"
-        int mecHostIndex = default(0); // to be used with the MecHostBased policybased
+        int mecHostIndex = default(6); // to be used with the MecHostBased policybased
         string mecHostList = default("");
         string mecApplicationPackageList = default("");
 
@@ -36,9 +36,9 @@ simple MecOrchestrator
         // times to simulate lifecycle operations
         double onboardingTime @unit(s) = default(50ms);
         double instantiationTime @unit(s) = default(50ms);
-        double terminationTime @unit(s) = default(1s);
+        double terminationTime @unit(s) = default(500ms);
 
-        double migrationTime @unit("s") = default(15s);
+        double migrationTime @unit("s") = default(10s);
         double migrationTimeout @unit("s") = default(5s);
 
     gates:

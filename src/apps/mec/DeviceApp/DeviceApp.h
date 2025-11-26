@@ -60,6 +60,8 @@ class DeviceApp : public omnetpp::cSimpleModule, public inet::TcpSocket::ICallba
         HttpBaseMessage* UALCMPMessage;
         std::string UALCMPMessageBuffer;
 
+        omnetpp::cQueue httpMessageQueue;
+
         omnetpp::cMessage* processedUALCMPMessage;
 
         int localPort;

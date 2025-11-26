@@ -11,6 +11,7 @@ class LocationSelectionBased : public SelectionPolicyBase
 {
     protected:
         virtual cModule* findBestMecHost(const ApplicationDescriptor&, inet::L3Address) override;
+		cModule* findBestHostByResources(const ApplicationDescriptor& app);
     public:
         LocationSelectionBased(MecOrchestrator* mecOrchestrator):SelectionPolicyBase(mecOrchestrator){}
       virtual ~LocationSelectionBased(){}

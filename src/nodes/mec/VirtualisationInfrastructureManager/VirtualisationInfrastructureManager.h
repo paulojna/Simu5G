@@ -184,6 +184,7 @@ class VirtualisationInfrastructureManager : public cSimpleModule
          */
         bool isAllocable(double ram, double disk, double cpu)
         {
+            std::cout << "CurrentMECAPPs: " << currentMEApps << " RAM: " << maxRam - allocatedRam << " DISK: " << maxDisk - allocatedDisk << "CPU: " << maxCPU - allocatedCPU << endl;
             return (currentMEApps < maxMECApps &&
                     ram  < maxRam - allocatedRam &&
                     disk < maxDisk - allocatedDisk &&

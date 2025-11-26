@@ -84,6 +84,9 @@ network tust_1to1
         router: Router {
             @display("p=550,550");
         }
+        core_router: Router {
+            @display("p=550,450");
+        }
         server: RavensController {
             @display("p=550,600;is=s");
         }
@@ -153,6 +156,9 @@ network tust_1to1
         mecHost10: MECHost {
             @display("p=1063,1055;is=s");
         }
+        mecHost11: MECHost {
+            @display("p=650,500;is=s");
+        }
 
         mecOrchestrator: MecOrchestrator {
             @display("p=550,720;is=s");
@@ -178,16 +184,20 @@ network tust_1to1
         mecHost9.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf9.pppg++;
         mecHost10.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf10.pppg++;
 
-        iUpf1.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
-        iUpf2.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
-        iUpf3.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
-        iUpf4.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
-        iUpf5.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
-        iUpf6.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
-        iUpf7.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
-        iUpf8.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
-        iUpf9.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
-        iUpf10.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
+        mecHost11.ppp++ <--> Eth10G {  delay = 0.05s; } <--> upf.pppg++;
+
+        iUpf1.pppg++ <--> Eth10G {  delay = 0.003s; } <--> core_router.pppg++;
+        iUpf2.pppg++ <--> Eth10G {  delay = 0.003s; } <--> core_router.pppg++;
+        iUpf3.pppg++ <--> Eth10G {  delay = 0.003s; } <--> core_router.pppg++;
+        iUpf4.pppg++ <--> Eth10G {  delay = 0.003s; } <--> core_router.pppg++;
+        iUpf5.pppg++ <--> Eth10G {  delay = 0.003s; } <--> core_router.pppg++;
+        iUpf6.pppg++ <--> Eth10G {  delay = 0.003s; } <--> core_router.pppg++;
+        iUpf7.pppg++ <--> Eth10G {  delay = 0.003s; } <--> core_router.pppg++;
+        iUpf8.pppg++ <--> Eth10G {  delay = 0.003s; } <--> core_router.pppg++;
+        iUpf9.pppg++ <--> Eth10G {  delay = 0.003s; } <--> core_router.pppg++;
+        iUpf10.pppg++ <--> Eth10G {  delay = 0.003s; } <--> core_router.pppg++;
+
+        core_router.pppg++ <--> Eth10G { delay = 0.004s; } <--> upf.pppg++;
 
         iUpf1.pppg++ <--> Eth10G {  delay = 0.001s; } <--> gnb1.ppp;
         iUpf2.pppg++ <--> Eth10G {  delay = 0.001s; } <--> gnb2.ppp;

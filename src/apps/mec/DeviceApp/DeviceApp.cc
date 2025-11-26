@@ -350,10 +350,12 @@ void DeviceApp::handleSelfMessage(cMessage *msg){
     }
     else if(strcmp(msg->getName(), "processedUALCMPMessage") == 0)
     {
-        handleUALCMPMessage();
-        if(UALCMPMessage != nullptr)
+        while (!httpMessageQueue.isEmpty()) {
+            UALCMPMessage = (HttpBaseMessage*)httpMessageQueue.pop();
+            handleUALCMPMessage();
             delete UALCMPMessage;
-        UALCMPMessage = nullptr;
+            UALCMPMessage = nullptr;
+        }
     }
 }
 
@@ -629,13 +631,14 @@ void DeviceApp::socketDataArrived(inet::TcpSocket *socket, inet::Packet *msg, bo
     delete msg;
 //    EV << packet << endl;
 
-    bool res = Http::parseReceivedMsg(packet, &UALCMPMessageBuffer, &UALCMPMessage);
-    if(res)
+    bool res = Http::parseReceivedMsg(socket->getSocketId(), packet, httpMessageQueue, &UALCMPMessageBuffer, &UALCMPMessage);
+    if(!httpMessageQueue.isEmpty())
     {
         EV << "DeviceApp::socketDataArrived - schedule processedUALCMPMessage" << endl;
-        UALCMPMessage->setSockId(UALCMPSocket_.getSocketId());
-        double time = 0.005;
-        scheduleAt(simTime()+time, processedUALCMPMessage);
+        if (!processedUALCMPMessage->isScheduled()) {
+            double time = 0.005;
+            scheduleAt(simTime()+time, processedUALCMPMessage);
+        }
     }
 }
 void DeviceApp::socketEstablished(inet::TcpSocket *socket)
