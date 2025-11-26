@@ -60,6 +60,9 @@ void RavensAgentApp::initialize(int stage)
     myfile.open (name, std::ios_base::app);
     */
 
+	this->forceUpdateInterval_ = 5;
+	this->lastSentTimestamp_ = simTime();
+
     cMessage *msg = new cMessage("connectRC");
     scheduleAt(simTime() + 0.5, msg);
 }
@@ -131,8 +134,13 @@ void RavensAgentApp::sendAPList()
 
 void RavensAgentApp::sendUsersInfoSnapshot()
 {
-    // only send the information if the users map has changed
-    if (users.size() != last_users.size() || !std::equal(users.begin(), users.end(), last_users.begin(), last_users.end(), [](const auto& p1, const auto& p2) {return p1.first == p2.first && p1.second == p2.second; }))
+	// Lazy heartbeat logic: if data changes we send an update; HOWEVER, if we are approaching the timeout treshold,
+	// we also send it -> otherwise cars that stopped will be identified by the controller as exiting.
+
+    bool timeToForceUpdate = (simTime() - lastSentTimestamp_) >= forceUpdateInterval_;
+	bool dataChanged = (users != last_users);
+
+    if (dataChanged || timeToForceUpdate)
     {
         // get the information available on the users map and send it to the controller using the message type USER_INFO_SNAPSHOT
         EV << "RavensAgentApp::sendUsersInfoSnapshot - Sending User Info Snapshot" << endl;
@@ -148,6 +156,7 @@ void RavensAgentApp::sendUsersInfoSnapshot()
         controllerSocket_.send(packet);
         localSnapshotCounter++;
         last_users = users;
+    	lastSentTimestamp_ = simTime();
     }
 
     // schedule the next snapshot to send

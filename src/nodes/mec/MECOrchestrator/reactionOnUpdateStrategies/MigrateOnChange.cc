@@ -29,6 +29,11 @@ void MigrateOnChange::reactOnUpdate(const std::vector<UserEntryUpdate> &updatedL
 
 void MigrateOnChange::reactOnUpdate(const UserMEHUpdate &update)
 {
+	std::cout << "[MigrateOnChange t=" << omnetpp::simTime() << "] "
+				<< "UE=" << update.getAddress()
+				<< " lastMEH='" << update.getLastMEHId() << "'"
+				<< " newMEH='" << update.getNewMEHId() << "'" << std::endl;
+
     // scenario 1 - (described above)
     if (update.getNewMEHId()=="")
     {

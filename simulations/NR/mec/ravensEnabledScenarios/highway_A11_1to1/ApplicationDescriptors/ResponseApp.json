@@ -8,5 +8,14 @@
     "virtualDisk": 10,
     "virtualCpu" : 70000,
     "virtualMemory":10
+    },
+    "appServiceRequired": [
+    {
+      "ServiceDependency" :{
+        "serName" : "LocationService",
+        "version" : "v2",
+        "serCategory": "Location"
+      }
     }
+  ]
 }

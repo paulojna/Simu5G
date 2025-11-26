@@ -62,6 +62,12 @@ simple UEPerfApp like IApp
         @signal[lostMessages];
         @statistic[lostMessages](title="lostMessages"; source="lostMessages"; record=stats, mean, vector);
 
+        @signal[sTime];
+        @statistic[sTime](title="sTime"; source="sTime"; record=last);
+
+        @signal[eTime];
+        @statistic[eTime](title="eTime"; source="eTime"; record=last);
+
         @signal[ip_0];
         @statistic[ip_0](title="ip_0"; source="ip_0"; record=last);
 

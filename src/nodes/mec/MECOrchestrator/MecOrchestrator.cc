@@ -10,6 +10,7 @@
 //
 
 #include "nodes/mec/MECOrchestrator/MecOrchestrator.h"
+#include <omnetpp/cmodule.h>
 
 #include "nodes/mec/MECPlatformManager/MecPlatformManager.h"
 #include "nodes/mec/VirtualisationInfrastructureManager/VirtualisationInfrastructureManager.h"

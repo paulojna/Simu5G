@@ -30,6 +30,11 @@ UEPerfApp::~UEPerfApp()
     cancelAndDelete(selfStart_);
     cancelAndDelete(selfStop_);
 
+	// print the IP of the Device app connected to this UE app
+	//std::cout << simTime() << " -  UEPerfApp Destructor - UE App: " << ueId_ << " connected to Device App IP: " << deviceAppAddress_.str() << std::endl;
+	// print the number of lost packets and the number of messages still pending
+	//std::cout << simTime() << " - UEPerfApp Destructor - UE App: " << ueId_ << " lost " << lostPackets_ << " packets." << std::endl;
+	//std::cout << simTime() << " - UEPerfApp Destructor - UE App: " << ueId_ << " has " << ueRequestMsgs.size() << " pending requests." << std::endl;
 
     // run through ueRequestMsgs and ueTimeoutMsgs and delete or cancel them
     for(auto & ueRequestMsg : ueRequestMsgs)
@@ -52,6 +57,8 @@ UEPerfApp::~UEPerfApp()
     }
 }
 
+	
+
 void UEPerfApp::initialize(int stage)
 {
     EV << "UEPerfApp::initialize - stage " << stage << endl;
@@ -60,6 +67,9 @@ void UEPerfApp::initialize(int stage)
     if (stage!=inet::INITSTAGE_APPLICATION_LAYER)
         return;
 
+	sTime = registerSignal("sTime");
+	eTime = registerSignal("eTime");
+	emit(sTime, simTime());
 
     sno_ = 0;
 
@@ -162,6 +172,16 @@ void UEPerfApp::handleMessage(cMessage *msg)
         {
             EV << "UEPerfApp::handleMessage - \tSending a new request with IP " << deviceAppAddress_ << endl;
             sendRequest();
+
+            // Clean up the CURRENT request message from the tracking vector
+            for (auto it = ueRequestMsgs.begin(); it != ueRequestMsgs.end(); ++it) {
+                if ((*it)->requestMsg == msg) {
+                    delete *it;             // Delete the wrapper struct
+                    ueRequestMsgs.erase(it);// Remove from vector
+                    break;
+                }
+            }
+            delete msg;
         } 
         else if(!strcmp(msg->getName(), "UeTimeoutMessage"))
         {
@@ -174,6 +194,7 @@ void UEPerfApp::handleMessage(cMessage *msg)
         {
             inet::Packet *packet_to_send = static_cast<inet::Packet*>(msg->getContextPointer());
             socket.sendTo(packet_to_send, deviceAppAddress_, deviceAppPort_);
+            delete msg;
         }
         else
             throw cRuntimeError("UEPerfApp::handleMessage - \tWARNING: Unrecognized self message");
@@ -225,6 +246,7 @@ void UEPerfApp::handleMessage(cMessage *msg)
 
 void UEPerfApp::finish()
 {
+    emit(eTime, simTime());
     std::cout << simTime() << " - UEPerfApp with deviceApp ip " << deviceAppAddress_ <<  " finished!" << std::endl;
 }
 
@@ -380,7 +402,7 @@ void UEPerfApp::sendRequest()
     socket.sendTo(pkt, mecAppAddress_ , mecAppPort_);
 
     EV<<"UEPerfApp::sendRequest() - Request sent and stored on stanby with sno [" << sno_ << "]" << endl;
-    //std::cout << "UEPerfApp::sendRequest() - Request sent and stored on stanby with sno [" << sno_ << "]" << std::endl;
+    //std::cout << simTime() << " - UEPerfApp::sendRequest() with" << deviceAppAddress_ << " - Request sent and stored on stanby with sno [" << sno_ << "]" << std::endl;
 
     scheduleAt(simTime() + requestPeriod_, request); // next request
     scheduleAt(simTime() + requestTimeout_, sendRequestTimeout); // timeout
@@ -390,7 +412,7 @@ void UEPerfApp::sendRequest()
     reqMsg->requestMsg = request;
     reqMsg->sno = sno_;
     ueRequestMsgs.push_back(reqMsg);
-    ueTimeoutMsgs.push_back(sendRequestTimeout);
+    ueTimeoutMsgs.insert(sendRequestTimeout);
     sno_++;
 }
 
@@ -446,14 +468,6 @@ void UEPerfApp::recvResponse(cMessage* msg)
     mehostId_ = res->getMecHostId();
 
     //std::cout << "MEC HOST ID" << mecHostId << std::endl;
-
-    std::cout << simTime() << " - UEPerfApp::recvResponse - message with sno [" << res->getSno() << "] " <<
-            "upLinkDelay [" << upLinkDelay << "ms]\t" <<
-            "downLinkDelay [" << downLinkDelay << "ms]\t" <<
-            "processingTime [" << res->getProcessingTime() << "ms]\t" <<
-            "serviceResponseTime [" << res->getServiceResponseTime() << "ms]\t" <<
-            "responseTime [" << respTime << "ms]" << 
-            "mecHostId [" << mehostId_ << "]" << endl;
     //emit stats
     emit(upLinkTime_, upLinkDelay);
     emit(downLinkTime_, downLinkDelay);
@@ -473,13 +487,15 @@ void UEPerfApp::handleUeTimeoutMessage(UeTimeoutMessage* msg)
     {
         //remove the packet from the map
         ueRequestMap.erase(it);
+        lostPackets_++;
+        emit(lostMessages_, 1);
     }
 
     
-    auto it_timeout = std::find(ueTimeoutMsgs.begin(), ueTimeoutMsgs.end(), msg);
+    auto it_timeout = ueTimeoutMsgs.find(msg);
     if(it_timeout != ueTimeoutMsgs.end())
     {
-        ueTimeoutMsgs.erase(it_timeout); // Remove the pointer from the vector
+        ueTimeoutMsgs.erase(it_timeout); // Remove the pointer from the set
     } 
     
     delete msg;

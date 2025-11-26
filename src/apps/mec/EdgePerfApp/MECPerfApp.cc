@@ -54,9 +54,10 @@ MECPerfApp::~MECPerfApp()
     //if(serviceSocket_->getState() == inet::TcpSocket::CONNECTED)
     //    serviceSocket_->close();
 
-    //std::cout << "APP IN MECHOST " << mecHost->getName() << " FINISHED" << std::endl;
-
-    
+	//print the IP of the UE app connected to this MEC app
+	std::cout << simTime() << " - MECPerfApp Destructor - MEC Host: " << mecHost->getName() << " connected to UE IP: " << ueAppAddress.str() << std::endl;
+	//print the number of requests processed
+	//std::cout << simTime() << " - MECPerfApp Destructor - MEC Host: " << mecHost->getName() << " To be processed: " << requestQueue_.size() << " requests." << std::endl;
 }
 
 void MECPerfApp::initialize(int stage)

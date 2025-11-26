@@ -36,9 +36,9 @@ simple MecOrchestrator
         // times to simulate lifecycle operations
         double onboardingTime @unit(s) = default(50ms);
         double instantiationTime @unit(s) = default(50ms);
-        double terminationTime @unit(s) = default(1s);
+        double terminationTime @unit(s) = default(500ms);
 
-        double migrationTime @unit("s") = default(15s);
+        double migrationTime @unit("s") = default(10s);
         double migrationTimeout @unit("s") = default(5s);
 
     gates:
