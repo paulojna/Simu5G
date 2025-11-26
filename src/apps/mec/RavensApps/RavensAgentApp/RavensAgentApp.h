@@ -52,8 +52,14 @@ protected:
     int controllerPort;
     inet::L3Address controllerAddress_;
 
+    // RAVENS V3 - Using RNIS besides LS
+    // Separate connection variables for RNIS to avoid race conditions with Location Service
+    int rnisPort;
+    inet::L3Address rnisAddress;
+
     inet::TcpSocket* lsSocket_;
     inet::TcpSocket* mp1Socket_;
+    inet::TcpSocket* rnisSocket_;
 
     HttpBaseMessage* mp1HttpMessage;
     HttpBaseMessage* serviceHttpMessage;
@@ -83,8 +89,10 @@ protected:
     virtual void established(int connId) override;
 
     void handleLSMessage(int connId);
+	void handleRNISMessage(int connId);
 
     void sendUserListRequest();
+	// for RAVENS V3
     void sendUserLocationRequest();
     void sendAPListRequest();
 

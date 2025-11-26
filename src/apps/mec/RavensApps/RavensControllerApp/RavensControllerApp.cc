@@ -330,14 +330,20 @@ void RavensControllerApp::updateUserStateMap(inet::Ptr<const RavensLinkUsersInfo
             userStateMap[user.first].timestamp = usersInfoSnapshot->getTimeStamp();
             userStateMap[user.first].userData = user.second;
         }else{
-	        // Existing user: Only update if new data is fresher or equal
-	        if (usersInfoSnapshot->getTimeStamp() >= userIt->second.timestamp) {
-		        userIt->second.currentMEH = usersInfoSnapshot->getMecHostId();
-		        userIt->second.timestamp = usersInfoSnapshot->getTimeStamp();
-		        userIt->second.userData = user.second;
-	        } else {
-		        EV << "RavensControllerApp::updateUserStateMap - Ignored stale update for user " << user.first << endl;
-	        }
+            // user is in the map, we need to update the data in userStateMap
+            // RAVENS V3 - Using RNIS besides LS
+            // Check if the timestamp of the new user data is greater than or equal to the timestamp of the user in the map
+            // This prevents stale packets (out-of-order delivery) from overwriting newer data
+            if (usersInfoSnapshot->getTimeStamp() >= userIt->second.timestamp)
+            {
+                userIt->second.currentMEH = usersInfoSnapshot->getMecHostId();
+                userIt->second.timestamp = usersInfoSnapshot->getTimeStamp();
+                userIt->second.userData = user.second;
+            }
+            else
+            {
+                EV << "RavensControllerApp::updateUserStateMap - Ignored stale update for user " << user.first << endl;
+            }
         }
     }
 }
