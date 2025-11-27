@@ -4,11 +4,17 @@ namespace simu5g {
 
 SaveDataHistory::SaveDataHistory(RavensControllerApp* controllerApp, std::string path):LocationDataHandlerPolicyBase(controllerApp)
 {
-    std::string name = path+"run_"+std::to_string(getEnvir()->getConfigEx()->getActiveRunNumber())+"_data_history.csv"; 
+    // 1. Mobility File (Standard Vectors)
+    std::string name = path+"run_"+std::to_string(getEnvir()->getConfigEx()->getActiveRunNumber())+"_mobility.csv"; 
     csvFile.open(name, std::ios::out | std::ios::trunc);
     csvFile << "Timestamp,UEId,MEHId,AccessPointId,x,y,z,Speed,Bearing,DistanceToAccessPoint" << endl;
-    csvFile.flush();
-    EV << "SaveDataHistory::SaveDataHistory - file created in" << name << endl;
+    
+    // 2. Lifecycle File (Events)
+    std::string lifecycleName = path+"run_"+std::to_string(getEnvir()->getConfigEx()->getActiveRunNumber())+"_lifecycle.csv"; 
+    lifecycleFile.open(lifecycleName, std::ios::out | std::ios::trunc);
+    lifecycleFile << "Timestamp,EventType,UEId,Details" << endl;
+    
+    EV << "SaveDataHistory initialized. Mobility: " << name << ", Lifecycle: " << lifecycleName << endl;
 }
 
 /*
@@ -20,26 +26,75 @@ SaveDataHistory::SaveDataHistory(RavensControllerApp* controllerApp, std::string
 */
 inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet)
 {
-    // it might be a good idea to return a message anyway since we don't know what the future holds
-    inet::Packet* pck = nullptr;
+    inet::Packet* pck = nullptr; // Initialize pck to nullptr as before
 
-    // remove inactive users
-    std::vector<UserState> removedUsers = controllerApp_->removeInactiveUsers();
+    // A. Log Mobility (Source of Truth for this timestamp)
+    for(const auto& userPair : received_packet->getUsers()){
+        const auto& userData = userPair.second;
+        csvFile << received_packet->getTimeStamp() << "," 
+                << userPair.first << "," 
+                << received_packet->getMecHostId() << "," 
+                << userData.getAccessPointId() << "," 
+                << userData.getCurrentLocation().getX() << "," 
+                << userData.getCurrentLocation().getY() << "," 
+                << userData.getCurrentLocation().getZ() << "," 
+                << userData.getCurrentLocation().getHorizontalSpeed() << "," 
+                << userData.getCurrentLocation().getBearing() << "," 
+                << userData.getDistanceToAP() << endl;
+    }
+    // csvFile.flush(); // Moved to periodic flush
 
-    // update the userStateMap
+    // B. Detect Entries & Handovers (Compare Packet vs Existing Map)
+    for(const auto& userPair : received_packet->getUsers()){
+        const std::string& ueId = userPair.first;
+        const auto& newData = userPair.second;
+        std::string newMehId = received_packet->getMecHostId();
+        std::string newApId = newData.getAccessPointId();
+
+        auto it = controllerApp_->userStateMap.find(ueId);
+        if(it == controllerApp_->userStateMap.end()) {
+            // New User -> ENTRY
+            lifecycleFile << received_packet->getTimeStamp() << ",ENTRY," << ueId << "," << newMehId << endl;
+        } else {
+            // Existing User -> CHECK FOR CHANGES
+            const auto& oldState = it->second;
+            
+            // MEH Handover
+            if(oldState.currentMEH != newMehId) {
+                lifecycleFile << received_packet->getTimeStamp() << ",HANDOVER_MEH," << ueId << "," << oldState.currentMEH << "->" << newMehId << endl;
+            }
+            // AP Handover
+            if(oldState.userData.getAccessPointId() != newApId) {
+                 lifecycleFile << received_packet->getTimeStamp() << ",HANDOVER_AP," << ueId << "," << oldState.userData.getAccessPointId() << "->" << newApId << endl;
+            }
+        }
+    }
+
+    // C. Update Map (Apply new data)
     controllerApp_->updateUserStateMap(received_packet);
 
-    // print the userStateMap in the csv file
-    for(auto user : controllerApp_->userStateMap){
-        csvFile << user.second.timestamp << "," << user.first << "," << user.second.currentMEH << "," << user.second.userData.getAccessPointId() << "," << user.second.userData.getCurrentLocation().getX() << "," << user.second.userData.getCurrentLocation().getY() << "," << user.second.userData.getCurrentLocation().getZ() << "," << user.second.userData.getCurrentLocation().getHorizontalSpeed() << "," << user.second.userData.getCurrentLocation().getBearing() << "," << user.second.userData.getDistanceToAP() << endl;
+    // D. Remove Inactive & Log Exits (Clean up timeouts)
+    std::vector<UserState> removedUsers = controllerApp_->removeInactiveUsers();
+    for(const auto& user : removedUsers) {
+        lifecycleFile << simTime() << ",EXIT," << user.userId << "," << user.currentMEH << endl;
     }
-    csvFile.flush();
+    // lifecycleFile.flush(); // Moved to periodic flush
+
+    // Periodic Flush
+    msgCount_++;
+    if (msgCount_ >= FLUSH_INTERVAL_) {
+        csvFile.flush();
+        lifecycleFile.flush();
+        msgCount_ = 0;
+    }
+
     return pck;
 }
 
 SaveDataHistory::~SaveDataHistory()
 {
     csvFile.close();
+    lifecycleFile.close();
 }
 
 }

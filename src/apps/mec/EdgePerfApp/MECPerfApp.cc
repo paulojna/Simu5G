@@ -306,7 +306,7 @@ void MECPerfApp::doComputation()
 void MECPerfApp::sendGetRequest()
 {
     //check if the ueAppAddress is specified
-    if (serviceSocket_->getState() == inet::TcpSocket::CONNECTED) {
+    if (serviceSocket_ != nullptr && serviceSocket_->getState() == inet::TcpSocket::CONNECTED) {
         EV << "MECPerfApp::sendGetRequest(): send request to the Location Service" << endl;
         std::stringstream uri;
         uri << "/example/location/v2/queries/users"; //TODO filter the request to get less data
@@ -335,6 +335,14 @@ void MECPerfApp::established(int connId)
         std::string host = mp1Socket_->getRemoteAddress().str() + ":" + std::to_string(mp1Socket_->getRemotePort());
 
         Http::sendGetRequest(mp1Socket_, host.c_str(), uri);
+    }
+    else if (serviceSocket_ != nullptr && connId == serviceSocket_->getSocketId())
+    {
+        EV << "MECPerfApp::established - ServiceSocket" << endl;
+        if(!requestQueue_.empty())
+        {
+            sendGetRequest();
+        }
     }
 
 }

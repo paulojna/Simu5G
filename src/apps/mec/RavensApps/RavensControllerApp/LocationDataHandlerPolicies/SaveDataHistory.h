@@ -17,6 +17,9 @@ class SaveDataHistory : public LocationDataHandlerPolicyBase
 {
     protected:
         std::ofstream csvFile;
+        std::ofstream lifecycleFile;
+        int msgCount_;
+        static const int FLUSH_INTERVAL_ = 100; // Flush every 100 messages
         virtual inet::Packet* handleDataMessage(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet) override;
     public:
         SaveDataHistory(RavensControllerApp* controllerApp, std::string path);

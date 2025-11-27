@@ -212,6 +212,7 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
         {
             update = locationDataHandlerPolicy_->handleDataMessage(packet->peekAtFront<RavensLinkUsersInfoSnapshotMessage>());
         }
+    	delete packet;
     }
     else if(uePacketFilter.matches(packet))
     {
