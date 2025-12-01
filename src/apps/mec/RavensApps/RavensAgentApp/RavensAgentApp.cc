@@ -20,7 +20,6 @@ Define_Module(RavensAgentApp);
 
 RavensAgentApp::RavensAgentApp(): MecAppBase()
 {
-    std::map<std::string, int> m;
     this->sendInterval = 1; // default value
     this->localSnapshotCounter = 0;
 }
@@ -45,9 +44,9 @@ void RavensAgentApp::initialize(int stage)
 
     controllerPort = par("controllerPort");
     localPort_ = par("localPort");
+    ttl_ = par("ttl"); // Initialize TTL
 
     userList = new cMessage("userList");
-    userLocation = new cMessage("userLocation");
 
     accessPoints = std::vector<AccessPointData>();
     users = std::unordered_map<std::string, UserData>();
@@ -168,6 +167,17 @@ void RavensAgentApp::sendUsersInfoSnapshot()
 
     if (dataChanged || timeToForceUpdate)
     {
+        // Purge stale users (TTL check)
+        auto it = users.begin();
+        while (it != users.end()) {
+            if (simTime() - it->second.getLastUpdated() > ttl_) { // Use configured TTL
+                // EV << "Purging stale user: " << it->first << endl;
+                it = users.erase(it);
+            } else {
+                ++it;
+            }
+        }
+
         // get the information available on the users map and send it to the controller using the message type USER_INFO_SNAPSHOT
         EV << "RavensAgentApp::sendUsersInfoSnapshot - Sending User Info Snapshot" << endl;
         inet::Packet* packet = new inet::Packet("RavensLinkUsersInfoSnapshotMessage");
@@ -464,6 +474,11 @@ void RavensAgentApp::handleRNISMessage(int connId)
                     
                     // Check if we know this user (matched by IP from Location Service)
                     auto it = users.find(ueIp);
+                    if (it == users.end()) {
+                        // Try adding "acr:" prefix if not found directly
+                        it = users.find("acr:" + ueIp);
+                    }
+
                     if (it != users.end()) {
                         // Update UserData with Radio Metrics
                         double dlDelay = ue.value("dl_nongbr_delay_ue", -1.0);
@@ -475,8 +490,9 @@ void RavensAgentApp::handleRNISMessage(int connId)
                         it->second.setDlNongbrThroughputUe(dlTput);
                         it->second.setUlNongbrThroughputUe(ulTput);
                         it->second.setDlNongbrPdrUe(dlPdr);
+                        it->second.setLastUpdated(simTime()); // Mark as fresh
                         
-                        EV << "Updated Radio Stats for UE: " << ueIp << " Delay: " << dlDelay << " Tput: " << dlTput << endl;
+                        EV << "Updated Radio Stats for UE: " << it->first << " Delay: " << dlDelay << " Tput: " << dlTput << endl;
                     }
                 };
 
@@ -508,7 +524,7 @@ void RavensAgentApp::handleLSMessage(int connId)
     EV << "RavensAgentApp::handleLSMessage - LS Message payload with code " << code << " received: " <<  serviceHttpMessage->getBody() << endl;
 
     // clean users vector
-    users.clear();
+    // users.clear(); // REMOVED to persist radio stats
 
     // if the response is a 200 OK
     if(code == 200)
@@ -560,9 +576,22 @@ void RavensAgentApp::handleLSMessage(int connId)
                     //long bearing = user["userInfo"]["locationInfo"]["velocity"]["bearing"];
                     long bearing = user["userInfo"]["locationInfo"]["velocity"]["bearing"].is_null() ? 0 : user["userInfo"]["locationInfo"]["velocity"]["bearing"].get<long>();                    
                     long speed = user["userInfo"]["locationInfo"]["velocity"]["horizontalSpeed"];
+                    
                     UserLocation userLocation = UserLocation(x, y, z, bearing, speed);
-                    UserData userData = UserData(address, apData, userLocation);
-                    users[address] = userData;
+                    
+                    // Upsert Logic
+                    auto it = users.find(address);
+                    if (it != users.end()) {
+                        // Update existing user (preserves Radio Stats)
+                        it->second.setAccessPointId(apData.getAccessPointId());
+                        it->second.setCurrentLocation(userLocation);
+                        it->second.setLastUpdated(simTime());
+                    } else {
+                        // Insert new user
+                        UserData userData = UserData(address, apData, userLocation);
+                        userData.setLastUpdated(simTime());
+                        users[address] = userData;
+                    }
                 }
                 // add users to history
                 // history.emplace(userInfoList["timeStamp"], users);
@@ -692,19 +721,6 @@ void RavensAgentApp::sendAPListRequest()
     Http::sendGetRequest(lsSocket_, host.c_str(), zones_uri);
     EV << "RavensAgentApp::sendAPListRequest - uri " << zones_uri << " to host " << host.c_str() << endl;
     return;
-}
-
-std::string RavensAgentApp::collectionString(std::vector<std::string> vec)
-{
-    std::string userListString = "";
-    std::stringstream ss;
-    for (size_t i = 0; i < vec.size(); i++) {
-        if (i != 0) {
-            ss << ",";
-        }
-        ss << vec[i];
-    }
-    return ss.str();
 }
 
 void RavensAgentApp::handleServiceMessage(int connId)

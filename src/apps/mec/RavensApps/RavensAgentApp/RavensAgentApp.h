@@ -45,6 +45,7 @@ protected:
 	// to work with our Lazy Heartbeat logic
 	simtime_t forceUpdateInterval_;
 	simtime_t lastSentTimestamp_;
+    simtime_t ttl_; // Added TTL for user data freshness
 
     std::string mecHostId;
 
@@ -67,7 +68,6 @@ protected:
     HttpBaseMessage* serviceHttpMessage;
 
     cMessage *userList;
-    cMessage *userLocation;
     
     std::vector<AccessPointData> accessPoints;
     std::unordered_map<std::string, UserData> users; 
@@ -116,8 +116,6 @@ protected:
     virtual void socketDataArrived(inet::UdpSocket *socket, inet::Packet *packet) override;
     virtual void socketErrorArrived(inet::UdpSocket *socket, inet::Indication *indication) override;
     virtual void socketClosed(inet::UdpSocket *socket) override;
-
-    std::string collectionString(std::vector<std::string> vec);
 
 
 public:

@@ -13,6 +13,8 @@ UserData::UserData(){
     this->dl_nongbr_throughput_ue = -1.0;
     this->ul_nongbr_throughput_ue = -1.0;
     this->dl_nongbr_pdr_ue = -1.0;
+    
+    this->lastUpdated = 0; // Initialize
 }
 
 UserData::UserData(const std::string& address, AccessPointData& accessPointData, UserLocation& currentLocation){
@@ -25,6 +27,8 @@ UserData::UserData(const std::string& address, AccessPointData& accessPointData,
     this->dl_nongbr_throughput_ue = -1.0;
     this->ul_nongbr_throughput_ue = -1.0;
     this->dl_nongbr_pdr_ue = -1.0;
+    
+    this->lastUpdated = omnetpp::simTime(); // Initialize with current time
 }
 
 UserData::~UserData(){}
@@ -40,7 +44,11 @@ void UserData::setAccessPointId(const std::string& accessPointId){
 
 void UserData::setCurrentLocation(const UserLocation& currentLocation){
     this->currentLocation = currentLocation;
-}   
+}
+
+void UserData::setLastUpdated(omnetpp::simtime_t time){
+    this->lastUpdated = time;
+}
 
 // getters
 std::string UserData::getAddress() const{
@@ -57,6 +65,10 @@ UserLocation UserData::getCurrentLocation() const{
 
 double UserData::getDistanceToAP() const{
     return this->distance_to_ap;
+}
+
+omnetpp::simtime_t UserData::getLastUpdated() const{
+    return this->lastUpdated;
 }
 
 // RNIS Radio Metrics Getters

@@ -49,6 +49,8 @@ simple RavensAgentApp like IMECApp, IApp
         int controllerPort = default(5001); 
 
         int localPort = default(1993);
+
+        double ttl @unit(s) = default(15s);  // Must be > lockout(10s) + snapshot_interval(3s) to prevent premature purging
 		
 	gates:
 	 	input mePlatformIn;
