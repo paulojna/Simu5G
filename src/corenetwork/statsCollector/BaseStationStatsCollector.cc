@@ -9,6 +9,7 @@
 // and cannot be removed from it.
 //
 
+#include "common/binder/Binder.h"
 #include "corenetwork/statsCollector/BaseStationStatsCollector.h"
 #include "corenetwork/statsCollector/UeStatsCollector.h"
 #include "stack/packetFlowManager/PacketFlowManagerEnb.h"
@@ -63,6 +64,8 @@ void BaseStationStatsCollector::initialize(int stage){
 
         ecgi_.plmn.mcc = getAncestorPar("mcc").stdstringValue();
         ecgi_.plmn.mnc = getAncestorPar("mnc").stdstringValue();
+
+        binder_ = getBinder();
 
         mac_ = check_and_cast<LteMacEnb *>(getParentModule()->getSubmodule("cellularNic")->getSubmodule("mac"));
         pdcp_ = check_and_cast<LtePdcpRrcEnb *>(getParentModule()->getSubmodule("cellularNic")->getSubmodule("pdcpRrc"));
@@ -130,6 +133,10 @@ void BaseStationStatsCollector::handleMessage(cMessage *msg)
 {
     if(msg->isSelfMessage())
     {
+        // RAVENS V3 - Using RNIS besides LS
+        // Ensure map only contains valid UEs before processing to prevent SIGSEGV on dead objects
+        cleanupDeadUeCollectors(); // Cleanup dead UEs before processing
+
         EV << collectorType_ << "::handleMessage - get " << msg->getName() << "statistics" << endl;
 
         if(strcmp(msg->getName(),"prbUsage_") == 0)
@@ -499,6 +506,26 @@ void BaseStationStatsCollector::resetStats(MacNodeId nodeId)
     auto ue = ueCollectors_.find(nodeId);
     if(ue != ueCollectors_.end())
         ue->second->resetStats();
+}
+
+void BaseStationStatsCollector::cleanupDeadUeCollectors()
+{
+    for (auto it = ueCollectors_.begin(); it != ueCollectors_.end(); )
+    {
+        // If Binder says this UE is not attached to us (cellId), remove it
+        if (binder_->getNextHop(it->first) != ecgi_.cellId)
+        {
+            EV << collectorType_ << "::cleanupDeadUeCollectors - Removing dead UE " << it->first << endl;
+            // Clean up PFM
+            packetFlowManager_->deleteUe(it->first);
+            // Remove from map
+            it = ueCollectors_.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
 }
 
 } //namespace

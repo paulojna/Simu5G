@@ -70,6 +70,7 @@ void RNIService::handleGETRequest(const HttpRequestMessage *currentRequestMessag
     // check it is a GET for a query or a subscription
     if(uri.compare(baseUriQueries_ + "/layer2_meas") == 0 ) //queries
     {
+        L2MeasResource_.updateTimestamp();
         std::string params = currentRequestMessageServed->getParameters();
         //look for query parameters
         if(!params.empty())

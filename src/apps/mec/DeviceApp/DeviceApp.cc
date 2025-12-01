@@ -631,6 +631,8 @@ void DeviceApp::socketDataArrived(inet::TcpSocket *socket, inet::Packet *msg, bo
     delete msg;
 //    EV << packet << endl;
 
+    // RAVENS V3 - Using RNIS besides LS
+    // Use robust parsing that supports message queueing
     bool res = Http::parseReceivedMsg(socket->getSocketId(), packet, httpMessageQueue, &UALCMPMessageBuffer, &UALCMPMessage);
     if(!httpMessageQueue.isEmpty())
     {

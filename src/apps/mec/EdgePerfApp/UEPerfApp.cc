@@ -467,6 +467,8 @@ void UEPerfApp::recvResponse(cMessage* msg)
 
     mehostId_ = res->getMecHostId();
 
+	std::cout << simTime() << " - UEPerfApp: response received with respTime: " << respTime << endl;
+
     //std::cout << "MEC HOST ID" << mecHostId << std::endl;
     //emit stats
     emit(upLinkTime_, upLinkDelay);

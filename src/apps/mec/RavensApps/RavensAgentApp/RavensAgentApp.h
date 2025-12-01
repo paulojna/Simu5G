@@ -18,6 +18,8 @@
 
 #include "nodes/mec/MECPlatform/ServiceRegistry/ServiceRegistry.h"
 
+#include "AccessPointRadioInfoData.h"
+
 #include "apps/mec/MecApps/MecAppBase.h"
 #include "inet/common/lifecycle/NodeStatus.h"
 
@@ -52,8 +54,14 @@ protected:
     int controllerPort;
     inet::L3Address controllerAddress_;
 
+    // RAVENS V3 - Using RNIS besides LS
+    // Separate connection variables for RNIS to avoid race conditions with Location Service
+    int rnisPort;
+    inet::L3Address rnisAddress;
+
     inet::TcpSocket* lsSocket_;
     inet::TcpSocket* mp1Socket_;
+    inet::TcpSocket* rnisSocket_;
 
     HttpBaseMessage* mp1HttpMessage;
     HttpBaseMessage* serviceHttpMessage;
@@ -66,6 +74,8 @@ protected:
     // to compare before sending the information to the controller to ensure that we are not sending the same information twice
     std::unordered_map<std::string, UserData> last_users; 
     std::map<long, std::map<std::string, UserData>> history;
+
+	AccessPointRadioInfoData* accessPointRadioInformation;
 
     virtual int numInitStages() const override { return inet::NUM_INIT_STAGES; }
     virtual void initialize(int stage) override;
@@ -83,9 +93,12 @@ protected:
     virtual void established(int connId) override;
 
     void handleLSMessage(int connId);
+	void handleRNISMessage(int connId);
 
     void sendUserListRequest();
+	// for RAVENS V3
     void sendUserLocationRequest();
+	void sendRNISRequest();
     void sendAPListRequest();
 
     void sendUsersDensitySubscription();

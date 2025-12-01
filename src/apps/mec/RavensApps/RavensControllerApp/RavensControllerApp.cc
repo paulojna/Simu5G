@@ -210,7 +210,33 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
         }
         else if(received_packet->getType() == USERS_INFO_SNAPSHOT)
         {
-            update = locationDataHandlerPolicy_->handleDataMessage(packet->peekAtFront<RavensLinkUsersInfoSnapshotMessage>());
+            // Get the full message to access the apRadioInfo
+            auto usersInfoSnapshot = packet->peekAtFront<RavensLinkUsersInfoSnapshotMessage>();
+            
+            // Print the AccessPointRadioInfoData for debugging
+            EV << "RavensControllerApp::socketDataArrived - Received USERS_INFO_SNAPSHOT from MEC Host: " << usersInfoSnapshot->getMecHostId() << endl;
+            
+            const AccessPointRadioInfoData& apRadioInfo = usersInfoSnapshot->getApRadioInfo();
+            
+            // Check if the object contains valid data (non-empty ID)
+            if (!apRadioInfo.getAccessPointId().empty()) { 
+                EV << simTime() << "  Cell ID: " << apRadioInfo.getAccessPointId() << endl;
+                EV << "  DL PRB Usage: " << apRadioInfo.getDlTotalPrbUsage() << "%" << endl;
+                EV << "  UL PRB Usage: " << apRadioInfo.getUlTotalPrbUsage() << "%" << endl;
+
+                // Store in mehStateMap
+                auto it = mehStateMap.find(usersInfoSnapshot->getMecHostId());
+                if (it != mehStateMap.end()) {
+                    it->second.setApRadioInfo(apRadioInfo);
+                } else {
+                    // Handle case where host is not yet in map (less likely if JOIN happened, but possible)
+                    // For now, we just log it
+                    EV << "  WARNING: Received Snapshot from unknown host " << usersInfoSnapshot->getMecHostId() << endl;
+                }
+            } else {
+                EV << "  No valid AP Radio Info found in snapshot." << endl;
+            }
+            update = locationDataHandlerPolicy_->handleDataMessage(usersInfoSnapshot);
         }
     	delete packet;
     }
@@ -331,14 +357,20 @@ void RavensControllerApp::updateUserStateMap(inet::Ptr<const RavensLinkUsersInfo
             userStateMap[user.first].timestamp = usersInfoSnapshot->getTimeStamp();
             userStateMap[user.first].userData = user.second;
         }else{
-	        // Existing user: Only update if new data is fresher or equal
-	        if (usersInfoSnapshot->getTimeStamp() >= userIt->second.timestamp) {
-		        userIt->second.currentMEH = usersInfoSnapshot->getMecHostId();
-		        userIt->second.timestamp = usersInfoSnapshot->getTimeStamp();
-		        userIt->second.userData = user.second;
-	        } else {
-		        EV << "RavensControllerApp::updateUserStateMap - Ignored stale update for user " << user.first << endl;
-	        }
+            // user is in the map, we need to update the data in userStateMap
+            // RAVENS V3 - Using RNIS besides LS
+            // Check if the timestamp of the new user data is greater than or equal to the timestamp of the user in the map
+            // This prevents stale packets (out-of-order delivery) from overwriting newer data
+            if (usersInfoSnapshot->getTimeStamp() >= userIt->second.timestamp)
+            {
+                userIt->second.currentMEH = usersInfoSnapshot->getMecHostId();
+                userIt->second.timestamp = usersInfoSnapshot->getTimeStamp();
+                userIt->second.userData = user.second;
+            }
+            else
+            {
+                EV << "RavensControllerApp::updateUserStateMap - Ignored stale update for user " << user.first << endl;
+            }
         }
     }
 }

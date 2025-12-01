@@ -68,7 +68,9 @@ class UeStatsCollector: public cSimpleModule
 
     public:
         UeStatsCollector();
-        virtual ~UeStatsCollector(){}
+        // RAVENS V3 - Using RNIS besides LS
+        // Non-inline destructor to implement safe unregistration
+        virtual ~UeStatsCollector();
 
         // methods to update L2 measures
 
