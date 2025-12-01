@@ -18,6 +18,8 @@
 
 #include "nodes/mec/MECPlatform/ServiceRegistry/ServiceRegistry.h"
 
+#include "AccessPointRadioInfoData.h"
+
 #include "apps/mec/MecApps/MecAppBase.h"
 #include "inet/common/lifecycle/NodeStatus.h"
 
@@ -73,6 +75,8 @@ protected:
     std::unordered_map<std::string, UserData> last_users; 
     std::map<long, std::map<std::string, UserData>> history;
 
+	AccessPointRadioInfoData* accessPointRadioInformation;
+
     virtual int numInitStages() const override { return inet::NUM_INIT_STAGES; }
     virtual void initialize(int stage) override;
     virtual void finish() override;
@@ -94,6 +98,7 @@ protected:
     void sendUserListRequest();
 	// for RAVENS V3
     void sendUserLocationRequest();
+	void sendRNISRequest();
     void sendAPListRequest();
 
     void sendUsersDensitySubscription();

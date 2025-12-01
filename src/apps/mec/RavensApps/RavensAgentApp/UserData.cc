@@ -8,6 +8,11 @@ UserData::UserData(){
     this->accessPointId = "";
     this->currentLocation = UserLocation();
     this->distance_to_ap = 0.0;
+    
+    this->dl_nongbr_delay_ue = -1.0;
+    this->dl_nongbr_throughput_ue = -1.0;
+    this->ul_nongbr_throughput_ue = -1.0;
+    this->dl_nongbr_pdr_ue = -1.0;
 }
 
 UserData::UserData(const std::string& address, AccessPointData& accessPointData, UserLocation& currentLocation){
@@ -15,6 +20,11 @@ UserData::UserData(const std::string& address, AccessPointData& accessPointData,
     this->accessPointId = accessPointData.getAccessPointId();
     this->currentLocation = currentLocation;
     this->distance_to_ap = calculateDistanceToAP(accessPointData.getAccessPointLocation().getX(), accessPointData.getAccessPointLocation().getY(), currentLocation.getX(), currentLocation.getY());
+
+    this->dl_nongbr_delay_ue = -1.0;
+    this->dl_nongbr_throughput_ue = -1.0;
+    this->ul_nongbr_throughput_ue = -1.0;
+    this->dl_nongbr_pdr_ue = -1.0;
 }
 
 UserData::~UserData(){}
@@ -47,6 +57,40 @@ UserLocation UserData::getCurrentLocation() const{
 
 double UserData::getDistanceToAP() const{
     return this->distance_to_ap;
+}
+
+// RNIS Radio Metrics Getters
+double UserData::getDlNongbrDelayUe() const {
+    return this->dl_nongbr_delay_ue;
+}
+
+double UserData::getDlNongbrThroughputUe() const {
+    return this->dl_nongbr_throughput_ue;
+}
+
+double UserData::getUlNongbrThroughputUe() const {
+    return this->ul_nongbr_throughput_ue;
+}
+
+double UserData::getDlNongbrPdrUe() const {
+    return this->dl_nongbr_pdr_ue;
+}
+
+// RNIS Radio Metrics Setters
+void UserData::setDlNongbrDelayUe(double delay) {
+    this->dl_nongbr_delay_ue = delay;
+}
+
+void UserData::setDlNongbrThroughputUe(double throughput) {
+    this->dl_nongbr_throughput_ue = throughput;
+}
+
+void UserData::setUlNongbrThroughputUe(double throughput) {
+    this->ul_nongbr_throughput_ue = throughput;
+}
+
+void UserData::setDlNongbrPdrUe(double pdr) {
+    this->dl_nongbr_pdr_ue = pdr;
 }
 
 // method that calculates the eculedean distance between the user and a given x,y point

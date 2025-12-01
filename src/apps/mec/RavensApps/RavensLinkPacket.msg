@@ -19,12 +19,15 @@ import inet.common.packet.chunk.Chunk;
 cplusplus {{
     #include "RavensAgentApp/AccessPointData.h"
     #include "RavensAgentApp/UserData.h"
+    #include "RavensAgentApp/AccessPointRadioInfoData.h"
     typedef std::vector<::simu5g::AccessPointData> AccessPointList;
     typedef std::unordered_map<std::string, ::simu5g::UserData> UsersMap;
+    typedef simu5g::AccessPointRadioInfoData AccessPointRNISData;
 }};
 
 class AccessPointList { @existingClass; };
 class UsersMap { @existingClass; };
+class AccessPointRNISData { @existingClass; };
 
 namespace simu5g;
 
@@ -55,4 +58,5 @@ class RavensLinkUsersInfoSnapshotMessage extends RavensLinkPacket
 {
     string mecHostId;
     UsersMap users;
+    AccessPointRNISData apRadioInfo;
 }

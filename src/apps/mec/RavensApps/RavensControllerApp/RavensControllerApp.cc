@@ -210,7 +210,33 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
         }
         else if(received_packet->getType() == USERS_INFO_SNAPSHOT)
         {
-            update = locationDataHandlerPolicy_->handleDataMessage(packet->peekAtFront<RavensLinkUsersInfoSnapshotMessage>());
+            // Get the full message to access the apRadioInfo
+            auto usersInfoSnapshot = packet->peekAtFront<RavensLinkUsersInfoSnapshotMessage>();
+            
+            // Print the AccessPointRadioInfoData for debugging
+            EV << "RavensControllerApp::socketDataArrived - Received USERS_INFO_SNAPSHOT from MEC Host: " << usersInfoSnapshot->getMecHostId() << endl;
+            
+            const AccessPointRadioInfoData& apRadioInfo = usersInfoSnapshot->getApRadioInfo();
+            
+            // Check if the object contains valid data (non-empty ID)
+            if (!apRadioInfo.getAccessPointId().empty()) { 
+                EV << simTime() << "  Cell ID: " << apRadioInfo.getAccessPointId() << endl;
+                EV << "  DL PRB Usage: " << apRadioInfo.getDlTotalPrbUsage() << "%" << endl;
+                EV << "  UL PRB Usage: " << apRadioInfo.getUlTotalPrbUsage() << "%" << endl;
+
+                // Store in mehStateMap
+                auto it = mehStateMap.find(usersInfoSnapshot->getMecHostId());
+                if (it != mehStateMap.end()) {
+                    it->second.setApRadioInfo(apRadioInfo);
+                } else {
+                    // Handle case where host is not yet in map (less likely if JOIN happened, but possible)
+                    // For now, we just log it
+                    EV << "  WARNING: Received Snapshot from unknown host " << usersInfoSnapshot->getMecHostId() << endl;
+                }
+            } else {
+                EV << "  No valid AP Radio Info found in snapshot." << endl;
+            }
+            update = locationDataHandlerPolicy_->handleDataMessage(usersInfoSnapshot);
         }
     }
     else if(uePacketFilter.matches(packet))

@@ -28,6 +28,7 @@ RavensAgentApp::RavensAgentApp(): MecAppBase()
 RavensAgentApp::~RavensAgentApp()
 {
     cancelAndDelete(userList);
+	delete accessPointRadioInformation;
 }
 
 void RavensAgentApp::initialize(int stage)
@@ -62,6 +63,8 @@ void RavensAgentApp::initialize(int stage)
 
 	this->forceUpdateInterval_ = 5;
 	this->lastSentTimestamp_ = simTime();
+
+	accessPointRadioInformation = new AccessPointRadioInfoData();
 
     cMessage *msg = new cMessage("connectRC");
     scheduleAt(simTime() + 0.5, msg);
@@ -106,17 +109,23 @@ void RavensAgentApp::established(int connId)
 	{
         // RAVENS V3 - Using RNIS besides LS
         // Send initial query to RNIS for Layer 2 measurements
-		std::cout << mecHostId << " - RavensAgentApp::established - rnisSocket"<< endl;
-		const char *users_uri = "/example/rni/v2/queries/layer2_meas";
-		std::string host = rnisSocket_->getRemoteAddress().str()+":"+std::to_string(rnisSocket_->getRemotePort());
-		Http::sendGetRequest(rnisSocket_, host.c_str(), users_uri);
-		std::cout << mecHostId << " - RavensAgentApp::sendUserListRequest - uri " << users_uri << " to host " << host.c_str() << endl;
+		EV << mecHostId << " - RavensAgentApp::established - rnisSocket"<< endl;
+		cMessage *msg = new cMessage("sendRNISRequest");
+		scheduleAt(simTime() + 0.1, msg);
 		return;
 	}
     else 
     {
         throw cRuntimeError("RavenAgentApp::socketEstablished - Socket %d not recognized", connId);
     }
+}
+
+void RavensAgentApp::sendRNISRequest()
+{
+	const char *users_uri = "/example/rni/v2/queries/layer2_meas";
+	std::string host = rnisSocket_->getRemoteAddress().str()+":"+std::to_string(rnisSocket_->getRemotePort());
+	Http::sendGetRequest(rnisSocket_, host.c_str(), users_uri);
+	EV << mecHostId << " - RavensAgentApp::sendUserListRequest - uri " << users_uri << " to host " << host.c_str() << endl;
 }
 
 void RavensAgentApp::sendJoinNetworkRequest()
@@ -169,6 +178,15 @@ void RavensAgentApp::sendUsersInfoSnapshot()
         request->setTimeStamp(simTime());
         request->setMecHostId(getMecHostId().c_str());
         request->setUsers(users);
+    	// Populate the new AP radio info field
+        if (this->accessPointRadioInformation != nullptr)
+        {
+	        request->setApRadioInfo(*this->accessPointRadioInformation);
+        }
+    	else
+    	{
+	        EV << "RavensAgentApp::sendUsersInfoSnapshot - WARNING: accessPointRadioInformation is null, cannot send AP radio info." << endl;
+        }
         packet->insertAtBack(request);
         controllerSocket_.send(packet);
         localSnapshotCounter++;
@@ -245,7 +263,7 @@ void RavensAgentApp::handleMp1Message(int connId)
         	}
         	else
             {
-                EV << "RavensAgentApp::handleMp1Message - Location Service not found"<< endl;
+                EV << "RavensAgentApp::handleMp1Message - No service found"<< endl;
                 serviceAddress = L3Address();
             }
         }
@@ -343,9 +361,17 @@ void RavensAgentApp::handleSelfMessage(cMessage *msg)
         sendUsersInfoSnapshot();
         delete msg;
     }
+    else if(strcmp(msg->getName(), "sendRNISRequest") == 0)
+    {
+    	EV << "RavensAgentApp::handleMessage- " << msg->getName() << endl;
+    	sendRNISRequest();
+    	delete msg;
+    	cMessage *request = new cMessage("sendRNISRequest");
+    	scheduleAt(simTime()+sendInterval, request);
+    }
     else
     {
-        EV << "RavensAgentApp::handleMessage- " << msg->getName() << endl;
+        EV << "RavensAgentApp::handleMessage - " << msg->getName() << endl;
     }
 }
 
@@ -380,19 +406,93 @@ void RavensAgentApp::connectToRavensController()
 
 void RavensAgentApp::handleRNISMessage(int connId)
 {
-	std::cout << mecHostId << " - RavensAgentApp::handleLSMessage - RNIS Message Received - Socket ID: " << connId << endl;
+	EV << mecHostId << " - RavensAgentApp::handleRNISMessage - RNIS Message Received - Socket ID: " << connId << endl;
 	HttpMessageStatus *msgStatus = (HttpMessageStatus*) rnisSocket_->getUserData();
 	serviceHttpMessage = (HttpBaseMessage*) msgStatus->httpMessageQueue.front();
 	HttpResponseMessage *rspMsg = dynamic_cast<HttpResponseMessage*>(serviceHttpMessage);
 
     if (rspMsg == nullptr) {
-        std::cout << mecHostId << " - RavensAgentApp::handleRNISMessage - Error: Received message is not a valid HttpResponseMessage" << endl;
+        EV << mecHostId << " - RavensAgentApp::handleRNISMessage - Error: Received message is not a valid HttpResponseMessage" << endl;
         return;
     }
 
 	int code = rspMsg->getCode();
+	EV << mecHostId << " - RavensAgentApp::handleRNISMessage - RNIS Message payload with code " << code << " received" << endl;
 
-	std::cout << mecHostId << " - RavensAgentApp::handleLSMessage - RNIS Message payload with code " << code << " received: " <<  serviceHttpMessage->getBody() << endl;
+    if (code == 200)
+    {
+        try {
+            nlohmann::json jsonBody = nlohmann::json::parse(serviceHttpMessage->getBody());
+            
+            // 1. Parse Cell Info to update AccessPointRadioInfoData
+            if (jsonBody.contains("cellInfo")) {
+                auto cellInfo = jsonBody["cellInfo"];
+                
+                // Helper lambda to process a single Cell JSON object
+                auto processCell = [&](const nlohmann::json& cell) {
+                    std::string cellId = to_string(cell["ecgi"]["cellId"]);
+                    double dlPrb = cell.value("dl_nongbr_prb_usage_cell", 0.0);
+                    double ulPrb = cell.value("ul_nongbr_prb_usage_cell", 0.0);
+                    
+                    // Update the pointer members
+                    if (accessPointRadioInformation != nullptr) {
+                        accessPointRadioInformation->setAccessPointId(cellId);
+                        accessPointRadioInformation->setDlTotalPrbUsage(dlPrb);
+                        accessPointRadioInformation->setUlTotalPrbUsage(ulPrb);
+                        EV << "Updated Radio Info for Cell: " << cellId << " DL PRB: " << dlPrb << "% UL PRB: " << ulPrb << "%" << endl;
+                    }
+                };
+
+                if (cellInfo.is_array()) {
+                     for (auto& cell : cellInfo) {
+                         processCell(cell);
+                     }
+                } else {
+                     processCell(cellInfo);
+                }
+            }
+
+            // 2. Parse UE Info to update UserData map
+            if (jsonBody.contains("cellUEInfo")) {
+                auto ueInfo = jsonBody["cellUEInfo"];
+                
+                // Helper lambda to process a single UE JSON object
+                auto processUe = [&](const nlohmann::json& ue) {
+                    if (!ue.contains("associatedId") || !ue["associatedId"].contains("value")) return;
+                    
+                    std::string ueIp = ue["associatedId"]["value"];
+                    
+                    // Check if we know this user (matched by IP from Location Service)
+                    auto it = users.find(ueIp);
+                    if (it != users.end()) {
+                        // Update UserData with Radio Metrics
+                        double dlDelay = ue.value("dl_nongbr_delay_ue", -1.0);
+                        double dlTput = ue.value("dl_nongbr_throughput_ue", 0.0);
+                        double ulTput = ue.value("ul_nongbr_throughput_ue", 0.0);
+                        double dlPdr = ue.value("dl_nongbr_pdr_ue", 0.0);
+
+                        it->second.setDlNongbrDelayUe(dlDelay);
+                        it->second.setDlNongbrThroughputUe(dlTput);
+                        it->second.setUlNongbrThroughputUe(ulTput);
+                        it->second.setDlNongbrPdrUe(dlPdr);
+                        
+                        EV << "Updated Radio Stats for UE: " << ueIp << " Delay: " << dlDelay << " Tput: " << dlTput << endl;
+                    }
+                };
+
+                if (ueInfo.is_array()) {
+                    for (auto& ue : ueInfo) {
+                        processUe(ue);
+                    }
+                } else {
+                    processUe(ueInfo);
+                }
+            }
+
+        } catch (nlohmann::detail::parse_error &e) {
+            EV << "RavensAgentApp::handleRNISMessage - JSON Parse Error: " << e.what() << endl;
+        }
+    }
 }
 
 void RavensAgentApp::handleLSMessage(int connId)
