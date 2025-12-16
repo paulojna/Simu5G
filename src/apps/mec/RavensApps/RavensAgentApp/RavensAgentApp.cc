@@ -509,6 +509,11 @@ void RavensAgentApp::handleRNISMessage(int connId)
             EV << "RavensAgentApp::handleRNISMessage - JSON Parse Error: " << e.what() << endl;
         }
     }
+    else {
+        // Log non-200 responses to understand why RNIS is failing
+        EV << mecHostId << " - RavensAgentApp::handleRNISMessage - WARNING: Received non-200 response code: " << code << endl;
+        EV << mecHostId << " - RavensAgentApp::handleRNISMessage - Response body: " << serviceHttpMessage->getBody() << endl;
+    }
 }
 
 void RavensAgentApp::handleLSMessage(int connId)

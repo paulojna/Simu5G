@@ -15,6 +15,8 @@
 #include "stack/mac/layer/LteMacBase.h"
 #include "inet/common/ModuleAccess.h"
 #include "stack/packetFlowManager/PacketFlowManagerUe.h"
+#include "inet/networklayer/common/NetworkInterface.h"
+#include "inet/networklayer/ipv4/Ipv4InterfaceData.h"
 
 namespace simu5g {
 
@@ -33,7 +35,7 @@ UeStatsCollector::~UeStatsCollector()
     // RAVENS V3 - Using RNIS besides LS
     // Destructor unregisters from eNodeB to prevent dangling pointers in BaseStationStatsCollector
     // Fallback to Binder lookup if local state is already cleared (CellID=0)
-    std::cout << "UeStatsCollector::~UeStatsCollector - Destructor called for " << getFullPath() << std::endl;
+    //std::cout << "UeStatsCollector::~UeStatsCollector - Destructor called for " << getFullPath() << std::endl;
     // Unregister from the BaseStationStatsCollector if connected
     if (mac_ != nullptr)
     {
@@ -41,12 +43,12 @@ UeStatsCollector::~UeStatsCollector()
         MacNodeId nodeId = mac_->getMacNodeId();
         MacCellId cellId = mac_->getMacCellId();
         
-        std::cout << "UeStatsCollector::~UeStatsCollector - " << getFullPath() << " - MAC CellID: " << cellId << std::endl;
+        //std::cout << "UeStatsCollector::~UeStatsCollector - " << getFullPath() << " - MAC CellID: " << cellId << std::endl;
 
         if (cellId == 0 && binder) {
             try {
                 cellId = binder->getNextHop(nodeId);
-                std::cout << "UeStatsCollector::~UeStatsCollector - " << getFullPath() << " - Binder says Master ID is: " << cellId << std::endl;
+                //std::cout << "UeStatsCollector::~UeStatsCollector - " << getFullPath() << " - Binder says Master ID is: " << cellId << std::endl;
             } catch (...) {
                 // Ignore if binder fails
             }
@@ -55,22 +57,22 @@ UeStatsCollector::~UeStatsCollector()
         if (cellId > 0)
         {
             if (binder) {
-                std::cout << "UeStatsCollector::~UeStatsCollector - " << getFullPath() << " - Binder found" << std::endl;
+                //std::cout << "UeStatsCollector::~UeStatsCollector - " << getFullPath() << " - Binder found" << std::endl;
                 try {
                     const char* enbName = binder->getModuleNameByMacNodeId(cellId);
                     cModule* enb = getModuleByPath(enbName);
                     if (enb && enb->getSubmodule("collector"))
                     {
-                        std::cout << "UeStatsCollector::~UeStatsCollector - " << getFullPath() << " - eNodeB collector found" << std::endl;
+                        //std::cout << "UeStatsCollector::~UeStatsCollector - " << getFullPath() << " - eNodeB collector found" << std::endl;
                         auto* enbColl = check_and_cast<BaseStationStatsCollector*>(enb->getSubmodule("collector"));
                         if (enbColl && enbColl->hasUeCollector(nodeId))
                         {
                             enbColl->removeUeCollector(nodeId);
-                            std::cout << "UeStatsCollector::~UeStatsCollector - " << getFullPath() << " - Removed successfully from eNodeB" << std::endl;
+                            //std::cout << "UeStatsCollector::~UeStatsCollector - " << getFullPath() << " - Removed successfully from eNodeB" << std::endl;
                         }
                     }
                 } catch (std::exception& e) {
-                    std::cout << "UeStatsCollector::~UeStatsCollector - " << getFullPath() << " - Exception during unregistration: " << e.what() << std::endl;
+                    //std::cout << "UeStatsCollector::~UeStatsCollector - " << getFullPath() << " - Exception during unregistration: " << e.what() << std::endl;
                 }
             }
         }
@@ -277,4 +279,3 @@ void UeStatsCollector::resetStats()
 }
 
 } //namespace
-

@@ -242,11 +242,11 @@ T* safe_check_and_cast(U* ptr) {
         {
             LifecycleResult result = mecAppLifecycleManager_->startApplication(lcmMsg);
             if(result.success) {
-                std::cout << "MecOrchestrator::handleUALCMPMessage - CREATE_CONTEXT_APP success, contextId: " << result.contextId << std::endl;
+                //std::cout << "MecOrchestrator::handleUALCMPMessage - CREATE_CONTEXT_APP success, contextId: " << result.contextId << std::endl;
                 sendCreateAppContextAck(true, lcmMsg->getRequestId(), result.contextId);
             }
             else {
-                std::cout << "MecOrchestrator::handleUALCMPMessage - CREATE_CONTEXT_APP failed, contextId: " << result.contextId << std::endl;
+                //std::cout << "MecOrchestrator::handleUALCMPMessage - CREATE_CONTEXT_APP failed, contextId: " << result.contextId << std::endl;
                 sendCreateAppContextAck(false, lcmMsg->getRequestId());
             }
         }
@@ -255,22 +255,22 @@ T* safe_check_and_cast(U* ptr) {
         {
             LifecycleResult result = mecAppLifecycleManager_->stopApplication(lcmMsg);
             if(result.success) {
-                std::cout << "MecOrchestrator::handleUALCMPMessage - DELETE_CONTEXT_APP success, contextId: " << result.contextId << std::endl;
+                //std::cout << "MecOrchestrator::handleUALCMPMessage - DELETE_CONTEXT_APP success, contextId: " << result.contextId << std::endl;
                 sendDeleteAppContextAck(true, lcmMsg->getRequestId(), result.contextId);
             }
             else {
-                std::cout << "MecOrchestrator::handleUALCMPMessage - DELETE_CONTEXT_APP failed, contextId: " << result.contextId << std::endl;
+                //std::cout << "MecOrchestrator::handleUALCMPMessage - DELETE_CONTEXT_APP failed, contextId: " << result.contextId << std::endl;
                 sendDeleteAppContextAck(false, lcmMsg->getRequestId());
             }
         }
         /* Handling confirmation of MEH change*/
         else if (!strcmp(lcmMsg->getType(), ACK_UPDATE_MEH_IP))
         {
-            std::cout << "ACK_UPDATE_MEH_IP RECEIVED!!" << endl;
+            //std::cout << "ACK_UPDATE_MEH_IP RECEIVED!!" << endl;
             if (!mecAppMigrationManager_) 
             {
                 EV << "MecOrchestrator::handleUALCMPMessage - Migration manager not initialized" << endl;
-                std::cout << "BIG PROBLEMS!!" << endl;
+                //std::cout << "BIG PROBLEMS!!" << endl;
                 return;
             }
 

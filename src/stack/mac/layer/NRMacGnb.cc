@@ -23,7 +23,8 @@ NRMacGnb::NRMacGnb() :  LteMacEnbD2D()
 
 NRMacGnb::~NRMacGnb()
 {
-    delete enbSchedulerUl_;
+    // enbSchedulerUl_ is deleted by the base class LteMacEnb destructor
+    // Deleting it here would cause a double-delete
 }
 
 void NRMacGnb::initialize(int stage)

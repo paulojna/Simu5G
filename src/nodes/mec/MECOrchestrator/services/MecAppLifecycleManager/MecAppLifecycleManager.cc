@@ -42,14 +42,14 @@ const ApplicationDescriptor& MecAppLifecycleManager::onboardApplicationPackage(c
 void MecAppLifecycleManager::onboardApplicationPackages(const std::string& appList) {
     if (appList.empty()) {
         EV << "MecAppLifecycleManager::onboardApplicationPackages - No package list provided" << endl;
-        std::cout << "MecAppLifecycleManager::onboardApplicationPackages - No package list provided" << std::endl;
+        //std::cout << "MecAppLifecycleManager::onboardApplicationPackages - No package list provided" << std::endl;
         return;
     }
     
     char* token = strtok((char*)appList.c_str(), ", ");
     while (token != nullptr) {
         std::string fileName = "ApplicationDescriptors/" + std::string(token) + ".json";
-        std::cout << "MecAppLifecycleManager::onboardApplicationPackages - Onboarding package: " << fileName << std::endl;
+        //std::cout << "MecAppLifecycleManager::onboardApplicationPackages - Onboarding package: " << fileName << std::endl;
         onboardApplicationPackage(fileName.c_str());
         token = strtok(nullptr, ", ");
     }
@@ -122,7 +122,7 @@ LifecycleResult MecAppLifecycleManager::startApplication(UALCMPMessage* msg) {
 
     inet::L3Address ueAddress = inet::L3AddressResolver().resolve(createContextAppMsg->getUeIpAddress());
     cModule *bestHost = hostSelectionPolicy_->findBestMecHost(appDesc, ueAddress);
-    std::cout << "MecAppLifecycleManager::startApplication - Best host found: " << bestHost->getFullPath() << std::endl;
+    //std::cout << "MecAppLifecycleManager::startApplication - Best host found: " << bestHost->getFullPath() << std::endl;
     if(bestHost == nullptr) {
         EV << "MecAppLifecycleManager::startApplication - No best host found" << endl;
         processingTime += instantiationTime_ / 2;
