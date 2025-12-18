@@ -8,12 +8,14 @@ UserData::UserData(){
     this->accessPointId = "";
     this->currentLocation = UserLocation();
     this->distance_to_ap = 0.0;
-    
+
     this->dl_nongbr_delay_ue = -1.0;
-    this->dl_nongbr_throughput_ue = -1.0;
-    this->ul_nongbr_throughput_ue = -1.0;
     this->dl_nongbr_pdr_ue = -1.0;
-    
+    this->dl_nongbr_data_volume_ue = -1.0;
+    this->ul_nongbr_delay_ue = -1.0;
+    this->ul_nongbr_pdr_ue = -1.0;
+    this->ul_nongbr_data_volume_ue = -1.0;
+
     this->lastUpdated = 0; // Initialize
 }
 
@@ -24,10 +26,12 @@ UserData::UserData(const std::string& address, AccessPointData& accessPointData,
     this->distance_to_ap = calculateDistanceToAP(accessPointData.getAccessPointLocation().getX(), accessPointData.getAccessPointLocation().getY(), currentLocation.getX(), currentLocation.getY());
 
     this->dl_nongbr_delay_ue = -1.0;
-    this->dl_nongbr_throughput_ue = -1.0;
-    this->ul_nongbr_throughput_ue = -1.0;
     this->dl_nongbr_pdr_ue = -1.0;
-    
+    this->dl_nongbr_data_volume_ue = -1.0;
+    this->ul_nongbr_delay_ue = -1.0;
+    this->ul_nongbr_pdr_ue = -1.0;
+    this->ul_nongbr_data_volume_ue = -1.0;
+
     this->lastUpdated = omnetpp::simTime(); // Initialize with current time
 }
 
@@ -76,16 +80,24 @@ double UserData::getDlNongbrDelayUe() const {
     return this->dl_nongbr_delay_ue;
 }
 
-double UserData::getDlNongbrThroughputUe() const {
-    return this->dl_nongbr_throughput_ue;
-}
-
-double UserData::getUlNongbrThroughputUe() const {
-    return this->ul_nongbr_throughput_ue;
-}
-
 double UserData::getDlNongbrPdrUe() const {
     return this->dl_nongbr_pdr_ue;
+}
+
+double UserData::getDlNongbrDataVolumeUe() const {
+    return this->dl_nongbr_data_volume_ue;
+}
+
+double UserData::getUlNongbrDelayUe() const {
+    return this->ul_nongbr_delay_ue;
+}
+
+double UserData::getUlNongbrPdrUe() const {
+    return this->ul_nongbr_pdr_ue;
+}
+
+double UserData::getUlNongbrDataVolumeUe() const {
+    return this->ul_nongbr_data_volume_ue;
 }
 
 // RNIS Radio Metrics Setters
@@ -93,16 +105,24 @@ void UserData::setDlNongbrDelayUe(double delay) {
     this->dl_nongbr_delay_ue = delay;
 }
 
-void UserData::setDlNongbrThroughputUe(double throughput) {
-    this->dl_nongbr_throughput_ue = throughput;
-}
-
-void UserData::setUlNongbrThroughputUe(double throughput) {
-    this->ul_nongbr_throughput_ue = throughput;
-}
-
 void UserData::setDlNongbrPdrUe(double pdr) {
     this->dl_nongbr_pdr_ue = pdr;
+}
+
+void UserData::setDlNongbrDataVolumeUe(double dataVolume) {
+    this->dl_nongbr_data_volume_ue = dataVolume;
+}
+
+void UserData::setUlNongbrDelayUe(double delay) {
+    this->ul_nongbr_delay_ue = delay;
+}
+
+void UserData::setUlNongbrPdrUe(double pdr) {
+    this->ul_nongbr_pdr_ue = pdr;
+}
+
+void UserData::setUlNongbrDataVolumeUe(double dataVolume) {
+    this->ul_nongbr_data_volume_ue = dataVolume;
 }
 
 // method that calculates the eculedean distance between the user and a given x,y point

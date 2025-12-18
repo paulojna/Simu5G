@@ -19,19 +19,19 @@ SaveDataHistory::SaveDataHistory(RavensControllerApp* controllerApp, std::string
     }
 
     // 1. User File (Standard Vectors + Radio Stats)
-    std::string name = dirPath + "run_" + runNumber + "_users.csv"; 
+    std::string name = dirPath + "run_" + runNumber + "_users.csv";
     userFile.open(name, std::ios::out | std::ios::trunc);
-    userFile << "Timestamp,UEId,MEHId,AccessPointId,x,y,z,Speed,Bearing,DistanceToAccessPoint,DlDelay,DlThroughput,UlThroughput,DlPDR" << endl;
+    userFile << "Timestamp,UEId,MEHId,AccessPointId,x,y,z,Speed,Bearing,DistanceToAccessPoint,DlDelay,DlPDR,DlDataVolume,UlDelay,UlPDR,UlDataVolume" << endl;
     
     // 2. Lifecycle File (Events)
     std::string lifecycleName = dirPath + "run_" + runNumber + "_lifecycle.csv"; 
     lifecycleFile.open(lifecycleName, std::ios::out | std::ios::trunc);
     lifecycleFile << "Timestamp,EventType,UEId,Details" << endl;
 
-    // 3. Radio Stats File (DL/UL Usage)
+    // 3. Radio Stats File (DL/UL Usage and PDR)
     std::string radioStatsName = dirPath + "run_" + runNumber + "_radio_stats.csv";
     radioStatsFile.open(radioStatsName, std::ios::out | std::ios::trunc);
-    radioStatsFile << "Timestamp,MEHId,CellId,DlPrbUsage,UlPrbUsage" << endl;
+    radioStatsFile << "Timestamp,MEHId,CellId,DlPrbUsageCell,UlPrbUsageCell,DlNongbrPdrCell,UlNongbrPdrCell" << endl;
     
     EV << "SaveDataHistory initialized. Users: " << name << ", Lifecycle: " << lifecycleName << ", RadioStats: " << radioStatsName << endl;
 }
@@ -51,27 +51,31 @@ inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkUsers
         radioStatsFile << received_packet->getTimeStamp() << ","
                        << received_packet->getMecHostId() << ","
                        << apRadioInfo.getAccessPointId() << ","
-                       << apRadioInfo.getDlTotalPrbUsage() << ","
-                       << apRadioInfo.getUlTotalPrbUsage() << endl;
+                       << apRadioInfo.getDlTotalPrbUsageCell() << ","
+                       << apRadioInfo.getUlTotalPrbUsageCell() << ","
+                       << apRadioInfo.getDlNongbrPdrCell() << ","
+                       << apRadioInfo.getUlNongbrPdrCell() << endl;
     }
 
     // B. Log User Data (Source of Truth for this timestamp)
     for(const auto& userPair : received_packet->getUsers()){
         const auto& userData = userPair.second;
-        userFile << received_packet->getTimeStamp() << "," 
-                << userPair.first << "," 
-                << received_packet->getMecHostId() << "," 
-                << userData.getAccessPointId() << "," 
-                << userData.getCurrentLocation().getX() << "," 
-                << userData.getCurrentLocation().getY() << "," 
-                << userData.getCurrentLocation().getZ() << "," 
-                << userData.getCurrentLocation().getHorizontalSpeed() << "," 
-                << userData.getCurrentLocation().getBearing() << "," 
+        userFile << received_packet->getTimeStamp() << ","
+                << userPair.first << ","
+                << received_packet->getMecHostId() << ","
+                << userData.getAccessPointId() << ","
+                << userData.getCurrentLocation().getX() << ","
+                << userData.getCurrentLocation().getY() << ","
+                << userData.getCurrentLocation().getZ() << ","
+                << userData.getCurrentLocation().getHorizontalSpeed() << ","
+                << userData.getCurrentLocation().getBearing() << ","
                 << userData.getDistanceToAP() << ","
                 << userData.getDlNongbrDelayUe() << ","
-                << userData.getDlNongbrThroughputUe() << ","
-                << userData.getUlNongbrThroughputUe() << ","
-                << userData.getDlNongbrPdrUe() << endl;
+                << userData.getDlNongbrPdrUe() << ","
+                << userData.getDlNongbrDataVolumeUe() << ","
+                << userData.getUlNongbrDelayUe() << ","
+                << userData.getUlNongbrPdrUe() << ","
+                << userData.getUlNongbrDataVolumeUe() << endl;
     }
     // userFile.flush(); // Moved to periodic flush
 

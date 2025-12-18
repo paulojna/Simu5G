@@ -8,28 +8,34 @@ namespace simu5g {
 class AccessPointRadioInfoData {
     private:
         std::string accessPointId;
-        double dl_total_prb_usage;
-        double ul_total_prb_usage;
+        double dl_total_prb_usage_cell;
+        double ul_total_prb_usage_cell;
+        double dl_nongbr_pdr_cell;
+        double ul_nongbr_pdr_cell;
 
     public:
         // Default constructor
         AccessPointRadioInfoData();
 
         // Parameterized constructor
-        AccessPointRadioInfoData(const std::string& accessPointId, double dlPrbUsage, double ulPrbUsage);
+        AccessPointRadioInfoData(const std::string& accessPointId, double dlPrbUsageCell, double ulPrbUsageCell, double dlNongbrPdrCell, double ulNongbrPdrCell);
 
         // Destructor
         ~AccessPointRadioInfoData() {}
 
         // Getters
         std::string getAccessPointId() const;
-        double getDlTotalPrbUsage() const;
-        double getUlTotalPrbUsage() const;
+        double getDlTotalPrbUsageCell() const;
+        double getUlTotalPrbUsageCell() const;
+        double getDlNongbrPdrCell() const;
+        double getUlNongbrPdrCell() const;
 
         // Setters
         void setAccessPointId(const std::string& accessPointId);
-        void setDlTotalPrbUsage(double dlPrbUsage);
-        void setUlTotalPrbUsage(double ulPrbUsage);
+        void setDlTotalPrbUsageCell(double dlPrbUsageCell);
+        void setUlTotalPrbUsageCell(double ulPrbUsageCell);
+        void setDlNongbrPdrCell(double dlNongbrPdrCell);
+        void setUlNongbrPdrCell(double ulNongbrPdrCell);
 };
 
 }

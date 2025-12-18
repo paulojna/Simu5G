@@ -433,23 +433,31 @@ void RavensAgentApp::handleRNISMessage(int connId)
     {
         try {
             nlohmann::json jsonBody = nlohmann::json::parse(serviceHttpMessage->getBody());
+
+        	std::cout << mecHostId << "BODY: " << jsonBody.dump() << std::endl;
             
             // 1. Parse Cell Info to update AccessPointRadioInfoData
             if (jsonBody.contains("cellInfo")) {
                 auto cellInfo = jsonBody["cellInfo"];
-                
+
                 // Helper lambda to process a single Cell JSON object
                 auto processCell = [&](const nlohmann::json& cell) {
                     std::string cellId = to_string(cell["ecgi"]["cellId"]);
-                    double dlPrb = cell.value("dl_nongbr_prb_usage_cell", 0.0);
-                    double ulPrb = cell.value("ul_nongbr_prb_usage_cell", 0.0);
-                    
+                    double dlPrbCell = cell.value("dl_total_prb_usage_cell", 0.0);
+                    double ulPrbCell = cell.value("ul_total_prb_usage_cell", 0.0);
+                    double dlPdrCell = cell.value("dl_nongbr_pdr_cell", 0.0);
+                    double ulPdrCell = cell.value("ul_nongbr_pdr_cell", 0.0);
+
                     // Update the pointer members
                     if (accessPointRadioInformation != nullptr) {
                         accessPointRadioInformation->setAccessPointId(cellId);
-                        accessPointRadioInformation->setDlTotalPrbUsage(dlPrb);
-                        accessPointRadioInformation->setUlTotalPrbUsage(ulPrb);
-                        EV << "Updated Radio Info for Cell: " << cellId << " DL PRB: " << dlPrb << "% UL PRB: " << ulPrb << "%" << endl;
+                        accessPointRadioInformation->setDlTotalPrbUsageCell(dlPrbCell);
+                        accessPointRadioInformation->setUlTotalPrbUsageCell(ulPrbCell);
+                        accessPointRadioInformation->setDlNongbrPdrCell(dlPdrCell);
+                        accessPointRadioInformation->setUlNongbrPdrCell(ulPdrCell);
+                        EV << "Updated Radio Info for Cell: " << cellId
+                           << " DL PRB: " << dlPrbCell << "% UL PRB: " << ulPrbCell << "%"
+                           << " DL PDR: " << dlPdrCell << "% UL PDR: " << ulPdrCell << "%" << endl;
                     }
                 };
 
@@ -482,17 +490,23 @@ void RavensAgentApp::handleRNISMessage(int connId)
                     if (it != users.end()) {
                         // Update UserData with Radio Metrics
                         double dlDelay = ue.value("dl_nongbr_delay_ue", -1.0);
-                        double dlTput = ue.value("dl_nongbr_throughput_ue", 0.0);
-                        double ulTput = ue.value("ul_nongbr_throughput_ue", 0.0);
                         double dlPdr = ue.value("dl_nongbr_pdr_ue", 0.0);
+                        double dlDataVolume = ue.value("dl_nongbr_data_volume_ue", 0.0);
+                        double ulDelay = ue.value("ul_nongbr_delay_ue", -1.0);
+                        double ulPdr = ue.value("ul_nongbr_pdr_ue", 0.0);
+                        double ulDataVolume = ue.value("ul_nongbr_data_volume_ue", 0.0);
 
                         it->second.setDlNongbrDelayUe(dlDelay);
-                        it->second.setDlNongbrThroughputUe(dlTput);
-                        it->second.setUlNongbrThroughputUe(ulTput);
                         it->second.setDlNongbrPdrUe(dlPdr);
+                        it->second.setDlNongbrDataVolumeUe(dlDataVolume);
+                        it->second.setUlNongbrDelayUe(ulDelay);
+                        it->second.setUlNongbrPdrUe(ulPdr);
+                        it->second.setUlNongbrDataVolumeUe(ulDataVolume);
                         it->second.setLastUpdated(simTime()); // Mark as fresh
-                        
-                        EV << "Updated Radio Stats for UE: " << it->first << " Delay: " << dlDelay << " Tput: " << dlTput << endl;
+
+                        EV << "Updated Radio Stats for UE: " << it->first
+                           << " DL Delay: " << dlDelay << " DL PDR: " << dlPdr
+                           << " UL Delay: " << ulDelay << " UL PDR: " << ulPdr << endl;
                     }
                 };
 

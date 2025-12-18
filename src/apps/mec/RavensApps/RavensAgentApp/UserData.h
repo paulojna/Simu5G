@@ -20,9 +20,11 @@ class UserData
 
         // RNIS Radio Metrics
         double dl_nongbr_delay_ue;
-        double dl_nongbr_throughput_ue;
-        double ul_nongbr_throughput_ue;
         double dl_nongbr_pdr_ue;
+        double dl_nongbr_data_volume_ue;
+        double ul_nongbr_delay_ue;
+        double ul_nongbr_pdr_ue;
+        double ul_nongbr_data_volume_ue;
 
     public:
         UserData();
@@ -44,15 +46,19 @@ class UserData
 
         // RNIS Radio Metrics Getters
         double getDlNongbrDelayUe() const;
-        double getDlNongbrThroughputUe() const;
-        double getUlNongbrThroughputUe() const;
         double getDlNongbrPdrUe() const;
+        double getDlNongbrDataVolumeUe() const;
+        double getUlNongbrDelayUe() const;
+        double getUlNongbrPdrUe() const;
+        double getUlNongbrDataVolumeUe() const;
 
         // RNIS Radio Metrics Setters
         void setDlNongbrDelayUe(double delay);
-        void setDlNongbrThroughputUe(double throughput);
-        void setUlNongbrThroughputUe(double throughput);
         void setDlNongbrPdrUe(double pdr);
+        void setDlNongbrDataVolumeUe(double dataVolume);
+        void setUlNongbrDelayUe(double delay);
+        void setUlNongbrPdrUe(double pdr);
+        void setUlNongbrDataVolumeUe(double dataVolume);
 
         // method that calculates the eculedean distance between two points
         double calculateDistanceToAP(long x_AP, long y_AP, long x_UE, long y_UE);
