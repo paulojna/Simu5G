@@ -52,20 +52,13 @@ void RavensAgentApp::initialize(int stage)
     users = std::unordered_map<std::string, UserData>();
 
     this->mecHostId = mecHost->getName();
-
-    //define a file with the name of the mec_host -> not necessary anymore
-    /*
-    std::string host = getParentModule()->getFullName();
-    std::string name = host+".csv";
-    myfile.open (name, std::ios_base::app);
-    */
-
 	this->forceUpdateInterval_ = 5;
 	this->lastSentTimestamp_ = simTime();
 
 	accessPointRadioInformation = new AccessPointRadioInfoData();
 
-    cMessage *msg = new cMessage("connectRC");
+    // connection to the RAVENS CONTROLLER
+    auto *msg = new cMessage("connectRC");
     scheduleAt(simTime() + 0.5, msg);
 }
 
