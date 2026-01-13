@@ -233,7 +233,7 @@ void RavensAgentApp::handleMp1Message(int connId)
             {
                 if(jsonBody[i]["isLocal"] == "TRUE")
                 {
-                    std::cout << "The choosen one was: " << jsonBody[i]["transportInfo"]["endPoint"]["addresses"] << std::endl;
+                    EV << "The choosen one was: " << jsonBody[i]["transportInfo"]["endPoint"]["addresses"] << std::endl;
                     target = i;
                 }
                 i++;
@@ -246,7 +246,7 @@ void RavensAgentApp::handleMp1Message(int connId)
                 if(jsonBody.contains("transportInfo"))
                 {
                     nlohmann::json endPoint = jsonBody["transportInfo"]["endPoint"]["addresses"];
-                    std::cout << "address: " << endPoint["host"] << " port: " <<  endPoint["port"] << endl;
+                    EV << "address: " << endPoint["host"] << " port: " <<  endPoint["port"] << endl;
                     std::string address = endPoint["host"];
                     serviceAddress = L3AddressResolver().resolve(address.c_str());
                     servicePort = endPoint["port"];
@@ -262,7 +262,7 @@ void RavensAgentApp::handleMp1Message(int connId)
         		if(jsonBody.contains("transportInfo"))
         		{
         			nlohmann::json endPoint = jsonBody["transportInfo"]["endPoint"]["addresses"];
-        			std::cout << "address: " << endPoint["host"] << " port: " <<  endPoint["port"] << endl;
+        			EV << "address: " << endPoint["host"] << " port: " <<  endPoint["port"] << endl;
         			std::string address = endPoint["host"];
         			rnisAddress = L3AddressResolver().resolve(address.c_str());
         			rnisPort = endPoint["port"];
@@ -434,7 +434,7 @@ void RavensAgentApp::handleRNISMessage(int connId)
         try {
             nlohmann::json jsonBody = nlohmann::json::parse(serviceHttpMessage->getBody());
 
-        	std::cout << mecHostId << "BODY: " << jsonBody.dump() << std::endl;
+        	EV << mecHostId << "\n BODY: " << jsonBody.dump(4) << std::endl;
             
             // 1. Parse Cell Info to update AccessPointRadioInfoData
             if (jsonBody.contains("cellInfo")) {

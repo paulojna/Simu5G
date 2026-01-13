@@ -15,7 +15,7 @@ precompiled_*.h.*
 
 *.csv
 
-*GEMINI*
+*CLAUDE*
 
 *.idea/*
 
