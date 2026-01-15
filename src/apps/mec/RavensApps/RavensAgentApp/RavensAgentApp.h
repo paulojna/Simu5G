@@ -56,7 +56,6 @@ protected:
     inet::L3Address controllerAddress_;
 
     // RAVENS V3 - Using RNIS besides LS
-    // Separate connection variables for RNIS to avoid race conditions with Location Service
     int rnisPort;
     inet::L3Address rnisAddress;
 
@@ -103,6 +102,7 @@ protected:
 
     void sendUsersDensitySubscription();
     void sendUsersListSubscription();
+	void sendL2MeasSubscription();
 
     void connectToRavensController();
     void sendJoinNetworkRequest();

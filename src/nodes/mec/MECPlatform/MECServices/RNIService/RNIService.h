@@ -13,6 +13,7 @@
 #define _RNISERVICE_H
 
 #include "nodes/mec/MECPlatform/MECServices/MECServiceBase/MecServiceBase.h"
+#include "nodes/mec/MECPlatform/MECServices/packets/AperiodicSubscriptionTimer.h"
 #include "nodes/mec/MECPlatform/MECServices/RNIService/resources/L2Meas.h"
 
 namespace simu5g {
@@ -31,17 +32,30 @@ class RNIService: public MecServiceBase
 
     L2Meas L2MeasResource_;
 
+    double RNISSubscriptionPeriod_;
+    omnetpp::cMessage* RNISSubscriptionEvent_;
+
+    AperiodicSubscriptionTimer* subscriptionTimer_;
+
   public:
     RNIService();
+
   protected:
 
     virtual void initialize(int stage) override;
     virtual void finish() override;
+    void handleMessage(cMessage *msg) override;
 
     virtual void handleGETRequest(const HttpRequestMessage *currentRequestMessageServed, inet::TcpSocket* socket) override;
     virtual void handlePOSTRequest(const HttpRequestMessage *currentRequestMessageServed, inet::TcpSocket* socket)   override;
     virtual void handlePUTRequest(const HttpRequestMessage *currentRequestMessageServed, inet::TcpSocket* socket)    override;
     virtual void handleDELETERequest(const HttpRequestMessage *currentRequestMessageServed, inet::TcpSocket* socket) override;
+
+    void socketClosed(inet::TcpSocket *socket) override;
+    /*
+     * This method is called for every element in the subscriptions_ queue.
+     */
+    bool manageSubscription() override;
 
     virtual ~RNIService();
 
