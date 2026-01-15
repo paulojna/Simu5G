@@ -102,22 +102,14 @@ void RavensAgentApp::established(int connId)
         // RAVENS V3 - Using RNIS besides LS
         // Send initial query to RNIS for Layer 2 measurements
 		EV << mecHostId << " - RavensAgentApp::established - rnisSocket"<< endl;
-		cMessage *msg = new cMessage("sendRNISRequest");
-		scheduleAt(simTime() + 0.1, msg);
+		cMessage *msg = new cMessage("sendL2MeasSub");
+		scheduleAt(simTime() + 0, msg);
 		return;
 	}
     else 
     {
         throw cRuntimeError("RavenAgentApp::socketEstablished - Socket %d not recognized", connId);
     }
-}
-
-void RavensAgentApp::sendRNISRequest()
-{
-	const char *users_uri = "/example/rni/v2/queries/layer2_meas";
-	std::string host = rnisSocket_->getRemoteAddress().str()+":"+std::to_string(rnisSocket_->getRemotePort());
-	Http::sendGetRequest(rnisSocket_, host.c_str(), users_uri);
-	EV << mecHostId << " - RavensAgentApp::sendUserListRequest - uri " << users_uri << " to host " << host.c_str() << endl;
 }
 
 void RavensAgentApp::sendJoinNetworkRequest()
@@ -364,13 +356,11 @@ void RavensAgentApp::handleSelfMessage(cMessage *msg)
         sendUsersInfoSnapshot();
         delete msg;
     }
-    else if(strcmp(msg->getName(), "sendRNISRequest") == 0)
+    else if(strcmp(msg->getName(), "sendL2MeasSub") == 0)
     {
     	EV << "RavensAgentApp::handleMessage- " << msg->getName() << endl;
-    	sendRNISRequest();
+    	sendL2MeasSubscription();
     	delete msg;
-    	cMessage *request = new cMessage("sendRNISRequest");
-    	scheduleAt(simTime()+sendInterval, request);
     }
     else
     {
@@ -424,102 +414,16 @@ void RavensAgentApp::handleRNISMessage(int connId)
 
     if (code == 200)
     {
-        try {
-            nlohmann::json jsonBody = nlohmann::json::parse(serviceHttpMessage->getBody());
-
-        	EV << mecHostId << "\n BODY: " << jsonBody.dump(4) << std::endl;
-            
-            // 1. Parse Cell Info to update AccessPointRadioInfoData
-            if (jsonBody.contains("cellInfo")) {
-                auto cellInfo = jsonBody["cellInfo"];
-
-                // Helper lambda to process a single Cell JSON object
-                auto processCell = [&](const nlohmann::json& cell) {
-                    std::string cellId = to_string(cell["ecgi"]["cellId"]);
-                    double dlPrbCell = cell.value("dl_total_prb_usage_cell", 0.0);
-                    double ulPrbCell = cell.value("ul_total_prb_usage_cell", 0.0);
-                    double dlPdrCell = cell.value("dl_nongbr_pdr_cell", 0.0);
-                    double ulPdrCell = cell.value("ul_nongbr_pdr_cell", 0.0);
-
-                    // Update the pointer members
-                    if (accessPointRadioInformation != nullptr) {
-                        accessPointRadioInformation->setAccessPointId(cellId);
-                        accessPointRadioInformation->setDlTotalPrbUsageCell(dlPrbCell);
-                        accessPointRadioInformation->setUlTotalPrbUsageCell(ulPrbCell);
-                        accessPointRadioInformation->setDlNongbrPdrCell(dlPdrCell);
-                        accessPointRadioInformation->setUlNongbrPdrCell(ulPdrCell);
-                        EV << "Updated Radio Info for Cell: " << cellId
-                           << " DL PRB: " << dlPrbCell << "% UL PRB: " << ulPrbCell << "%"
-                           << " DL PDR: " << dlPdrCell << "% UL PDR: " << ulPdrCell << "%" << endl;
-                    }
-                };
-
-                if (cellInfo.is_array()) {
-                     for (auto& cell : cellInfo) {
-                         processCell(cell);
-                     }
-                } else {
-                     processCell(cellInfo);
-                }
-            }
-
-            // 2. Parse UE Info to update UserData map
-            if (jsonBody.contains("cellUEInfo")) {
-                auto ueInfo = jsonBody["cellUEInfo"];
-                
-                // Helper lambda to process a single UE JSON object
-                auto processUe = [&](const nlohmann::json& ue) {
-                    if (!ue.contains("associatedId") || !ue["associatedId"].contains("value")) return;
-                    
-                    std::string ueIp = ue["associatedId"]["value"];
-                    
-                    // Check if we know this user (matched by IP from Location Service)
-                    auto it = users.find(ueIp);
-                    if (it == users.end()) {
-                        // Try adding "acr:" prefix if not found directly
-                        it = users.find("acr:" + ueIp);
-                    }
-
-                    if (it != users.end()) {
-                        // Update UserData with Radio Metrics
-                        double dlDelay = ue.value("dl_nongbr_delay_ue", -1.0);
-                        double dlPdr = ue.value("dl_nongbr_pdr_ue", 0.0);
-                        double dlDataVolume = ue.value("dl_nongbr_data_volume_ue", 0.0);
-                        double ulDelay = ue.value("ul_nongbr_delay_ue", -1.0);
-                        double ulPdr = ue.value("ul_nongbr_pdr_ue", 0.0);
-                        double ulDataVolume = ue.value("ul_nongbr_data_volume_ue", 0.0);
-
-                        it->second.setDlNongbrDelayUe(dlDelay);
-                        it->second.setDlNongbrPdrUe(dlPdr);
-                        it->second.setDlNongbrDataVolumeUe(dlDataVolume);
-                        it->second.setUlNongbrDelayUe(ulDelay);
-                        it->second.setUlNongbrPdrUe(ulPdr);
-                        it->second.setUlNongbrDataVolumeUe(ulDataVolume);
-                        it->second.setLastUpdated(simTime()); // Mark as fresh
-
-                        EV << "Updated Radio Stats for UE: " << it->first
-                           << " DL Delay: " << dlDelay << " DL PDR: " << dlPdr
-                           << " UL Delay: " << ulDelay << " UL PDR: " << ulPdr << endl;
-                    }
-                };
-
-                if (ueInfo.is_array()) {
-                    for (auto& ue : ueInfo) {
-                        processUe(ue);
-                    }
-                } else {
-                    processUe(ueInfo);
-                }
-            }
-
-        } catch (nlohmann::detail::parse_error &e) {
-            EV << "RavensAgentApp::handleRNISMessage - JSON Parse Error: " << e.what() << endl;
-        }
+        nlohmann::json jsonBody = nlohmann::json::parse(serviceHttpMessage->getBody());
+        std::cout << "RNIS NOTIFICATION BODY: " << jsonBody.dump(4) << std::endl;
     }
-    else {
-        // Log non-200 responses to understand why RNIS is failing
-        EV << mecHostId << " - RavensAgentApp::handleRNISMessage - WARNING: Received non-200 response code: " << code << endl;
-        EV << mecHostId << " - RavensAgentApp::handleRNISMessage - Response body: " << serviceHttpMessage->getBody() << endl;
+    else if (code == 201)
+    {
+        std::cout << mecHostId << " - RNIS SUBSCRIPTION CREATED!" << std::endl;
+    }
+    else
+    {
+        std::cout << "ERROR when getting info from RNIS" << std::endl;
     }
 }
 
@@ -715,6 +619,36 @@ void RavensAgentApp::sendUsersDensitySubscription()
     std::string host = lsSocket_->getRemoteAddress().str()+":"+std::to_string(lsSocket_->getRemotePort());
 
     Http::sendPostRequest(lsSocket_, body.c_str(), host.c_str(), uri.c_str());
+}
+
+void RavensAgentApp::sendL2MeasSubscription()
+{
+    EV << "RavensAgentApp::sendRNISSubscription - Sending RNIS L2 Measurement Subscription" << endl;
+
+    std::string body =
+        "{ \"L2MeasurementSubscription\": {"
+            "\"callbackReference\": {"
+                "\"callbackData\": \"v0\","
+                "\"notifyURL\": \"ravens.rnis.layer2\"},"
+            "\"cells\": [0],"
+            "\"checkImmediate\": \"true\","  // Get data immediately after subscription
+            "\"frequency\": 1"  // Notification frequency in seconds
+        "}"
+        "}\r\n";
+
+    std::string uri = "/example/rni/v2/subscriptions/layer2_meas";
+    std::string host = rnisSocket_->getRemoteAddress().str() + ":" +
+                       std::to_string(rnisSocket_->getRemotePort());
+
+    Http::sendPostRequest(rnisSocket_, body.c_str(), host.c_str(), uri.c_str());
+}
+
+void RavensAgentApp::sendRNISRequest()
+{
+    const char *users_uri = "/example/rni/v2/queries/layer2_meas";
+    std::string host = rnisSocket_->getRemoteAddress().str()+":"+std::to_string(rnisSocket_->getRemotePort());
+    Http::sendGetRequest(rnisSocket_, host.c_str(), users_uri);
+    EV << mecHostId << " - RavensAgentApp::sendUserListRequest - uri " << users_uri << " to host " << host.c_str() << endl;
 }
 
 void RavensAgentApp::sendUserListRequest()

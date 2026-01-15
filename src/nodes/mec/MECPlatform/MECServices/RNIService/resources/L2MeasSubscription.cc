@@ -119,138 +119,59 @@ bool L2MeasSubscription::fromJson(const nlohmann::ordered_json& body)
         return false;
     }
 
-    // add basis information
-    bool result = SubscriptionBase::fromJson(jsonBody);
-
-    // add information relative to this type of subscription
-
-    if(result)
+    if(jsonBody.contains("cells"))
     {
-        callbackReference_ += "notifications/"+ std::to_string(subscriptionId_);
+        std::vector<int> cellsJson = jsonBody["cells"];
 
-        if(!jsonBody.contains("filterCriteria") || jsonBody["filterCriteria"].is_array())
+        //in this case 0 means all cells
+        if(cellsJson.size() == 1 && cellsJson[0] == 0)
         {
-            std::cout << "1"  << std::endl;
-           Http::send400Response(socket_); // filterCriteria is mandatory and takes exactly 1 att
-           return false;
-        }
-
-
-        nlohmann::json filterCriteria = jsonBody["filterCriteria"];
-
-        //check for appInstanceId filter
-        if(filterCriteria.contains("appInstanceId")  )
-        {
-            if(filterCriteria["appInstanceId"].is_array())
+            // if the app asks for them all, add all the eNodeBs to the set
+            for(auto it = eNodeBs_.begin(); it != eNodeBs_.end(); ++it)
             {
-                std::cout << "2"  << std::endl;
-
-                Http::send400Response(socket_); // appInstanceId, if present, takes exactly 1 att
-                return false;
-            }
-            filterCriteria_.appIstanceId = filterCriteria["appInstanceId"];
-        }
-
-        //check ues filter
-        if(filterCriteria.contains("associateId"))
-        {
-            if(filterCriteria["associateId"].is_array())
-            {
-                std::cout << "3"  << std::endl;
-
-                Http::send400Response(socket_); // only one ip
-                return false;
-//                nlohmann::json ueVector = filterCriteria["associateId"];
-//                for(int i = 0; i < ueVector.size(); ++i)
-//                {
-//                    if(ueVector.at(i)["associateId"]["type"] == "UE_IPv4_ADDRESS")
-//                    {
-//                        std::string address = ueVector.at(i)["associateId"]["value"];
-//                        ues.push_back(binder_->getMacNodeId(IPv4Address(address.c_str())));
-//                    }
-//                    else
-//                    {
-//                        Http::send400Response(socket_); // must be ipv4
-//                        return false;
-//                     }
-//                 }
-            }
-            else
-            {
-                if(filterCriteria["associateId"]["type"] == "UE_IPv4_ADDRESS")
-                {
-                    filterCriteria_.associteId_.setType(filterCriteria["associateId"]["type"]);
-                    filterCriteria_.associteId_.setValue(filterCriteria["associateId"]["value"]);
-
-                }
+                cells_.insert(it->first);
+                std::cout << "THIS MECHOST HAS THE FOLLOWING CELLS: " << it->first << std::endl;
             }
         }
         else
         {
-            std::cout << "4"  << std::endl;
-
-            Http::send400Response(socket_); // a user must be indicated
-            return false;
-        }
-
-        //check cellIds filter
-        if(filterCriteria.contains("ecgi"))
-        {
-            if(filterCriteria["ecgi"].is_array())
+            // if not, add only the eNodeBs specified in the cells list - if does not exist, send 400
+            for(auto it = cellsJson.begin(); it != cellsJson.end(); ++it)
             {
-//                nlohmann::json cellVector = filterCriteria["cellId"];
-//                for(int i = 0; i < cellVector.size(); ++i)
-//                {
-//                    std::string cellId = cellVector.at(i)["cellId"];
-//                    cellids.push_back((MacNodeId)std::stoi(cellId));
-//                 }
-            }
-            else
-            {
-                if(filterCriteria["ecgi"].contains("cellId") && filterCriteria["ecgi"].contains("plmn"))
+                MacNodeId cellId = (MacNodeId) *it;
+                if(eNodeBs_.find(cellId) == eNodeBs_.end())
                 {
-                    std::string cellId = filterCriteria["ecgi"]["cellId"];
-                    filterCriteria_.ecgi.setCellId((MacNodeId)std::stoi(cellId));
-                    mec::Plmn plmn;
-                    plmn.mcc = filterCriteria["ecgi"]["plmn"]["mcc"];
-                    plmn.mnc = filterCriteria["ecgi"]["plmn"]["mnc"];
-                    filterCriteria_.ecgi.setPlmn(plmn);
+                    EV << "UsersListNotificationSubscription::fromJson - cellId " << cellId << " not found" << endl;
+                    Http::send400Response(socket_, "cellId in cells not found");
+                    return false;
                 }
                 else
                 {
-                    std::cout << "5"  << std::endl;
-
-                    Http::send400Response(socket_); // a user must be indicated
-                    return false;
+                    cells_.insert(cellId);
+                    EV << "UsersListNotificationSubscription::fromJson - cellId " << cellId << " added" << endl;
                 }
-
             }
         }
-
-        //check trigger filter
-        if(filterCriteria.contains("trigger"))
-        {
-            //check if it is event trigger and notify, based on the state of the ues e cells
-        }
-
-        if(filterCriteria_.ecgi.getCellId() != 0)
-        {
-            cells_.insert(filterCriteria_.ecgi.getCellId());
-        }
-
-        resourceURL = baseResLocation_ + "layer2_meas/" + std::to_string(subscriptionId_);
-        links_ = resourceURL;
-
-        nlohmann::ordered_json response = body;
-        response[subscriptionType_]["callbackReference"] = callbackReference_;
-        response[subscriptionType_]["_links"]["self"] = links_;
-
-        std::pair<std::string, std::string> p("Location: ", links_);
-        Http::send201Response(socket_, response.dump(2).c_str(), p );
-        return true;
+    }
+    else
+    {
+        EV << "UsersListNotificationSubscription::fromJson - cells not found and it is mandatory" << endl;
+        Http::send400Response(socket_, "cells JSON name is mandatory");
+        return false;
     }
 
-    return false;
+
+    callbackReference_ += "notifications/"+ std::to_string(subscriptionId_);
+    resourceURL = baseResLocation_ + "layer2_meas/" + std::to_string(subscriptionId_);
+    links_ = resourceURL;
+
+    nlohmann::ordered_json response = body;
+    response[subscriptionType_]["callbackReference"] = callbackReference_;
+    response[subscriptionType_]["_links"]["self"] = links_;
+
+    std::pair<std::string, std::string> p("Location: ", links_);
+    Http::send201Response(socket_, response.dump(2).c_str(), p );
+    return true;
 }
 
 void L2MeasSubscription::sendSubscriptionResponse()
@@ -258,8 +179,6 @@ void L2MeasSubscription::sendSubscriptionResponse()
         nlohmann::ordered_json val;
         val[subscriptionType_]["callbackReference"] = callbackReference_;
         val[subscriptionType_]["_links"]["self"] = links_;
-        val[subscriptionType_]["filterCriteria"] = filterCriteria_.associteId_.toJson();
-        val[subscriptionType_]["filterCriteria"] = filterCriteria_.ecgi.toJson();
 }
 
 nlohmann::ordered_json L2MeasSubscription::collectCellInfo()

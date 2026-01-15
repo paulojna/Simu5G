@@ -51,10 +51,8 @@ void RNIService::initialize(int stage)
     if (stage == inet::INITSTAGE_APPLICATION_LAYER) {
         L2MeasResource_.addEnodeB(eNodeB_);
         baseSubscriptionLocation_ = host_+ baseUriSubscriptions_ + "/";
-        RNISSubscriptionEvent_ = new cMessage("RNIServiceSubscriptionEvent");
-        RNISSubscriptionPeriod_ = par("RNIServiceSubscriptionPeriod");
 
-        subscriptionTimer_ = new AperiodicSubscriptionTimer("subscriptionTimer", 0.5);
+        subscriptionTimer_ = new AperiodicSubscriptionTimer("subscriptionTimer", 1);
     }
 }
 

@@ -102,6 +102,7 @@ protected:
 
     void sendUsersDensitySubscription();
     void sendUsersListSubscription();
+	void sendL2MeasSubscription();
 
     void connectToRavensController();
     void sendJoinNetworkRequest();
