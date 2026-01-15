@@ -130,7 +130,7 @@ bool L2MeasSubscription::fromJson(const nlohmann::ordered_json& body)
             for(auto it = eNodeBs_.begin(); it != eNodeBs_.end(); ++it)
             {
                 cells_.insert(it->first);
-                std::cout << "THIS MECHOST HAS THE FOLLOWING CELLS: " << it->first << std::endl;
+                //std::cout << "THIS MECHOST HAS THE FOLLOWING CELLS: " << it->first << std::endl;
             }
         }
         else

@@ -72,6 +72,11 @@ void RavensAgentApp::finish()
     }
 }
 
+/**
+ * Callback invoked when a TCP socket connection is successfully established.
+ * Routes to appropriate setup logic based on socket type: MP1 (service discovery),
+ * LS (access point query), or RNIS (L2 measurement subscription).
+ */
 void RavensAgentApp::established(int connId)
 {
     if(connId == mp1Socket_->getSocketId())
@@ -112,6 +117,10 @@ void RavensAgentApp::established(int connId)
     }
 }
 
+/**
+* Sends a join request to the RAVENS Controller to register this MEC agent.
+* Includes the MEC host identifier so the controller knows where the specific agent is located.
+*/
 void RavensAgentApp::sendJoinNetworkRequest()
 {
     EV << "RavensAgentApp::sendJoinNetworkRequest - Sending Join Network Request" << endl;
@@ -127,6 +136,10 @@ void RavensAgentApp::sendJoinNetworkRequest()
     controllerSocket_.send(packet);
 }
 
+/**
+* Sends the list of discovered access points to the RAVENS Controller.
+* This provides the controller with infrastructure topology information for this MEC host.
+*/
 void RavensAgentApp::sendAPList()
 {
     EV << "RavensAgentApp::sendAPList - Sending AP List" << endl;
@@ -142,6 +155,7 @@ void RavensAgentApp::sendAPList()
     controllerSocket_.send(packet);
 }
 
+/** TODO: refactor this as the logic changed (from RNIS request to RNIS subscription) */
 void RavensAgentApp::sendUsersInfoSnapshot()
 {
 	// Lazy heartbeat logic: if data changes we send an update; HOWEVER, if we are approaching the timeout treshold,
@@ -196,6 +210,11 @@ void RavensAgentApp::sendUsersInfoSnapshot()
     scheduleAt(interval, msg);
 }
 
+/**
+* Processes HTTP responses from the MP1 service registry interface.
+* Parses service discovery responses to extract LocationService and RNIService
+* endpoints, then schedules socket connections to the discovered services.
+*/
 void RavensAgentApp::handleMp1Message(int connId)
 {
     HttpMessageStatus *msgStatus = (HttpMessageStatus*) mp1Socket_->getUserData();
@@ -272,6 +291,10 @@ void RavensAgentApp::handleMp1Message(int connId)
     }
 }
 
+/**
+* Routes incoming HTTP messages to the appropriate handler based on socket origin.
+* Dispatches to MP1, Location Service, or RNIS message handlers accordingly.
+*/
 void RavensAgentApp::handleHttpMessage(int connId)
 {
     EV << "RavensAgentApp::handleHttpMessage - Http Message Received" <<  connId << endl;
@@ -289,6 +312,21 @@ void RavensAgentApp::handleHttpMessage(int connId)
 	}
 }
 
+/**
+* Handles self-scheduled messages that drive the agent's logic and periodic tasks.
+*
+* Connection handlers:
+*   - "connectMp1": Establishes connection to the MEC Platform (MP1 interface)
+*   - "connectLS": Connects to the Location Service for user/AP tracking
+*   - "connectRNIService": Connects to the RNI Service for radio measurements
+*   - "connectRC": Initiates connection to the RAVENS Controller and sends join request
+*
+* Data transmission handlers:
+*   - "sendAPDetails": Transmits discovered access point list to the controller
+*   - "sendUserListSub": Subscribes to user list notifications from Location Service
+*   - "sendUserList": Sends periodic user info snapshots to the controller
+*   - "sendL2MeasSub": Subscribes to Layer 2 measurement notifications from RNIS
+*/
 void RavensAgentApp::handleSelfMessage(cMessage *msg)
 {
     if(strcmp(msg->getName(), "connectMp1") == 0)
@@ -368,6 +406,11 @@ void RavensAgentApp::handleSelfMessage(cMessage *msg)
     }
 }
 
+/**
+* Establishes a UDP socket connection to the RAVENS Controller.
+* Resolves the controller module path and address from configuration parameters.
+* If the controller is not yet available, schedules a retry after 50ms.
+*/
 void RavensAgentApp::connectToRavensController()
 {
     cMessage *msg = new cMessage("connectRC");
@@ -396,7 +439,7 @@ void RavensAgentApp::connectToRavensController()
     } 
 }
 
-
+/** TODO: refactor this one also as the logic changed (from RNIS request to RNIS subscription) */
 void RavensAgentApp::handleRNISMessage(int connId)
 {
 	EV << mecHostId << " - RavensAgentApp::handleRNISMessage - RNIS Message Received - Socket ID: " << connId << endl;
@@ -427,6 +470,7 @@ void RavensAgentApp::handleRNISMessage(int connId)
     }
 }
 
+/** TODO: here we should also check if everything is ok, maybe change the logic */
 void RavensAgentApp::handleLSMessage(int connId)
 {
     EV << "RavensAgentApp::handleLSMessage - LS Message Received - Socket ID: " << connId << endl;
@@ -544,6 +588,12 @@ void RavensAgentApp::handleLSMessage(int connId)
     }
 }
 
+/**
+* Processes incoming messages from the RAVENS Controller socket.
+* Handles JOIN_NETWORK_ACK by initiating MP1 connection for service discovery.
+* Handles INFRAESTRUCTURE_DETAILS_ACK by extracting the retrieval rate and
+* scheduling the user list subscription. Delegates other messages to MecAppBase.
+*/
 void RavensAgentApp::handleProcessedMessage(cMessage *msg)
 {
     EV << "RavensAgentApp::handleProcessedMessage - Message Received" <<  msg->getName() << endl;
@@ -585,6 +635,7 @@ void RavensAgentApp::handleProcessedMessage(cMessage *msg)
     }
 }
 
+/** Sends a POST request to subscribe to user list notifications from the Location Service. */
 void RavensAgentApp::sendUsersListSubscription()
 {
     EV << "RavensAgentApp::sendUsersListSubscription - Sending users/list Subscription" << endl;
@@ -603,6 +654,7 @@ void RavensAgentApp::sendUsersListSubscription()
     Http::sendPostRequest(lsSocket_, body.c_str(), host.c_str(), uri.c_str());
 }
 
+/** Sends a POST request to subscribe to user density notifications from the Location Service. */
 void RavensAgentApp::sendUsersDensitySubscription()
 {
     EV << "RavensAgentApp::sendUsersDensitySubscription - Sending users/density Subscription" << endl;
@@ -621,6 +673,7 @@ void RavensAgentApp::sendUsersDensitySubscription()
     Http::sendPostRequest(lsSocket_, body.c_str(), host.c_str(), uri.c_str());
 }
 
+/** Sends a POST request to subscribe to Layer 2 measurement notifications from RNIS. */
 void RavensAgentApp::sendL2MeasSubscription()
 {
     EV << "RavensAgentApp::sendRNISSubscription - Sending RNIS L2 Measurement Subscription" << endl;
@@ -643,6 +696,7 @@ void RavensAgentApp::sendL2MeasSubscription()
     Http::sendPostRequest(rnisSocket_, body.c_str(), host.c_str(), uri.c_str());
 }
 
+/** Sends a GET request to query Layer 2 measurements from the RNIS. */
 void RavensAgentApp::sendRNISRequest()
 {
     const char *users_uri = "/example/rni/v2/queries/layer2_meas";
@@ -651,6 +705,7 @@ void RavensAgentApp::sendRNISRequest()
     EV << mecHostId << " - RavensAgentApp::sendUserListRequest - uri " << users_uri << " to host " << host.c_str() << endl;
 }
 
+/** Sends a GET request to query the list of connected users from the Location Service. */
 void RavensAgentApp::sendUserListRequest()
 {
     const char *users_uri = "/example/location/v2/queries/users";
@@ -660,6 +715,7 @@ void RavensAgentApp::sendUserListRequest()
     return;
 }
 
+/** Sends a GET request to query the list of access points from the Location Service. */
 void RavensAgentApp::sendAPListRequest()
 {
     const char *zones_uri = "/example/location/v2/queries/accessPoints";
