@@ -481,7 +481,7 @@ void RavensAgentApp::handleLSMessage(int connId)
 
     int code = rspMsg->getCode();
 
-    EV << "RavensAgentApp::handleLSMessage - LS Message payload with code " << code << " received: " <<  serviceHttpMessage->getBody() << endl;
+    std::cout << "RavensAgentApp::handleLSMessage - LS Message payload with code " << code << " received: " <<  serviceHttpMessage->getBody() << endl;
 
     // clean users vector
     // users.clear(); // REMOVED to persist radio stats
@@ -553,15 +553,6 @@ void RavensAgentApp::handleLSMessage(int connId)
                         users[address] = userData;
                     }
                 }
-                // add users to history
-                // history.emplace(userInfoList["timeStamp"], users);
-
-                // run through users
-                /*for (auto& user : users)
-                {
-                    // send user data to myfile
-                    myfile << to_string(jsonBody["subscriptionNotification"]["timeStamp"]) << "," << user.first << "," << user.second.getAccessPointId() << "," << user.second.getCurrentLocation().getX() << "," << user.second.getCurrentLocation().getY() << "," << to_string(user.second.getDistanceToAP()) << "," << to_string(user.second.getCurrentLocation().getHorizontalSpeed()) << endl;
-                }*/ 
             }
         }
         else
