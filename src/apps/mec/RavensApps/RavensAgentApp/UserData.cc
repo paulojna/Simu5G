@@ -17,6 +17,9 @@ UserData::UserData(){
     this->ul_nongbr_data_volume_ue = -1.0;
 
     this->lastUpdated = 0; // Initialize
+	this->rnisUpdate = 0;
+	this->lsUpdate = 0;
+
 }
 
 UserData::UserData(const std::string& address, AccessPointData& accessPointData, UserLocation& currentLocation){
@@ -32,7 +35,10 @@ UserData::UserData(const std::string& address, AccessPointData& accessPointData,
     this->ul_nongbr_pdr_ue = -1.0;
     this->ul_nongbr_data_volume_ue = -1.0;
 
-    this->lastUpdated = omnetpp::simTime(); // Initialize with current time
+    this->lastUpdated = 0; // Initialize with current time
+	this->rnisUpdate = 0;
+	this->lsUpdate = 0;
+
 }
 
 UserData::~UserData(){}
@@ -128,6 +134,22 @@ void UserData::setUlNongbrDataVolumeUe(double dataVolume) {
 // method that calculates the eculedean distance between the user and a given x,y point
 double UserData::calculateDistanceToAP(long x_AP, long y_AP, long x_UE, long y_UE){
     return sqrt(pow(x_AP - x_UE, 2) + pow(y_AP - y_UE, 2));
+}
+
+	omnetpp::simtime_t UserData::getRnisUpdate() const {
+	return this->rnisUpdate;
+}
+
+	omnetpp::simtime_t UserData::getLsUpdate() const {
+	return this->lsUpdate;
+}
+
+	void UserData::setRnisUpdate(omnetpp::simtime_t time) {
+	this->rnisUpdate = time;
+}
+
+	void UserData::setLsUpdate(omnetpp::simtime_t time) {
+	this->lsUpdate = time;
 }
 
 }

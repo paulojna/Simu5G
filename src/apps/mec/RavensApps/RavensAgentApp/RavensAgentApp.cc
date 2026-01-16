@@ -155,30 +155,47 @@ void RavensAgentApp::sendAPList()
     controllerSocket_.send(packet);
 }
 
-/** TODO: refactor this as the logic changed (from RNIS request to RNIS subscription) */
+/**
+ * Sends periodic snapshots of user information to the RAVENS Controller.
+ *
+ * Implements hybrid send strategy:
+ * - Sends immediately when any user has fresh data from Location Service or RNIS (timestamp-based change detection)
+ * - Forces periodic heartbeat updates even without changes to prevent controller timeout
+ *
+ * Before sending, purges stale users whose data hasn't been updated within the TTL window.
+ * Includes both per-user data (location + radio stats) and AP-level radio information in each snapshot.
+ */
 void RavensAgentApp::sendUsersInfoSnapshot()
 {
-	// Lazy heartbeat logic: if data changes we send an update; HOWEVER, if we are approaching the timeout treshold,
-	// we also send it -> otherwise cars that stopped will be identified by the controller as exiting.
-
+    // Check if force update interval has been reached
     bool timeToForceUpdate = (simTime() - lastSentTimestamp_) >= forceUpdateInterval_;
-	bool dataChanged = (users != last_users);
 
-    if (dataChanged || timeToForceUpdate)
+    // Check if any user has fresh data from LS or RNIS since last send
+    bool hasRecentUpdate = false;
+    for (const auto& [address, user] : users) {
+        if (user.getLsUpdate() > lastSentTimestamp_ ||
+            user.getRnisUpdate() > lastSentTimestamp_) {
+            hasRecentUpdate = true;
+            break;
+        }
+    }
+
+    // Send if we have fresh data OR force interval reached
+    if (hasRecentUpdate || timeToForceUpdate)
     {
         // Purge stale users (TTL check)
         auto it = users.begin();
         while (it != users.end()) {
-            if (simTime() - it->second.getLastUpdated() > ttl_) { // Use configured TTL
-                // EV << "Purging stale user: " << it->first << endl;
+            if (simTime() - it->second.getLastUpdated() > ttl_) {
+                EV << "RavensAgentApp::sendUsersInfoSnapshot - Purging stale user: " << it->first << endl;
                 it = users.erase(it);
             } else {
                 ++it;
             }
         }
 
-        // get the information available on the users map and send it to the controller using the message type USER_INFO_SNAPSHOT
-        EV << "RavensAgentApp::sendUsersInfoSnapshot - Sending User Info Snapshot" << endl;
+        // Build and send the snapshot message
+        EV << "RavensAgentApp::sendUsersInfoSnapshot - Sending User Info Snapshot (reason: "<< (hasRecentUpdate ? "fresh data" : "force update") << ")" << endl;
         inet::Packet* packet = new inet::Packet("RavensLinkUsersInfoSnapshotMessage");
         auto request = inet::makeShared<RavensLinkUsersInfoSnapshotMessage>();
         request->setChunkLength(B(500));
@@ -187,28 +204,35 @@ void RavensAgentApp::sendUsersInfoSnapshot()
         request->setTimeStamp(simTime());
         request->setMecHostId(getMecHostId().c_str());
         request->setUsers(users);
-    	// Populate the new AP radio info field
-        if (this->accessPointRadioInformation != nullptr)
+
+        // Include AP-level radio information
+        if (accessPointRadioInformation != nullptr)
         {
-	        request->setApRadioInfo(*this->accessPointRadioInformation);
+            request->setApRadioInfo(*accessPointRadioInformation);
         }
-    	else
-    	{
-	        EV << "RavensAgentApp::sendUsersInfoSnapshot - WARNING: accessPointRadioInformation is null, cannot send AP radio info." << endl;
+        else
+        {
+            EV << "RavensAgentApp::sendUsersInfoSnapshot - WARNING: accessPointRadioInformation is null" << endl;
         }
+
         packet->insertAtBack(request);
         controllerSocket_.send(packet);
+
+        // Update state
         localSnapshotCounter++;
-        last_users = users;
-    	lastSentTimestamp_ = simTime();
+        lastSentTimestamp_ = simTime();
+    }
+    else
+    {
+        EV << "RavensAgentApp::sendUsersInfoSnapshot - No fresh data and force interval not reached, skipping send" << endl;
     }
 
-    // schedule the next snapshot to send
+    // Schedule next check
     cMessage *msg = new cMessage("sendUserList");
-    EV << "RavensAgentApp::sendUsersInfoSnapshot - Next snapshot scheduled in " << getRetrievalInterval() << " seconds" << endl;
-    simtime_t interval = simTime() + getRetrievalInterval();
-    scheduleAt(interval, msg);
+    EV << "RavensAgentApp::sendUsersInfoSnapshot - Next check scheduled in " << getRetrievalInterval() << " seconds" << endl;
+    scheduleAt(simTime() + getRetrievalInterval(), msg);
 }
+
 
 /**
 * Processes HTTP responses from the MP1 service registry interface.
@@ -439,7 +463,20 @@ void RavensAgentApp::connectToRavensController()
     } 
 }
 
-/** TODO: refactor this one also as the logic changed (from RNIS request to RNIS subscription) */
+/**
+ * Processes HTTP responses from the Radio Network Information Service (RNIS).
+ *
+ * Handles two types of responses:
+ * - Code 201: Confirms successful subscription creation to Layer 2 measurements
+ * - Code 200: Processes subscription notifications containing radio metrics
+ *
+ * When receiving notifications (code 200), extracts and updates:
+ * 1. Cell-level radio statistics (AP-level): PRB usage and PDR metrics stored in accessPointRadioInformation
+ * 2. Per-user radio statistics (UE-level): delay, PDR, and data volume metrics for each connected user
+ *
+ * Uses upsert pattern: only updates radio metrics for users already in the users map (created by Location Service).
+ * Updates both rnisUpdate and lastUpdated timestamps to track data freshness.
+ */
 void RavensAgentApp::handleRNISMessage(int connId)
 {
 	EV << mecHostId << " - RavensAgentApp::handleRNISMessage - RNIS Message Received - Socket ID: " << connId << endl;
@@ -455,22 +492,74 @@ void RavensAgentApp::handleRNISMessage(int connId)
 	int code = rspMsg->getCode();
 	EV << mecHostId << " - RavensAgentApp::handleRNISMessage - RNIS Message payload with code " << code << " received" << endl;
 
-    if (code == 200)
-    {
-        nlohmann::json jsonBody = nlohmann::json::parse(serviceHttpMessage->getBody());
-        std::cout << "RNIS NOTIFICATION BODY: " << jsonBody.dump(4) << std::endl;
-    }
+	if (code == 200)
+	{
+		nlohmann::json jsonBody = nlohmann::json::parse(serviceHttpMessage->getBody());
+		if (jsonBody.contains("subscriptionNotification")) {
+			nlohmann::json notification = jsonBody["subscriptionNotification"];
+
+			// Update AP-level stats
+			if (notification.contains("cellInfo")) {
+				nlohmann::json cellInfo = notification["cellInfo"];
+				if (cellInfo.contains("ecgi")) {
+					std::string cellId = std::to_string(cellInfo["ecgi"]["cellId"].get<int>());
+					accessPointRadioInformation->setAccessPointId(cellId);
+					accessPointRadioInformation->setDlTotalPrbUsageCell(cellInfo.value("dl_total_prb_usage_cell", 0.0));
+					accessPointRadioInformation->setUlTotalPrbUsageCell(cellInfo.value("ul_total_prb_usage_cell", 0.0));
+					accessPointRadioInformation->setDlNongbrPdrCell(cellInfo.value("dl_nongbr_pdr_cell", 0.0));
+					accessPointRadioInformation->setUlNongbrPdrCell(cellInfo.value("ul_nongbr_pdr_cell", 0.0));
+				}
+			}
+
+			// Update per-user stats
+			if (notification.contains("cellUEInfo") && notification["cellUEInfo"].is_array()) {
+				for (auto &ue: notification["cellUEInfo"]) {
+					if (ue.contains("associatedId") && ue["associatedId"].contains("value")) {
+						std::string address = "acr:" + ue["associatedId"]["value"].get<std::string>();
+
+						auto it = users.find(address);
+						if (it != users.end()) {
+							// Update radio stats for existing user
+							it->second.setDlNongbrDelayUe(ue.value("dl_nongbr_delay_ue", 0.0));
+							it->second.setDlNongbrPdrUe(ue.value("dl_nongbr_pdr_ue", 0.0));
+							it->second.setDlNongbrDataVolumeUe(ue.value("dl_nongbr_data_volume_ue", 0.0));
+							it->second.setUlNongbrDelayUe(ue.value("ul_nongbr_delay_ue", 0.0));
+							it->second.setUlNongbrPdrUe(ue.value("ul_nongbr_pdr_ue", 0.0));
+							it->second.setUlNongbrDataVolumeUe(ue.value("ul_nongbr_data_volume_ue", 0.0));
+							omnetpp::simtime_t dataTime = simTime();
+							it->second.setRnisUpdate(dataTime);
+							it->second.setLastUpdated(dataTime);
+						}
+					}
+				}
+			}
+		}
+	}
+
     else if (code == 201)
     {
-        std::cout << mecHostId << " - RNIS SUBSCRIPTION CREATED!" << std::endl;
+        EV << mecHostId << " - RNIS SUBSCRIPTION CREATED!" << std::endl;
     }
     else
     {
-        std::cout << "ERROR when getting info from RNIS" << std::endl;
+        EV << "ERROR when getting info from RNIS" << std::endl;
     }
 }
 
-/** TODO: here we should also check if everything is ok, maybe change the logic */
+/**
+ * Processes HTTP responses from the Location Service.
+ *
+ * Handles three types of responses:
+ * - Initial cellList (code 200): Discovers access points and their positions, triggers AP details transmission to controller
+ * - Subscription notification (code 200): Receives periodic user location updates from subscribed cells
+ * - Subscription confirmation (code 201): Confirms successful subscription, triggers periodic snapshot sending
+ *
+ * For user location notifications, implements upsert logic:
+ * - Existing users: Updates location and access point while preserving RNIS radio statistics
+ * - New users: Creates UserData entry with location, will be enriched with radio stats when RNIS updates arrive
+ *
+ * Updates both lsUpdate and lastUpdated timestamps to track when location data was last refreshed.
+ */
 void RavensAgentApp::handleLSMessage(int connId)
 {
     EV << "RavensAgentApp::handleLSMessage - LS Message Received - Socket ID: " << connId << endl;
@@ -481,12 +570,8 @@ void RavensAgentApp::handleLSMessage(int connId)
 
     int code = rspMsg->getCode();
 
-    std::cout << "RavensAgentApp::handleLSMessage - LS Message payload with code " << code << " received: " <<  serviceHttpMessage->getBody() << endl;
+    EV << "RavensAgentApp::handleLSMessage - LS Message payload with code " << code << " received: " <<  serviceHttpMessage->getBody() << endl;
 
-    // clean users vector
-    // users.clear(); // REMOVED to persist radio stats
-
-    // if the response is a 200 OK
     if(code == 200)
     {
         // get the JSON structure
@@ -545,11 +630,16 @@ void RavensAgentApp::handleLSMessage(int connId)
                         // Update existing user (preserves Radio Stats)
                         it->second.setAccessPointId(apData.getAccessPointId());
                         it->second.setCurrentLocation(userLocation);
-                        it->second.setLastUpdated(simTime());
+                    	omnetpp::simtime_t dataTime = simTime();
+                    	it->second.setLsUpdate(dataTime);
+                    	it->second.setLastUpdated(dataTime);
+
                     } else {
                         // Insert new user
                         UserData userData = UserData(address, apData, userLocation);
-                        userData.setLastUpdated(simTime());
+                    	omnetpp::simtime_t dataTime = simTime();
+                    	userData.setLsUpdate(dataTime);
+                    	userData.setLastUpdated(dataTime);
                         users[address] = userData;
                     }
                 }

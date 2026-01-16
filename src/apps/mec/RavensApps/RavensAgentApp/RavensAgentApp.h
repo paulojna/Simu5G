@@ -70,9 +70,7 @@ protected:
 
 
     std::vector<AccessPointData> accessPoints;
-    std::unordered_map<std::string, UserData> users; 
-    // to compare before sending the information to the controller to ensure that we are not sending the same information twice
-    std::unordered_map<std::string, UserData> last_users;
+    std::unordered_map<std::string, UserData> users;
 
 	AccessPointRadioInfoData* accessPointRadioInformation;
 

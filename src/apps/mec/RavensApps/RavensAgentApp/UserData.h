@@ -17,6 +17,8 @@ class UserData
         double distance_to_ap;
         
         omnetpp::simtime_t lastUpdated; // Added timestamp
+		omnetpp::simtime_t rnisUpdate;
+	    omnetpp::simtime_t lsUpdate;
 
         // RNIS Radio Metrics
         double dl_nongbr_delay_ue;
@@ -36,6 +38,8 @@ class UserData
         void setAccessPointId(const std::string& accessPointId);
         void setCurrentLocation(const UserLocation& currentLocation);
         void setLastUpdated(omnetpp::simtime_t time); // Added setter
+		void setRnisUpdate(omnetpp::simtime_t time);
+		void setLsUpdate(omnetpp::simtime_t time);
 
         // getters
         std::string getAddress() const;
@@ -43,6 +47,9 @@ class UserData
         UserLocation getCurrentLocation() const;
         double getDistanceToAP() const;
         omnetpp::simtime_t getLastUpdated() const; // Added getter
+		omnetpp::simtime_t getRnisUpdate() const;
+		omnetpp::simtime_t getLsUpdate() const;
+
 
         // RNIS Radio Metrics Getters
         double getDlNongbrDelayUe() const;
