@@ -65,12 +65,12 @@ class UeStatsCollector: public cSimpleModule
         // TODO insert signals for statistics
 
         bool handover_;
+        MacCellId registeredCell_;  // Cell ID where this collector is registered
+        MacNodeId registeredNodeId_;
 
     public:
         UeStatsCollector();
-        // RAVENS V3 - Using RNIS besides LS
-        // Non-inline destructor to implement safe unregistration
-        virtual ~UeStatsCollector();
+        virtual ~UeStatsCollector(){}
 
         // methods to update L2 measures
 
@@ -147,9 +147,15 @@ class UeStatsCollector: public cSimpleModule
             return associateId_;
         }
 
+        void setRegisteredCell(MacCellId cellId, MacNodeId nodeId)
+        {
+            registeredCell_ = cellId;
+            registeredNodeId_ = nodeId;
+        }
 
     protected:
         virtual void initialize(int stages) override;
+        virtual void finish() override;
         virtual int numInitStages() const override { return INITSTAGE_LAST; }
         virtual void handleMessage(cMessage *msg) override {}
 };

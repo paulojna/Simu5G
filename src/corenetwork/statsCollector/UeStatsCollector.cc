@@ -10,13 +10,13 @@
 //
 
 #include "corenetwork/statsCollector/UeStatsCollector.h"
-#include "corenetwork/statsCollector/BaseStationStatsCollector.h"
 #include "stack/pdcp_rrc/layer/LtePdcpRrc.h"
 #include "stack/mac/layer/LteMacBase.h"
 #include "inet/common/ModuleAccess.h"
 #include "stack/packetFlowManager/PacketFlowManagerUe.h"
 #include "inet/networklayer/common/NetworkInterface.h"
 #include "inet/networklayer/ipv4/Ipv4InterfaceData.h"
+#include "common/binder/Binder.h"
 
 namespace simu5g {
 
@@ -27,56 +27,8 @@ UeStatsCollector::UeStatsCollector()
 //    pdcp_ = nullptr;
     mac_ = nullptr;
     packetFlowManager_ = nullptr;
-
-}
-
-UeStatsCollector::~UeStatsCollector()
-{
-    // RAVENS V3 - Using RNIS besides LS
-    // Destructor unregisters from eNodeB to prevent dangling pointers in BaseStationStatsCollector
-    // Fallback to Binder lookup if local state is already cleared (CellID=0)
-    //std::cout << "UeStatsCollector::~UeStatsCollector - Destructor called for " << getFullPath() << std::endl;
-    // Unregister from the BaseStationStatsCollector if connected
-    if (mac_ != nullptr)
-    {
-        Binder* binder = getBinder();
-        MacNodeId nodeId = mac_->getMacNodeId();
-        MacCellId cellId = mac_->getMacCellId();
-        
-        //std::cout << "UeStatsCollector::~UeStatsCollector - " << getFullPath() << " - MAC CellID: " << cellId << std::endl;
-
-        if (cellId == 0 && binder) {
-            try {
-                cellId = binder->getNextHop(nodeId);
-                //std::cout << "UeStatsCollector::~UeStatsCollector - " << getFullPath() << " - Binder says Master ID is: " << cellId << std::endl;
-            } catch (...) {
-                // Ignore if binder fails
-            }
-        }
-
-        if (cellId > 0)
-        {
-            if (binder) {
-                //std::cout << "UeStatsCollector::~UeStatsCollector - " << getFullPath() << " - Binder found" << std::endl;
-                try {
-                    const char* enbName = binder->getModuleNameByMacNodeId(cellId);
-                    cModule* enb = getModuleByPath(enbName);
-                    if (enb && enb->getSubmodule("collector"))
-                    {
-                        //std::cout << "UeStatsCollector::~UeStatsCollector - " << getFullPath() << " - eNodeB collector found" << std::endl;
-                        auto* enbColl = check_and_cast<BaseStationStatsCollector*>(enb->getSubmodule("collector"));
-                        if (enbColl && enbColl->hasUeCollector(nodeId))
-                        {
-                            enbColl->removeUeCollector(nodeId);
-                            //std::cout << "UeStatsCollector::~UeStatsCollector - " << getFullPath() << " - Removed successfully from eNodeB" << std::endl;
-                        }
-                    }
-                } catch (std::exception& e) {
-                    //std::cout << "UeStatsCollector::~UeStatsCollector - " << getFullPath() << " - Exception during unregistration: " << e.what() << std::endl;
-                }
-            }
-        }
-    }
+    registeredCell_ = 0;
+    registeredNodeId_ = 0;
 }
 
 void UeStatsCollector::initialize(int stage)
@@ -276,6 +228,30 @@ void UeStatsCollector::resetStats()
    // data volume
     ul_nongbr_data_volume_ue.reset();
     dl_nongbr_data_volume_ue.reset();
+}
+
+void UeStatsCollector::finish()
+{
+    std::cout << "UeStatsCollector::finish() called - registeredCell_: " << registeredCell_ << endl;
+
+    if (getSimulation()->getSimulationStage() != CTX_FINISH)
+    {
+        EV << "UeStatsCollector::finish() - during simulation deletion" << endl;
+
+        if (registeredCell_ != 0 && registeredNodeId_ != 0)
+        {
+            EV << "UeStatsCollector::finish() - removing nodeId: " << registeredNodeId_  << " from cell: " << registeredCell_ << endl;
+            Binder* binder = getBinder();
+            if (binder != nullptr)
+            {
+                binder->removeUeCollectorFromEnodeB(registeredNodeId_, registeredCell_);
+            }
+        }
+        else
+        {
+            EV << "UeStatsCollector::finish() - skipping cleanup (registeredCell_=" << registeredCell_ << ", mac_=" << mac_ << ")" << endl;
+        }
+    }
 }
 
 } //namespace

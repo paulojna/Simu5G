@@ -55,9 +55,6 @@ class BaseStationStatsCollector: public cSimpleModule
         PacketFlowManagerEnb *packetFlowManager_;
 
         CellInfo *cellInfo_;
-        // RAVENS V3 - Using RNIS besides LS
-        // Binder needed for robust UE cleanup checks
-        Binder* binder_;
 
         UeStatsCollectorMap ueCollectors_;
 
@@ -221,10 +218,6 @@ class BaseStationStatsCollector: public cSimpleModule
         void resetThroughputCountersPerUe();
 
         void resetStats(MacNodeId nodeId);
-
-        // RAVENS V3 - Using RNIS besides LS
-        // Periodically remove detached UEs to prevent crashes and memory leaks
-        void cleanupDeadUeCollectors();
 
     protected:
         virtual void initialize(int stages) override;
