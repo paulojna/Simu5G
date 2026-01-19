@@ -206,9 +206,12 @@ nlohmann::ordered_json L2MeasSubscription::collectUEInfo()
 {
     nlohmann::ordered_json ueArray = nlohmann::json::array();
 
+    //std::cout << "collectUEInfo - checking " << cells_.size() << " cells" << std::endl;
+
     // Collect ALL UE measurements in monitored cells
     for(auto cellId : cells_)
     {
+        //std::cout << "collectUEInfo - looking for cell " << cellId << std::endl;
         auto it = statsCollectors_.find(cellId);
         if(it != statsCollectors_.end())
         {
@@ -216,6 +219,7 @@ nlohmann::ordered_json L2MeasSubscription::collectUEInfo()
 
             // Get all UEs in this cell (like L2Meas.cc lines 64-71)
             UeStatsCollectorMap* ueMap = collector->getCollectorMap();
+            //std::cout << "collectUEInfo - cell " << cellId << " has " << ueMap->size() << " UEs" << std::endl;
             UeStatsCollectorMap::const_iterator uit = ueMap->begin();
             UeStatsCollectorMap::const_iterator end = ueMap->end();
 
@@ -225,6 +229,10 @@ nlohmann::ordered_json L2MeasSubscription::collectUEInfo()
                 CellUEInfo cellUeInfo(uit->second, collector->getEcgi());
                 ueArray.push_back(cellUeInfo.toJson());
             }
+        }
+        else
+        {
+            //std::cout << "collectUEInfo - cell " << cellId << " NOT FOUND in statsCollectors_" << std::endl;
         }
     }
 

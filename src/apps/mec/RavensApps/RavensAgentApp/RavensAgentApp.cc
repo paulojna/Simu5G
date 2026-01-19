@@ -490,10 +490,11 @@ void RavensAgentApp::handleRNISMessage(int connId)
     }
 
 	int code = rspMsg->getCode();
-	EV << mecHostId << " - RavensAgentApp::handleRNISMessage - RNIS Message payload with code " << code << " received" << endl;
+	EV << mecHostId << " - RavensAgentApp::handleRNISMessage - RNIS Message payload with code " << code << " received with body: " << rspMsg->getBody() << endl;
 
 	if (code == 200)
 	{
+	    //std::cout << mecHostId << " - RNIS 200 response received" << std::endl;
 		nlohmann::json jsonBody = nlohmann::json::parse(serviceHttpMessage->getBody());
 		if (jsonBody.contains("subscriptionNotification")) {
 			nlohmann::json notification = jsonBody["subscriptionNotification"];
@@ -512,13 +513,27 @@ void RavensAgentApp::handleRNISMessage(int connId)
 			}
 
 			// Update per-user stats
-			if (notification.contains("cellUEInfo") && notification["cellUEInfo"].is_array()) {
-				for (auto &ue: notification["cellUEInfo"]) {
+			if (notification.contains("cellUEInfo")) {
+			    // Handle both array (multiple UEs) and single object (one UE) formats
+			    std::vector<nlohmann::json> ueList;
+			    if (notification["cellUEInfo"].is_array()) {
+			        for (auto &ue : notification["cellUEInfo"]) {
+			            ueList.push_back(ue);
+			        }
+			    } else {
+			        // Single UE case - wrap in vector
+			        ueList.push_back(notification["cellUEInfo"]);
+			    }
+
+			    //std::cout << mecHostId << "RNIS response contains " << ueList.size() << " UEs" << endl;
+				for (auto &ue : ueList) {
 					if (ue.contains("associatedId") && ue["associatedId"].contains("value")) {
 						std::string address = "acr:" + ue["associatedId"]["value"].get<std::string>();
+					    //std::cout << mecHostId << "  RNIS UE address: " << address << std::endl;
 
 						auto it = users.find(address);
 						if (it != users.end()) {
+						    //std::cout << mecHostId << "    -> FOUND in users map, updating RNIS" << std::endl;
 							// Update radio stats for existing user
 							it->second.setDlNongbrDelayUe(ue.value("dl_nongbr_delay_ue", 0.0));
 							it->second.setDlNongbrPdrUe(ue.value("dl_nongbr_pdr_ue", 0.0));
@@ -530,6 +545,10 @@ void RavensAgentApp::handleRNISMessage(int connId)
 							it->second.setRnisUpdate(dataTime);
 							it->second.setLastUpdated(dataTime);
 						}
+					    else
+					    {
+					        //std::cout << mecHostId << "    -> NOT FOUND in users map" << std::endl;
+					    }
 					}
 				}
 			}
@@ -582,8 +601,8 @@ void RavensAgentApp::handleLSMessage(int connId)
             if(jsonBody.contains("cellList"))
             {
                 nlohmann::json cellList = jsonBody["cellList"];
-                std::cout << "MecHostId" << getMecHostId() << std::endl;
-                std::cout << "cellList: " << jsonBody << std::endl;
+                //std::cout << "MecHostId" << getMecHostId() << std::endl;
+                //std::cout << "cellList: " << jsonBody << std::endl;
                 for (auto& cell : cellList)
                 {
                     std::string cellId = to_string(cell["cellId"]);
@@ -826,6 +845,30 @@ void RavensAgentApp::socketErrorArrived(UdpSocket *socket, inet::Indication *ind
 
 void RavensAgentApp::socketClosed(UdpSocket *socket){
     EV << "RavensAgentApp::socketClosed - socketClosed" << endl;
+}
+
+void RavensAgentApp::socketClosed(inet::TcpSocket* socket)
+{
+    std::cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
+    std::cout << "[" << simTime() << "] " << mecHostId
+        << " - TCP SOCKET CLOSED!" << std::endl;
+    std::cout << "Socket ID: " << socket->getSocketId() << std::endl;
+
+    if (socket == rnisSocket_)
+    {
+        std::cout << "*** THIS IS THE RNIS SOCKET ***" << std::endl;
+    }
+    else if (socket == lsSocket_)
+    {
+        std::cout << "*** THIS IS THE LS SOCKET ***" << std::endl;
+    }
+    else if (socket == mp1Socket_)
+    {
+        std::cout << "*** THIS IS THE MP1 SOCKET ***" << std::endl;
+    }
+    std::cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
+
+    MecAppBase::socketClosed(socket);
 }
 
 simtime_t RavensAgentApp::getRetrievalInterval()

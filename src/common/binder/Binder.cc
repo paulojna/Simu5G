@@ -1225,7 +1225,7 @@ double Binder::computeRequestedRbsFromSinr(double sinr, double reqLoad)
 
 void Binder::addUeCollectorToEnodeB(MacNodeId ue, UeStatsCollector* ueCollector , MacNodeId cell)
 {
-    std::cout << "addUeCollectorToEnodeB - ue: " << ue << ", cell: " << cell << std::endl;
+    //std::cout << "addUeCollectorToEnodeB - ue: " << ue << ", cell: " << cell << std::endl;
     EV << "LteBinder::addUeCollector"<< endl;
     std::vector<EnbInfo*>::iterator it = enbList_.begin(), end = enbList_.end();
     cModule *enb = nullptr;
@@ -1306,6 +1306,8 @@ void Binder::removeUeCollectorFromEnodeB(MacNodeId ue, MacCellId cell)
 
 void Binder::moveUeCollector(MacNodeId ue, MacCellId oldCell, MacCellId newCell)
 {
+    inet::Ipv4Address ip = getIPv4Address(ue);
+    //std::cout << "moveUeCollector - ue: " << ue << " (IP: " << ip << ") from cell " << oldCell << " to cell " << newCell << std::endl;
     EV << "LteBinder::moveUeCollector" << endl;
     RanNodeType oldCellType = getBaseStationTypeById(oldCell);
     RanNodeType newCellType = getBaseStationTypeById(newCell);
@@ -1336,6 +1338,7 @@ void Binder::moveUeCollector(MacNodeId ue, MacCellId oldCell, MacCellId newCell)
     // if the two base station are the same type, just move the collector
     if(oldCellType == newCellType)
     {
+        //std::cout << "moveUeCollector - adding ue " << ue << " to cell " << newCell << " (same type)" << endl;
         addUeCollectorToEnodeB(ue, ueColl, newCell);
     }
     else

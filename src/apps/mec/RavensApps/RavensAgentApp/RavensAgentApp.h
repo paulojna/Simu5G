@@ -114,6 +114,7 @@ protected:
     virtual void socketDataArrived(inet::UdpSocket *socket, inet::Packet *packet) override;
     virtual void socketErrorArrived(inet::UdpSocket *socket, inet::Indication *indication) override;
     virtual void socketClosed(inet::UdpSocket *socket) override;
+	virtual void socketClosed(inet::TcpSocket *socket) override;
 
 
 public:

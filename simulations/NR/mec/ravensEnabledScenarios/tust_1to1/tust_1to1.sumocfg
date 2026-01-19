@@ -34,7 +34,7 @@
         <ignore-route-errors value="true"/>
         <time-to-teleport value="150"/>
         -->
-        <scale value="0.3"/>
+        <scale value="0.25"/>
     </processing>
 
     <report>

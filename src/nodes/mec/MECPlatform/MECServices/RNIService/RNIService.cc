@@ -272,7 +272,7 @@ void RNIService::handlePOSTRequest(const HttpRequestMessage *currentRequestMessa
         }
         catch(nlohmann::detail::parse_error e)
         {
-            std::cout << "RNIService::handlePOSTRequest" << e.what() << "\n" << body << std::endl;
+            //std::cout << "RNIService::handlePOSTRequest" << e.what() << "\n" << body << std::endl;
             // body is not correctly formatted in JSON, manage it
             Http::send400Response(socket); // bad body JSON
             return;

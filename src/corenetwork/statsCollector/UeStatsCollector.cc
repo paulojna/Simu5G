@@ -232,7 +232,7 @@ void UeStatsCollector::resetStats()
 
 void UeStatsCollector::finish()
 {
-    std::cout << "UeStatsCollector::finish() called - registeredCell_: " << registeredCell_ << endl;
+    EV << "UeStatsCollector::finish() called - registeredCell_: " << registeredCell_ << endl;
 
     if (getSimulation()->getSimulationStage() != CTX_FINISH)
     {

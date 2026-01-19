@@ -38,6 +38,7 @@ nlohmann::ordered_json CellUEInfo::toJson() const
 
     val["ecgi"] = ecgi_.toJson();
     val["associatedId"] = associateId_.toJson();
+
     int value;
     value = ueCollector_->get_dl_gbr_delay_ue();
     if(value != -1) val["dl_gbr_delay_ue"] = value;
