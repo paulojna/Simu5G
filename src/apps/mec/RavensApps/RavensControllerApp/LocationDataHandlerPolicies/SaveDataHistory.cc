@@ -21,7 +21,7 @@ SaveDataHistory::SaveDataHistory(RavensControllerApp* controllerApp, std::string
     // 1. User File (Standard Vectors + Radio Stats)
     std::string name = dirPath + "run_" + runNumber + "_users.csv";
     userFile.open(name, std::ios::out | std::ios::trunc);
-    userFile << "Timestamp,UEId,MEHId,AccessPointId,x,y,z,Speed,Bearing,DistanceToAccessPoint,DlDelay,DlPDR,DlDataVolume,UlDelay,UlPDR,UlDataVolume" << endl;
+    userFile << "TimestampSent, LastUpdated, LsLast, RnisLast, UEId,MEHId,AccessPointId,x,y,z,Speed,Bearing,DistanceToAccessPoint,DlDelay,DlPDR,DlDataVolume,UlDelay,UlPDR,UlDataVolume" << endl;
     
     // 2. Lifecycle File (Events)
     std::string lifecycleName = dirPath + "run_" + runNumber + "_lifecycle.csv"; 
@@ -61,7 +61,10 @@ inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkUsers
     for(const auto& userPair : received_packet->getUsers()){
         const auto& userData = userPair.second;
         userFile << received_packet->getTimeStamp() << ","
-                << userPair.first << ","
+    			<< userData.getLastUpdated() << ","
+    			<< userData.getLsUpdate() << ","
+    			<< userData.getRnisUpdate() << ","
+    	     << userPair.first << ","
                 << received_packet->getMecHostId() << ","
                 << userData.getAccessPointId() << ","
                 << userData.getCurrentLocation().getX() << ","

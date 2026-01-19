@@ -50,7 +50,7 @@ simple RavensAgentApp like IMECApp, IApp
 
         int localPort = default(1993);
 
-        double ttl @unit(s) = default(10s);
+        double ttl @unit(s) = default(5s);
 		
 	gates:
 	 	input mePlatformIn;
