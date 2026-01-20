@@ -120,6 +120,7 @@ void MECPerfApp::handleProcessedMessage(cMessage *msg)
 
 void MECPerfApp::finish()
 {
+    EV << "MECPerfApp::finish" << std::endl;
     MecAppBase::finish();
     if(gate("socketOut")->isConnected())
     {

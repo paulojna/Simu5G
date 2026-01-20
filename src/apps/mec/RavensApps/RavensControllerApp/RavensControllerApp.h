@@ -92,6 +92,7 @@ class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket:
 
     protected:
         virtual void initialize(int stage) override;
+        virtual void finish() override;
 
         virtual void handleMessageWhenUp(cMessage *msg) override;
         virtual void handleStartOperation(inet::LifecycleOperation *operation) override;

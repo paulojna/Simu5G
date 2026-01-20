@@ -24,9 +24,14 @@ RavensControllerApp::RavensControllerApp(){
 
 RavensControllerApp::~RavensControllerApp(){
     cancelAndDelete(calculateAvg_);
-    udpSocket.close();
-
     delete locationDataHandlerPolicy_;
+}
+
+void RavensControllerApp::finish(){
+    ApplicationBase::finish();
+    if (udpSocket.isOpen()) {
+        udpSocket.close();
+    }
 }
 
 void RavensControllerApp::initialize(int stage){

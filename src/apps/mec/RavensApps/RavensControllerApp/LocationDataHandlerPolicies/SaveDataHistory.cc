@@ -25,8 +25,8 @@ SaveDataHistory::SaveDataHistory(RavensControllerApp* controllerApp, std::string
     
     // 2. Lifecycle File (Events)
     std::string lifecycleName = dirPath + "run_" + runNumber + "_lifecycle.csv"; 
-    lifecycleFile.open(lifecycleName, std::ios::out | std::ios::trunc);
-    lifecycleFile << "Timestamp,EventType,UEId,Details" << endl;
+    //lifecycleFile.open(lifecycleName, std::ios::out | std::ios::trunc);
+    //lifecycleFile << "Timestamp,EventType,UEId,Details" << endl;
 
     // 3. Radio Stats File (DL/UL Usage and PDR)
     std::string radioStatsName = dirPath + "run_" + runNumber + "_radio_stats.csv";
@@ -42,7 +42,13 @@ inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkUsers
 
 	std::vector<UserState> removedUsers = controllerApp_->removeInactiveUsers();
 	for(const auto& user : removedUsers) {
-		lifecycleFile << simTime() << ",EXIT," << user.userId << "," << user.currentMEH << endl;
+		// even though we are not testing any QoS performance, it is better to remove the user from the MEH
+		UserMEHUpdate update;
+		update.setLastMEHId(user.currentMEH);
+		update.setNewMEHId("");
+		update.setAddress(user.userId);
+		addUserUpdate(update);
+		//lifecycleFile << simTime() << ",EXIT," << user.userId << "," << user.currentMEH << endl;
 	}
 
     // A.1 Log Radio Stats
@@ -97,23 +103,31 @@ inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkUsers
 		if (userIt == controllerApp_->userStateMap.end())
 		{
 			// New user - ALWAYS log ENTRY (not a handover, no lockout check needed)
-			lifecycleFile << received_packet->getTimeStamp() << ",ENTRY," << user.second.getAddress() << "," << updatedSnapshot->getMecHostId() << endl;
+			UserMEHUpdate update;
+			update.setLastMEHId("");
+			update.setNewMEHId(updatedSnapshot->getMecHostId());
+			update.setAddress(user.second.getAddress());
+			addUserUpdate(update);
+			//lifecycleFile << received_packet->getTimeStamp() << ",ENTRY," << user.second.getAddress() << "," << updatedSnapshot->getMecHostId() << endl;
 		}
 		else
 		{
+			EV << "NotifyOnDataChange::addUserUpdate - user " << user.first << " possible handover situation " << endl;
+			/*
 			// user is in the map, let's check if the user has changed MEH
 			if (userIt->second.currentMEH != updatedSnapshot->getMecHostId())
 			{
 				// This IS a handover - check if it will be accepted (ping-pong prevention)
 				if (controllerApp_->shouldAcceptHandover(user.first, updatedSnapshot->getMecHostId()))
 				{
-					lifecycleFile << received_packet->getTimeStamp() << ",HANDOVER_MEH," << user.second.getAddress() << "," << userIt->second.currentMEH << "->" << updatedSnapshot->getMecHostId() << endl;
+					//lifecycleFile << received_packet->getTimeStamp() << ",HANDOVER_MEH," << user.second.getAddress() << "," << userIt->second.currentMEH << "->" << updatedSnapshot->getMecHostId() << endl;
 				}
 				else
 				{
 					EV << "SaveDataHistory - Handover NOT logged (lockout active for " << user.first << ")" << endl;
 				}
 			}
+			*/
 		}
 	}
 
@@ -125,7 +139,7 @@ inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkUsers
     msgCount_++;
     if (msgCount_ >= FLUSH_INTERVAL_) {
         userFile.flush();
-        lifecycleFile.flush();
+        //lifecycleFile.flush();
         radioStatsFile.flush(); // Flush new file
         msgCount_ = 0;
     }
@@ -133,10 +147,34 @@ inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkUsers
     return pck;
 }
 
+void SaveDataHistory::addUserUpdate(UserMEHUpdate& update)
+{
+	EV << "NotifyOnDataChange::addUserUpdate - user " << update.getAddress() <<
+		" was sent to be added to the userUpdates list" << endl;
+
+	// check if the user is already in the list, if so update the values
+	for (auto& userUpdate : controllerApp_->userUpdates)
+	{
+		if (userUpdate.getAddress() == update.getAddress())
+		{
+			userUpdate.setLastMEHId(update.getLastMEHId());
+			userUpdate.setNewMEHId(update.getNewMEHId());
+			EV << "NotifyOnDataChange::addUserUpdate - user " << update.getAddress() <<
+				" was updated in the userUpdates list" << endl;
+			return;
+		}
+	}
+
+	// if the user is not in the list, add it
+	controllerApp_->userUpdates.push_back(update);
+	EV << "NotifyOnDataChange::addUserUpdate - user " << update.getAddress() << " added to the userUpdates list" <<
+		endl;
+}
+
 SaveDataHistory::~SaveDataHistory()
 {
     userFile.close();
-    lifecycleFile.close();
+    //lifecycleFile.close();
     radioStatsFile.close(); // Close new file
 }
 }

@@ -142,7 +142,7 @@ bool MecAppRegistry::updateApp(int contextId, const AppEntry& appEntry)
 
 MecAppRegistry::AppEntry MecAppRegistry::createAppEntry(int contextId, const std::string& appDId, const std::string& mecAppName, int mecUeAppID, cModule* mecHost, const inet::L3Address& ueAddress)
 {
-    EV << "MecAppRegistry::createAppEntry - Creating new app entry with contextId: " << contextId 
+    EV << "MecAppRegistry::createAppEntry - Creating new app entry with contextId: " << contextId
        << ", appDId: " << appDId << ", UE address: " << ueAddress.str() << endl;
     
     return AppEntry(contextId, appDId, mecAppName, mecUeAppID, mecHost, ueAddress);

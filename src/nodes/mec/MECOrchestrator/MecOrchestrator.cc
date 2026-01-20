@@ -512,7 +512,7 @@ T* safe_check_and_cast(U* ptr) {
         if (ueAddress.find("acr:") == 0) {
             ueIp = ueAddress.substr(4);
         }
-
+        //std::cout << simTime() << " [MEO] App REMOVE requested for UE: " << ueIp << std::endl;
         inet::L3Address ueL3Address = inet::L3AddressResolver().resolve(ueIp.c_str());
 
         // remove user from the userMEHMap
@@ -525,7 +525,7 @@ T* safe_check_and_cast(U* ptr) {
         auto result = mecAppRegistry_->findAppByUeAddress(ueIp);
         if(!result.found)
         {
-            EV << "RemoveOnExit::reactOnUpdate - ERROR: contextId not found for ueAddress " << ueIp << endl;
+            //std::cout << "RemoveOnExit::reactOnUpdate - ERROR: contextId not found for ueAddress " << ueIp << endl;
             return;
         }
         int contextId = result.contextId;
@@ -533,7 +533,7 @@ T* safe_check_and_cast(U* ptr) {
 
         if (contextId == -1)
         {
-            EV << "RemoveOnExit::reactOnUpdate - ERROR: contextId not found for ueAddress " << ueIp << endl;
+            std::cout << "RemoveOnExit::reactOnUpdate - ERROR: -1.. contextId not found for ueAddress " << ueIp << endl;
             return;
         }
 

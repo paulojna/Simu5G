@@ -14,16 +14,9 @@ void RemoveOnExit::reactOnUpdate(const std::vector<UserEntryUpdate> &updatedList
 
 void RemoveOnExit::reactOnUpdate(const UserMEHUpdate &update)
 {
-    std::cout << "[RemoveOnExit t=" << omnetpp::simTime() << "] "
-                << "UE=" << update.getAddress()
-                << " lastMEH='" << update.getLastMEHId() << "'"
-                << " newMEH='" << update.getNewMEHId() << "'" << std::endl;
-
-
     // check it the newMEH is empty
     if (update.getNewMEHId()=="")
     {
-        std::cout << "Removing app (UE exited)" << std::endl;
 
         api_->removeAppFromSystem(update.getAddress(), update.getLastMEHId());
         /*

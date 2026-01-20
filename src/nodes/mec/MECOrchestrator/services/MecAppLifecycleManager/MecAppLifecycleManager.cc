@@ -199,6 +199,7 @@ LifecycleResult MecAppLifecycleManager::stopApplication(int contextId) {
     // Find the application
     auto result = mecAppRegistry_->findAppByContextId(contextId);
     if (!result.found) {
+        //std::cout << "MECAppLifecycleManager::stopApplication - MEC APP NOT FOUND" << std::endl;
         return LifecycleResult(false, "MEC app not found", contextId, 0.0);
     }
     
@@ -223,6 +224,7 @@ LifecycleResult MecAppLifecycleManager::terminateApplication(int contextId) {
         return LifecycleResult(true, "Application terminated", contextId, getTerminationTime());
     }
     else {
+        //std::cout << "TERMINATION FAILED" << endl;
         return LifecycleResult(false, "Application termination failed", -1, getTerminationTime());
     }
 }
