@@ -13,6 +13,9 @@ src/Makefile
 precompiled_*.h.*
 **/__pycache__
 
+*.rou.xml
+*.sumocfg
+
 *.csv
 
 *CLAUDE*
