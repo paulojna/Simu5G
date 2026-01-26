@@ -119,6 +119,7 @@ T* safe_check_and_cast(U* ptr) {
               mecAppRegistry_.get(),
               mecAppLifecycleManager_.get(),
               &mecHosts,
+              &mecHostIndex_,
               this
             );
             mecAppMigrationManager_->initialize(migrationTime_, migrationTimeout_);
@@ -419,6 +420,8 @@ T* safe_check_and_cast(U* ptr) {
                 EV << "MecOrchestrator::getConnectedMecHosts - mec host (from par): " << token << endl;
                 cModule *mecHostModule = getSimulation()->getModuleByPath(token);
                 mecHosts.push_back(mecHostModule);
+                // PERFORMANCE IMPROVEMENT: Build index for O(1) lookup by name
+                mecHostIndex_[mecHostModule->getName()] = mecHostModule;
                 token = strtok(NULL, ", ");
             }
         }

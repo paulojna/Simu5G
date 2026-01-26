@@ -46,6 +46,7 @@ protected:
 	simtime_t forceUpdateInterval_;
 	simtime_t lastSentTimestamp_;
     simtime_t ttl_; // Added TTL for user data freshness
+    bool hasPendingUpdates_; // Dirty flag to avoid full user scan
 
     std::string mecHostId;
 
@@ -70,6 +71,7 @@ protected:
 
 
     std::vector<AccessPointData> accessPoints;
+	std::unordered_map<std::string, AccessPointData*> apIndex_;
     std::unordered_map<std::string, UserData> users;
 
 	AccessPointRadioInfoData* accessPointRadioInformation;

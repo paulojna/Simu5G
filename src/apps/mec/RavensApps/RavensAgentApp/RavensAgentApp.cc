@@ -54,6 +54,7 @@ void RavensAgentApp::initialize(int stage)
     this->mecHostId = mecHost->getName();
 	this->forceUpdateInterval_ = 5;
 	this->lastSentTimestamp_ = simTime();
+	this->hasPendingUpdates_ = false;
 
 	accessPointRadioInformation = new AccessPointRadioInfoData();
 
@@ -93,7 +94,7 @@ void RavensAgentApp::established(int connId)
         // Immediately request RNIS service discovery to parallelize setup
     	const char *rnis_service_uri = "/example/mec_service_mgmt/v1/services?ser_name=RNIService";
     	Http::sendGetRequest(mp1Socket_, host.c_str(), rnis_service_uri);
-        std::cout << mecHostId << " - RavensAgentApp::established - Request Sent to " << host.c_str() << " to " << rnis_service_uri << endl;
+        EV << mecHostId << " - RavensAgentApp::established - Request Sent to " << host.c_str() << " to " << rnis_service_uri << endl;
         return;
     }
     else if (connId == lsSocket_->getSocketId())
@@ -170,18 +171,19 @@ void RavensAgentApp::sendUsersInfoSnapshot()
     // Check if force update interval has been reached
     bool timeToForceUpdate = (simTime() - lastSentTimestamp_) >= forceUpdateInterval_;
 
-    // Check if any user has fresh data from LS or RNIS since last send
-    bool hasRecentUpdate = false;
-    for (const auto& [address, user] : users) {
-        if (user.getLsUpdate() > lastSentTimestamp_ ||
-            user.getRnisUpdate() > lastSentTimestamp_) {
-            hasRecentUpdate = true;
-            break;
-        }
-    }
+    // PERFORMANCE IMPROVEMENT TEST: Using dirty flag instead of full user scan
+    // Original code commented out for comparison:
+    // bool hasRecentUpdate = false;
+    // for (const auto& [address, user] : users) {
+    //     if (user.getLsUpdate() > lastSentTimestamp_ ||
+    //         user.getRnisUpdate() > lastSentTimestamp_) {
+    //         hasRecentUpdate = true;
+    //         break;
+    //     }
+    // }
 
-    // Send if we have fresh data OR force interval reached
-    if (hasRecentUpdate || timeToForceUpdate)
+    // Send if we have fresh data (dirty flag) OR force interval reached
+    if (hasPendingUpdates_ || timeToForceUpdate)
     {
         // Purge stale users (TTL check)
         auto it = users.begin();
@@ -195,7 +197,7 @@ void RavensAgentApp::sendUsersInfoSnapshot()
         }
 
         // Build and send the snapshot message
-        EV << "RavensAgentApp::sendUsersInfoSnapshot - Sending User Info Snapshot (reason: "<< (hasRecentUpdate ? "fresh data" : "force update") << ")" << endl;
+        EV << "RavensAgentApp::sendUsersInfoSnapshot - Sending User Info Snapshot (reason: "<< (hasPendingUpdates_ ? "fresh data" : "force update") << ")" << endl;
         inet::Packet* packet = new inet::Packet("RavensLinkUsersInfoSnapshotMessage");
         auto request = inet::makeShared<RavensLinkUsersInfoSnapshotMessage>();
         request->setChunkLength(B(500));
@@ -221,6 +223,7 @@ void RavensAgentApp::sendUsersInfoSnapshot()
         // Update state
         localSnapshotCounter++;
         lastSentTimestamp_ = simTime();
+        hasPendingUpdates_ = false;  // Reset dirty flag after sending
     }
     else
     {
@@ -544,6 +547,7 @@ void RavensAgentApp::handleRNISMessage(int connId)
 							omnetpp::simtime_t dataTime = simTime();
 							it->second.setRnisUpdate(dataTime);
 							it->second.setLastUpdated(dataTime);
+							hasPendingUpdates_ = true;  // Mark dirty for snapshot
 						}
 					    else
 					    {
@@ -611,6 +615,7 @@ void RavensAgentApp::handleLSMessage(int connId)
                     NodeLocation apLocation = NodeLocation(x, y, 0);
                     AccessPointData apData = AccessPointData(cellId, apLocation);
                     accessPoints.push_back(apData);
+                    apIndex_[cellId] = &accessPoints.back();
                 }
                 // send the information we were just given to the RavensController
                 cMessage *msg = new cMessage("sendAPDetails");
@@ -623,15 +628,11 @@ void RavensAgentApp::handleLSMessage(int connId)
                 {
                     std::string address = user["userInfo"]["address"];
                     std::string accessPointId = to_string(user["userInfo"]["accessPointId"]);
-                    // get accessPointData from accessPoints vector
+                    // get accessPointData from index (O(1) lookup)
                     AccessPointData apData;
-                    for (auto& ap : accessPoints)
-                    {
-                        if(ap.getAccessPointId().compare(accessPointId) == 0)
-                        {
-                            apData = ap;
-                            break;
-                        }
+                    auto apIt = apIndex_.find(accessPointId);
+                    if (apIt != apIndex_.end()) {
+                        apData = *(apIt->second);
                     }
                     EV << "X" << endl;
                     long x = user["userInfo"]["locationInfo"]["x"];
@@ -661,6 +662,7 @@ void RavensAgentApp::handleLSMessage(int connId)
                     	userData.setLastUpdated(dataTime);
                         users[address] = userData;
                     }
+                    hasPendingUpdates_ = true;  // Mark dirty for snapshot
                 }
             }
         }
@@ -849,24 +851,17 @@ void RavensAgentApp::socketClosed(UdpSocket *socket){
 
 void RavensAgentApp::socketClosed(inet::TcpSocket* socket)
 {
-    std::cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
-    std::cout << "[" << simTime() << "] " << mecHostId
-        << " - TCP SOCKET CLOSED!" << std::endl;
-    std::cout << "Socket ID: " << socket->getSocketId() << std::endl;
-
+    std::string socketType = "UNKNOWN";
     if (socket == rnisSocket_)
-    {
-        std::cout << "*** THIS IS THE RNIS SOCKET ***" << std::endl;
-    }
+        socketType = "RNIS";
     else if (socket == lsSocket_)
-    {
-        std::cout << "*** THIS IS THE LS SOCKET ***" << std::endl;
-    }
+        socketType = "LS";
     else if (socket == mp1Socket_)
-    {
-        std::cout << "*** THIS IS THE MP1 SOCKET ***" << std::endl;
-    }
-    std::cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
+        socketType = "MP1";
+
+    EV_WARN << "[" << simTime() << "] " << mecHostId
+            << " - TCP SOCKET CLOSED! Socket ID: " << socket->getSocketId()
+            << " (" << socketType << " SOCKET)" << endl;
 
     MecAppBase::socketClosed(socket);
 }

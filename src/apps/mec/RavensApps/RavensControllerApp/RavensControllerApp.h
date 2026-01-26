@@ -71,7 +71,9 @@ class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket:
         int threshold_;
 
         // Data structures to be sent to the MEO depending on the mode we are in
-        std::vector<UserMEHUpdate> userUpdates; 
+        // PERFORMANCE IMPROVEMENT: Changed from vector to map for O(1) lookup in addUserUpdate()
+        // Original: std::vector<UserMEHUpdate> userUpdates;
+        std::unordered_map<std::string, UserMEHUpdate> userUpdates;
         std::vector<UserEntryUpdate> userEntryUpdates; 
 
         inet::UdpSocket udpSocket;

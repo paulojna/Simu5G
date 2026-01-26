@@ -104,6 +104,8 @@ class MecOrchestrator : public cSimpleModule, public IOrchestratorApi {
   //------------------------------------
 
   std::vector<cModule *> mecHosts;
+  // PERFORMANCE IMPROVEMENT: Index for O(1) MEC host lookup by name
+  std::unordered_map<std::string, cModule*> mecHostIndex_;
 
   // NEW
   std::unique_ptr<MecAppRegistry> mecAppRegistry_;
