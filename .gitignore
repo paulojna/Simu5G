@@ -15,6 +15,7 @@ precompiled_*.h.*
 
 *.rou.xml
 *.sumocfg
+*.launchd.xml
 
 *.csv
 
