@@ -37,6 +37,7 @@ class UserData
         void setAddress(const std::string& address);
         void setAccessPointId(const std::string& accessPointId);
         void setCurrentLocation(const UserLocation& currentLocation);
+        void setDistanceToAP(double distance);
         void setLastUpdated(omnetpp::simtime_t time); // Added setter
 		void setRnisUpdate(omnetpp::simtime_t time);
 		void setLsUpdate(omnetpp::simtime_t time);

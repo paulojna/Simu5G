@@ -72,6 +72,12 @@ T* safe_check_and_cast(U* ptr) {
         mecAppMigrationManager_ = nullptr;
     }
 
+    MecOrchestrator::~MecOrchestrator()
+    {
+        delete mecHostSelectionPolicy_;
+        delete reactionOnUpdate_;
+    }
+
     void MecOrchestrator::initialize(int stage)
     {
         cSimpleModule::initialize(stage);
@@ -549,6 +555,7 @@ T* safe_check_and_cast(U* ptr) {
         // invoke stopMECApp method from MecOrchestrator
         EV << "RemoveOnExit::reactOnUpdate - sending DeleteContextAppMessage to MecOrchestrator to stop MEC app with contextId " << contextId << endl;
         mecAppLifecycleManager_->stopApplication(msg);
+        delete msg;
     }
 
     MigrationResult MecOrchestrator::migrateApp(std::string ueAddress, std::string newMEHId, std::string oldMEHId) {

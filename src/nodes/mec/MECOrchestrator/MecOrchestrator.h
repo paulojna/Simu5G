@@ -125,6 +125,7 @@ class MecOrchestrator : public cSimpleModule, public IOrchestratorApi {
 
 public:
   MecOrchestrator();
+  virtual ~MecOrchestrator();
   const ApplicationDescriptor *
   getApplicationDescriptorByAppName(std::string &appName) const;
   const std::map<std::string, ApplicationDescriptor> *

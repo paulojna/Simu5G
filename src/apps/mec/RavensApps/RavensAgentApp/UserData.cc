@@ -56,6 +56,10 @@ void UserData::setCurrentLocation(const UserLocation& currentLocation){
     this->currentLocation = currentLocation;
 }
 
+void UserData::setDistanceToAP(double distance){
+    this->distance_to_ap = distance;
+}
+
 void UserData::setLastUpdated(omnetpp::simtime_t time){
     this->lastUpdated = time;
 }

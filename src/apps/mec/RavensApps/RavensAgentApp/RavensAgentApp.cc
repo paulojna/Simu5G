@@ -650,6 +650,14 @@ void RavensAgentApp::handleLSMessage(int connId)
                         // Update existing user (preserves Radio Stats)
                         it->second.setAccessPointId(apData.getAccessPointId());
                         it->second.setCurrentLocation(userLocation);
+                        // Recalculate distance to AP after location update
+                        double newDistance = it->second.calculateDistanceToAP(
+                            apData.getAccessPointLocation().getX(),
+                            apData.getAccessPointLocation().getY(),
+                            userLocation.getX(),
+                            userLocation.getY()
+                        );
+                        it->second.setDistanceToAP(newDistance);
                     	omnetpp::simtime_t dataTime = simTime();
                     	it->second.setLsUpdate(dataTime);
                     	it->second.setLastUpdated(dataTime);
