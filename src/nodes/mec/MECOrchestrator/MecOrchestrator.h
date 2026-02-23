@@ -138,10 +138,6 @@ public:
    * @param ServiceDescriptor descriptor of the MEC service to register
    */
   void registerMecService(ServiceDescriptor &) const;
-  nlohmann::json formatDataFromRAVENS(
-      std::vector<UserEntryUpdate> UserEntryUpdatedList) override;
-  std::string postRequestPrediction(const std::string &url,
-                                    const nlohmann::json &jsonObject) override;
   // IOrchestratorApi methods
   void removeAppFromSystem(std::string ueAddress,
                            std::string oldMEHId) override;

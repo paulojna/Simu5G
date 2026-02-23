@@ -18,13 +18,13 @@ import inet.common.packet.chunk.Chunk;
 
 cplusplus {{
     #include "RavensControllerApp/DataUpdates/UserMEHUpdate.h"
-    #include "RavensControllerApp/DataUpdates/UserEntryUpdate.h"
+    #include "RavensControllerApp/DataUpdates/MigrationPrediction.h"
     typedef std::vector<::simu5g::UserMEHUpdate> UserMEHUpdatedList;
-    typedef std::vector<::simu5g::UserEntryUpdate> UserEntryUpdateList;
+    typedef std::vector<::simu5g::MigrationPrediction> MigrationPredictionList;
 }};
 
 class UserMEHUpdatedList { @existingClass; };
-class UserEntryUpdateList { @existingClass; };
+class MigrationPredictionList { @existingClass; };
 
 namespace simu5g;
 
@@ -38,7 +38,7 @@ class UserMEHUpdatedListMessage extends RavensControllerUpdatePacket
     UserMEHUpdatedList ueMehList;
 }
 
-class UserEntryListMessage extends RavensControllerUpdatePacket
+class MigrationPredictionListMessage extends RavensControllerUpdatePacket
 {
-    UserEntryUpdateList ueEntryList;
+    MigrationPredictionList predictions;
 }

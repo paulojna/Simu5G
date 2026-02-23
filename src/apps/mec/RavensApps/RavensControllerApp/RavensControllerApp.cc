@@ -3,13 +3,14 @@
 #include "inet/networklayer/common/L3AddressTag_m.h"
 #include "inet/transportlayer/common/L4PortTag_m.h"
 #include "inet/transportlayer/contract/udp/UdpControlInfo_m.h"
+#include "LocationDataHandlerPolicies/LocationDataHandlerPolicyBase.h"
 
 #include "LocationDataHandlerPolicies/SaveDataHistory.h"
 #include "LocationDataHandlerPolicies/NotifyOnDataChange.h"
-#include "LocationDataHandlerPolicies/NotifyOnUserEntry.h"
+#include "LocationDataHandlerPolicies/SendToExternalServer.h"
 
 #define USERS_UPDATE 7
-#define USERS_ENTRY 8
+#define MIGRATION_PLAN 8
 #define MAX_MEH_STATE_MAP_SIZE 15
 
 namespace simu5g {
@@ -56,9 +57,9 @@ void RavensControllerApp::initialize(int stage){
     }else if(!strcmp(par("mode"), "NotifyOnDataChange")){
         EV << "RavensControllerApp::initialize - NotifyOnDataChange handler mode" << endl;
         locationDataHandlerPolicy_ = new NotifyOnDataChange(this, par("threshold"));
-    }else if(!strcmp(par("mode"), "NotifyOnUserEntry")){
-        EV << "RavensControllerApp::initialize - NotifyOnUserEntry handler mode" << endl;
-        locationDataHandlerPolicy_ = new NotifyOnUserEntry(this);
+    }else if(!strcmp(par("mode"), "SendToExternalServer")){
+        EV << "RavensControllerApp::initialize - SendToExternalServer handler mode" << endl;
+        locationDataHandlerPolicy_ = new SendToExternalServer(this);
     }else{
         throw cRuntimeError("RavensControllerApp::initialize - invalid mode parameter");
     }
@@ -134,19 +135,25 @@ void RavensControllerApp::handleSelfMessage(cMessage *msg){
 
                 userUpdates.clear();
             }
-            else if(!userEntryUpdates.empty())
+            if(!migrationPredictions.empty())
             {
-                inet::Packet *entry = new inet::Packet("UserEntryListMessage");
-                auto userEntryListMessage = inet::makeShared<UserEntryListMessage>();
-                userEntryListMessage->setChunkLength(inet::B(1500));
-                userEntryListMessage->setType(USERS_ENTRY);
-                userEntryListMessage->setUeEntryList(userEntryUpdates);
-                entry->insertAtBack(userEntryListMessage);
-                send(entry, "outGate");
-                EV << "RavensControllerApp::handleSelfMessage::sendSnapshot - entry sent to MEO" << endl;
-                userEntryUpdates.clear();
+            	std::vector<MigrationPrediction> predictionsVector;
+            	predictionsVector.reserve(migrationPredictions.size());
+            	for (const auto& [address, prediction] : migrationPredictions) {
+            		predictionsVector.push_back(prediction);
+            	}
+
+            	inet::Packet *entry = new inet::Packet("MigrationPredictionListMessage");
+            	auto predictionListMessage = inet::makeShared<MigrationPredictionListMessage>();
+            	predictionListMessage->setChunkLength(inet::B(1500));
+            	predictionListMessage->setType(MIGRATION_PLAN);
+            	predictionListMessage->setPredictions(predictionsVector);
+            	entry->insertAtBack(predictionListMessage);
+            	send(entry, "outGate");
+            	EV << "RavensControllerApp::handleSelfMessage - sent " << predictionsVector.size() << " migration predictions to MEO" << endl;
+            	migrationPredictions.clear();
             }
-            else{
+            if(userUpdates.empty() && migrationPredictions.empty()){
                 EV << "RavensControllerApp::handleSelfMessage::sendSnapshot - nothing to send" << endl;
             }
         }else{

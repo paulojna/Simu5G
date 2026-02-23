@@ -3,19 +3,16 @@
 
 #include "ReactionOnUpdate.h"
 
-#include "nodes/mec/MECPlatformManager/MecPlatformManager.h"
-#include "nodes/mec/VirtualisationInfrastructureManager/VirtualisationInfrastructureManager.h"
-
 namespace simu5g {
 
+// NOTE: Flask communication has moved to RavensController (SendToExternalServer).
+// This class is kept as a stub for backwards compatibility.
 class MigrateOnTime : public ReactionOnUpdate
 {
-  private:
-    std::string url = "http://localhost:5002/duration";
   public:
     using ReactionOnUpdate::ReactionOnUpdate; 
     virtual void reactOnUpdate(const simu5g::UserMEHUpdate&) override;
-    virtual void reactOnUpdate(const std::vector<simu5g::UserEntryUpdate>&) override;
+    virtual void reactOnUpdate(const std::vector<simu5g::MigrationPrediction>&) override;
     virtual ~MigrateOnTime(){}
 };
 

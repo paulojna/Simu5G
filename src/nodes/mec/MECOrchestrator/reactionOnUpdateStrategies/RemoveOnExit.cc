@@ -7,7 +7,7 @@
 
 namespace simu5g {
 
-void RemoveOnExit::reactOnUpdate(const std::vector<UserEntryUpdate> &updatedList)
+void RemoveOnExit::reactOnUpdate(const std::vector<MigrationPrediction> &updatedList)
 {
     // not implemented
 }

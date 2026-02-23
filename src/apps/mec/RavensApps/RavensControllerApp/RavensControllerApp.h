@@ -23,7 +23,7 @@
 
 #include "MECHostData.h"
 #include "DataUpdates/UserMEHUpdate.h"
-#include "DataUpdates/UserEntryUpdate.h"
+#include "DataUpdates/MigrationPrediction.h"
 
 #include "../RavensLinkPacket_m.h"
 #include "../UsersInfoPacket_m.h"
@@ -74,7 +74,7 @@ class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket:
         // PERFORMANCE IMPROVEMENT: Changed from vector to map for O(1) lookup in addUserUpdate()
         // Original: std::vector<UserMEHUpdate> userUpdates;
         std::unordered_map<std::string, UserMEHUpdate> userUpdates;
-        std::vector<UserEntryUpdate> userEntryUpdates; 
+		std::unordered_map<std::string, MigrationPrediction> migrationPredictions;
 
         inet::UdpSocket udpSocket;
         inet::SocketMap socketMap;
@@ -82,7 +82,7 @@ class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket:
         friend class LocationDataHandlerPolicyBase;
         friend class SaveDataHistory;
         friend class NotifyOnDataChange;
-        friend class NotifyOnUserEntry;
+        friend class SendToExternalServer;
         
         LocationDataHandlerPolicyBase* locationDataHandlerPolicy_;
 

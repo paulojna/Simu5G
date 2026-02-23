@@ -4,7 +4,7 @@
 
 #include "nodes/mec/MECOrchestrator/interfaces/IOrchestrationApi.h"
 #include "apps/mec/RavensApps/RavensControllerApp/DataUpdates/UserMEHUpdate.h"
-#include "apps/mec/RavensApps/RavensControllerApp/DataUpdates/UserEntryUpdate.h"
+#include "apps/mec/RavensApps/RavensControllerApp/DataUpdates/MigrationPrediction.h"
 
 namespace simu5g {
 
@@ -18,7 +18,7 @@ class ReactionOnUpdate
   public:
     explicit ReactionOnUpdate(IOrchestratorApi* api) : api_(api) {}
     virtual void reactOnUpdate(const UserMEHUpdate&) = 0;
-    virtual void reactOnUpdate(const std::vector<UserEntryUpdate>&) = 0;
+    virtual void reactOnUpdate(const std::vector<MigrationPrediction>&) = 0;
     virtual ~ReactionOnUpdate() {}
 };
 

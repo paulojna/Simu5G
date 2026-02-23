@@ -15,7 +15,7 @@ class MigrateOnChange : public ReactionOnUpdate
   public:
     using ReactionOnUpdate::ReactionOnUpdate; 
     virtual void reactOnUpdate(const simu5g::UserMEHUpdate&) override;
-    virtual void reactOnUpdate(const std::vector<simu5g::UserEntryUpdate>&) override;
+    virtual void reactOnUpdate(const std::vector<simu5g::MigrationPrediction>&) override;
     virtual ~MigrateOnChange(){}
 };
 

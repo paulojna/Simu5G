@@ -57,7 +57,7 @@ T* safe_check_and_cast(U* ptr) {
 }
 
 #define USERS_UPDATE 7
-#define USERS_ENTRY 8
+#define MIGRATION_PLAN 8
 
     Define_Module(MecOrchestrator);
 
@@ -195,49 +195,14 @@ T* safe_check_and_cast(U* ptr) {
                     EV << "MecOrchestrator::socketDataArrived - reactOnUpdate done!" << endl;
                 }
             }
-            else if (received_packet->getType() == USERS_ENTRY)
+            else if (received_packet->getType() == MIGRATION_PLAN)
             {
-                auto usersEntry = packet->peekAtFront<UserEntryListMessage>();
-                std::vector<UserEntryUpdate> UserEntryList_toPrint = usersEntry->getUeEntryList();
-                reactionOnUpdate_->reactOnUpdate(UserEntryList_toPrint);
-                for (auto user : UserEntryList_toPrint)
-                {
-                    userMEHMap[user.getAddress()] = {user.getAddress(), user.getCurrentMEHId()};
-                }
+                std::cout << "MecOrchestrator::handleMessage - MIGRATION PLAN RECEIVED" << endl;
             }
         }
 
         delete msg;
         return;
-    }
-
-    nlohmann::json MecOrchestrator::formatDataFromRAVENS(std::vector<UserEntryUpdate> UserEntryUpdatedList)
-    {
-        nlohmann::json jsonList;
-        // lets create a list of json objects, each one representing a user
-        for (auto user : UserEntryUpdatedList)
-        {
-            nlohmann::json userJson;
-            userJson["AccessPointId"] = user.getAccessPointId();
-            userJson["x"] = user.getX();
-            userJson["y"] = user.getY();
-            userJson["Speed"] = user.getHSpeed();
-            userJson["Bearing"] = user.getBearing();
-            userJson["DistanceToAccessPoint"] = user.getDistanceToAp();
-            userJson["TimeSpent"] = "0";
-            userJson["GB"] = "0";
-            userJson["BG"] = "0";
-            userJson["NumberOfUsers"] = user.getNumberOfUsers();
-            userJson["AvgSpeed"] = user.getAvgSpeed();
-            userJson["NumberOfUsersLessSpeed"] = user.getNumberOfUsersLessSpeed();
-            userJson["address_"] = user.getAddress();
-            userJson["currentMEHId_"] = user.getCurrentMEHId();
-            userJson["nextMEHId_"] = user.getNextMEHId();
-            userJson["timestamp_"] = user.getTimestamp().str();
-            userJson["ueId_"] = user.getUeId();
-            jsonList.push_back(userJson);
-        }
-        return jsonList;
     }
 
     void MecOrchestrator::handleUALCMPMessage(cMessage *msg)
@@ -451,68 +416,6 @@ T* safe_check_and_cast(U* ptr) {
                 serviceRegistry->registerMecService(serviceDescriptor);
             }
         }
-    }
-
-    // Callback function to write response data
-    static size_t WriteCallback(void *contents, size_t size, size_t nmemb, void *userp)
-    {
-        ((std::string *)userp)->append((char *)contents, size * nmemb);
-        return size * nmemb;
-    }
-
-    std::string MecOrchestrator::postRequestPrediction(const std::string &url, const nlohmann::json &jsonObject)
-    {
-        CURL *curl;
-        CURLcode res;
-        std::string response;
-
-        curl = curl_easy_init();
-        if (!curl)
-        {
-            EV << "Failed to initialize cURL!" << endl;
-            return "";
-        }
-
-        // Convert JSON object to string
-        std::string jsonString = jsonObject.dump();
-
-        // Set URL
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-
-        // Set HTTP headers
-        struct curl_slist *headers = NULL;
-        headers = curl_slist_append(headers, "Content-Type: application/json");
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-
-        // Set POST data
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonString.c_str());
-
-        // Set callback function to capture response data
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-
-        // Perform the request, res will get the return code
-        res = curl_easy_perform(curl);
-
-        // Check for errors
-        if (res != CURLE_OK)
-        {
-            EV << "curl_easy_perform() failed: " << curl_easy_strerror(res) << endl;
-        }
-        else
-        {
-            long response_code;
-            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
-
-            EV << "Response code: " << response_code << endl;
-            EV << "Response body: " << response << endl;
-        }
-
-        // Cleanup
-        curl_easy_cleanup(curl);
-        curl_slist_free_all(headers);
-
-        return response;
     }
 
     void MecOrchestrator::removeAppFromSystem(std::string ueAddress, std::string oldMEHId)
