@@ -24,19 +24,27 @@ MecAppRegistry::AppLookupResult MecAppRegistry::findAppByUeAddress(const std::st
 {
     EV << "MecAppRegistry::findAppByUeAddress - Searching for app with UE address: " << ueAddress << endl;
 
-    // ueAddress should already be an IP without prefix (prefix stripped by caller)
-    inet::L3Address ueL3Address = inet::L3AddressResolver().resolve(ueAddress.c_str());
+    // PERFORMANCE IMPROVEMENT: Use existing ueAddressToContextId_ index for O(1) lookup
+    // instead of O(n) linear search + L3AddressResolver overhead
+    // Original code commented out for reference:
+    // inet::L3Address ueL3Address = inet::L3AddressResolver().resolve(ueAddress.c_str());
+    // for(auto& pair: appMap_) {
+    //     if(pair.second.ueAddress == ueL3Address) {
+    //         return AppLookupResult(true, pair.first, &pair.second);
+    //     }
+    // }
 
-    for(auto& pair: appMap_) 
-    {
-        if(pair.second.ueAddress == ueL3Address)
-        {
-            EV << "MecAppRegistry::findAppByUeAddress - Found app: " << pair.second.mecAppName 
-               << " (contextId: " << pair.first << ", appDId: " << pair.second.appDId << ")" << endl;
-            return AppLookupResult(true, pair.first, &pair.second);
+    auto indexIt = ueAddressToContextId_.find(ueAddress);
+    if (indexIt != ueAddressToContextId_.end()) {
+        int contextId = indexIt->second;
+        auto appIt = appMap_.find(contextId);
+        if (appIt != appMap_.end()) {
+            EV << "MecAppRegistry::findAppByUeAddress - Found app: " << appIt->second.mecAppName
+               << " (contextId: " << contextId << ", appDId: " << appIt->second.appDId << ")" << endl;
+            return AppLookupResult(true, contextId, &appIt->second);
         }
     }
-    
+
     EV << "MecAppRegistry::findAppByUeAddress - No app found for UE address: " << ueAddress << endl;
     return AppLookupResult();
 }

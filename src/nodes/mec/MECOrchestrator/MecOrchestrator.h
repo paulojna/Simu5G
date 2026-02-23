@@ -104,6 +104,8 @@ class MecOrchestrator : public cSimpleModule, public IOrchestratorApi {
   //------------------------------------
 
   std::vector<cModule *> mecHosts;
+  // PERFORMANCE IMPROVEMENT: Index for O(1) MEC host lookup by name
+  std::unordered_map<std::string, cModule*> mecHostIndex_;
 
   // NEW
   std::unique_ptr<MecAppRegistry> mecAppRegistry_;
@@ -123,6 +125,7 @@ class MecOrchestrator : public cSimpleModule, public IOrchestratorApi {
 
 public:
   MecOrchestrator();
+  virtual ~MecOrchestrator();
   const ApplicationDescriptor *
   getApplicationDescriptorByAppName(std::string &appName) const;
   const std::map<std::string, ApplicationDescriptor> *

@@ -111,17 +111,24 @@ void RavensControllerApp::handleSelfMessage(cMessage *msg){
         if(gate("outGate")->isConnected()){
             if(!userUpdates.empty())
             {
+                // Convert map to vector for message interface
+                std::vector<UserMEHUpdate> userUpdatesVector;
+                userUpdatesVector.reserve(userUpdates.size());
+                for (const auto& [address, update] : userUpdates) {
+                    userUpdatesVector.push_back(update);
+                }
+
                 inet::Packet *update = new inet::Packet("UserMEHUpdatedListMessage");
                 auto userMEHUpdatedListMessage = inet::makeShared<UserMEHUpdatedListMessage>();
                 userMEHUpdatedListMessage->setChunkLength(inet::B(1500));
                 userMEHUpdatedListMessage->setType(USERS_UPDATE);
-                userMEHUpdatedListMessage->setUeMehList(userUpdates);
+                userMEHUpdatedListMessage->setUeMehList(userUpdatesVector);
                 update->insertAtBack(userMEHUpdatedListMessage);
                 send(update, "outGate");
                 EV << "RavensControllerApp::handleSelfMessage::sendSnapshot - report sent to MEO" << endl;
 
                 //print userUpdates
-                for(auto user : userUpdates){
+                for (const auto& [address, user] : userUpdates) {
                     EV << "RavensControllerApp::handleSelfMessage::sendSnapshot - user address: " << user.getAddress() << " last MEH: " << user.getLastMEHId() << " new MEH: " << user.getNewMEHId() << endl;
                 }
 

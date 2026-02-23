@@ -16,10 +16,12 @@ MecAppMigrationManager::MecAppMigrationManager(
     MecAppRegistry* mecRegistry,
     MecAppLifecycleManager* lifecycleManager,
     std::vector<cModule*>* mecHosts,
+    std::unordered_map<std::string, cModule*>* mecHostIndex,
     cSimpleModule* owner):
     mecAppRegistry_(mecRegistry),
     mecAppLifecycleManager_(lifecycleManager),
     mecHosts_(mecHosts),
+    mecHostIndex_(mecHostIndex),
     owner_(owner),
     requestCounter_(1) {}  // Start at 1 (0 reserved for non-migration operations)
 
@@ -36,6 +38,7 @@ MecAppMigrationManager::~MecAppMigrationManager()
     }
     timeoutMessages_.clear();
     standByList_.clear();
+    standByUeIndex_.clear();
 }
 
 void MecAppMigrationManager::initialize(double migrationTime, double migrationTimeout) 
@@ -139,32 +142,31 @@ MigrationResult MecAppMigrationManager::migrateApp(std::string ueAddress, std::s
 
 
     // PENDING MIGRATION - CHECK IF THE UE IS ALREADY MIGRATING
-    //std::cout << "DEBUG migrateApp: Checking standByList for UE: '" << ueAddress << "'" << std::endl;
-    //std::cout << "DEBUG migrateApp: standByList size: " << standByList_.size() << std::endl;
+    // PERFORMANCE IMPROVEMENT: O(1) lookup using index instead of O(n) linear search
+    // Original code commented out for reference:
+    // for (const auto& pair : standByList_) {
+    //     if (pair.second.ueAddress == ueIp) { ... }
+    // }
 
-    for (const auto& pair : standByList_) {
-        //std::cout << "DEBUG migrateApp: Comparing against standBy UE: '" << pair.second.ueAddress << "'" << std::endl;
-        if (pair.second.ueAddress == ueIp) {
-            EV << "MecAppMigrationManager::migrateApp - Migration already in progress for UE: " << ueAddress << endl;
-            //std::cout << "MATCH FOUND! Queueing migration" << std::endl;
-            EV << "  Current migration request: " << pair.first << endl;
-            EV << "  Queueing new migration: " << oldMEHId << " → " << newMEHId << endl;
+    auto indexIt = standByUeIndex_.find(ueIp);
+    if (indexIt != standByUeIndex_.end()) {
+        unsigned int existingRequest = indexIt->second;
+        EV << "MecAppMigrationManager::migrateApp - Migration already in progress for UE: " << ueAddress << endl;
+        EV << "  Current migration request: " << existingRequest << endl;
+        EV << "  Queueing new migration: " << oldMEHId << " → " << newMEHId << endl;
 
-            // Add to pending queue
-            PendingMigration pending;
-            pending.ueAddress = ueAddress;
-            pending.newMEHId = newMEHId;
-            pending.oldMEHId = oldMEHId;
-            pending.requestTime = simTime();
+        // Add to pending queue
+        PendingMigration pending;
+        pending.ueAddress = ueAddress;
+        pending.newMEHId = newMEHId;
+        pending.oldMEHId = oldMEHId;
+        pending.requestTime = simTime();
 
-            //std::cout << "Migration queued for UE: " << ueAddress << ", queue size: " << pendingMigrations_[ueIp].size() << std::endl;
+        pendingMigrations_[ueIp].push(pending);
 
-            pendingMigrations_[ueIp].push(pending);
+        EV << "MecAppMigrationManager::migrateApp - Migration queued. Queue size: " << pendingMigrations_[ueIp].size() << endl;
 
-            EV << "MecAppMigrationManager::migrateApp - Migration queued. Queue size: " << pendingMigrations_[ueIp].size() << endl;
-
-            return MigrationResult(false, "Migration queued - another migration in progress", contextId, 0, newMEHId, oldMEHId);
-        }
+        return MigrationResult(false, "Migration queued - another migration in progress", contextId, 0, newMEHId, oldMEHId);
     }
 
     // Step 2: Find target MEH
@@ -227,7 +229,8 @@ MigrationResult MecAppMigrationManager::completeMigration(UALCMPMessage* ackMsg)
         EV << "MecAppMigrationManager::completeMigration - Old instance termination failed: " << terminationResult.errorMessage << endl;
     }
 
-    // Remove from standByList
+    // Remove from standByList and index
+    standByUeIndex_.erase(standBy.ueAddress);  // PERFORMANCE IMPROVEMENT: Maintain index
     standByList_.erase(it);
 
     EV << "MecAppMigrationManager::completeMigration - Migration completed successfully" << endl;
@@ -283,10 +286,17 @@ void MecAppMigrationManager::handleMigrationTimeout(unsigned int requestNumber)
 
 cModule* MecAppMigrationManager::findMecHostByName(const std::string& mehName)
 {
-    for (auto mecHost : *mecHosts_) {
-        if (std::string(mecHost->getName()) == mehName) {
-            return mecHost;
-        }
+    // PERFORMANCE IMPROVEMENT: O(1) lookup using index instead of O(n) linear search
+    // Original code commented out for reference:
+    // for (auto mecHost : *mecHosts_) {
+    //     if (std::string(mecHost->getName()) == mehName) {
+    //         return mecHost;
+    //     }
+    // }
+
+    auto it = mecHostIndex_->find(mehName);
+    if (it != mecHostIndex_->end()) {
+        return it->second;
     }
     return nullptr;
 }
@@ -434,6 +444,7 @@ MigrationResult MecAppMigrationManager::performMigration(int contextId, cModule*
     standBy.ueAddress = ueAddress;
 
     standByList_[requestNumber] = standBy;
+    standByUeIndex_[ueAddress] = requestNumber;  // PERFORMANCE IMPROVEMENT: Maintain index
 
     // Step 5: Schedule timeout
     scheduleTimeout(requestNumber);
@@ -512,7 +523,8 @@ void MecAppMigrationManager::forceCompleteMigration(unsigned int requestNumber, 
     // Clean up timeout message if not already fired
     cancelTimeout(requestNumber);
 
-    // Remove from standByList
+    // Remove from standByList and index
+    standByUeIndex_.erase(standBy.ueAddress);  // PERFORMANCE IMPROVEMENT: Maintain index
     standByList_.erase(it);
 
     // PENDING MIGRATION - CHECK IF THERE ARE PENDING MIGRATIONS FOR THIS UE

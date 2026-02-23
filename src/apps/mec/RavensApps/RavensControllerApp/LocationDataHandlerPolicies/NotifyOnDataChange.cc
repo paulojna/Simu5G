@@ -93,23 +93,27 @@ inet::Packet *NotifyOnDataChange::handleDataMessage(inet::Ptr<const RavensLinkUs
 
 void NotifyOnDataChange::addUserUpdate(UserMEHUpdate &update)
 {
-    EV << "NotifyOnDataChange::addUserUpdate - user " << update.getAddress() << " was sent to be added to the userUpdates list" << endl;
+    EV << "NotifyOnDataChange::addUserUpdate - user " << update.getAddress() << " was sent to be added to the userUpdates map" << endl;
 
-    // check if the user is already in the list, if so update the values
-    for (auto &userUpdate : controllerApp_->userUpdates)
-    {
-        if (userUpdate.getAddress() == update.getAddress())
-        {
-            userUpdate.setLastMEHId(update.getLastMEHId());
-            userUpdate.setNewMEHId(update.getNewMEHId());
-            EV << "NotifyOnDataChange::addUserUpdate - user " << update.getAddress() << " was updated in the userUpdates list" << endl;
-            return;
-        }
+    // PERFORMANCE IMPROVEMENT: O(1) insert/update using map instead of O(n) linear search
+    // Original linear search code commented out for reference:
+    // for (auto &userUpdate : controllerApp_->userUpdates) {
+    //     if (userUpdate.getAddress() == update.getAddress()) {
+    //         userUpdate.setLastMEHId(update.getLastMEHId());
+    //         userUpdate.setNewMEHId(update.getNewMEHId());
+    //         return;
+    //     }
+    // }
+    // controllerApp_->userUpdates.push_back(update);
+
+    const std::string& address = update.getAddress();
+    auto [it, inserted] = controllerApp_->userUpdates.insert_or_assign(address, update);
+
+    if (inserted) {
+        EV << "NotifyOnDataChange::addUserUpdate - user " << address << " added to the userUpdates map" << endl;
+    } else {
+        EV << "NotifyOnDataChange::addUserUpdate - user " << address << " was updated in the userUpdates map" << endl;
     }
-
-    // if the user is not in the list, add it
-    controllerApp_->userUpdates.push_back(update);
-    EV << "NotifyOnDataChange::addUserUpdate - user " << update.getAddress() << " added to the userUpdates list" << endl;
 }
 
 }

@@ -23,6 +23,7 @@
 #include "corenetwork/statsCollector/BaseStationStatsCollector.h"
 #include "corenetwork/statsCollector/UeStatsCollector.h"
 #include "common/binder/Binder.h"
+#include <unordered_map>
 
 namespace simu5g {
 
@@ -68,7 +69,9 @@ class L2MeasSubscription : public SubscriptionBase
         Binder* binder_;
 
         // Direct access to stats collectors
-        std::map<MacCellId, BaseStationStatsCollector*> statsCollectors_;
+        // PERFORMANCE IMPROVEMENT: Changed from std::map to std::unordered_map for O(1) lookup
+        // Original: std::map<MacCellId, BaseStationStatsCollector*> statsCollectors_;
+        std::unordered_map<MacCellId, BaseStationStatsCollector*> statsCollectors_;
 
         // Helper methods for data collection
         nlohmann::ordered_json collectCellInfo();

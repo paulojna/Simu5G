@@ -127,7 +127,7 @@ void UEPerfApp::initialize(int stage)
 
     ueId_ = deviceAppAddress_.str(); 
 
-    //std::cout << "Starting " << ueId_ << std::endl;
+    std::cout << "Starting " << ueId_ << std::endl;
 
     // dive the ueId_ into 4 parts divided by the dots and emit the signal for ip_0, ip_1, ip_2, ip_3
     std::string ip = deviceAppAddress_.str();
