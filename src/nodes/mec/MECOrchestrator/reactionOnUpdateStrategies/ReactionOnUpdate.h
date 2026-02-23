@@ -19,6 +19,7 @@ class ReactionOnUpdate
     explicit ReactionOnUpdate(IOrchestratorApi* api) : api_(api) {}
     virtual void reactOnUpdate(const UserMEHUpdate&) = 0;
     virtual void reactOnUpdate(const std::vector<MigrationPrediction>&) = 0;
+    virtual void handleScheduledEvent(omnetpp::cMessage*) {} // default no-op for strategies that don't schedule events
     virtual ~ReactionOnUpdate() {}
 };
 
