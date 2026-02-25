@@ -3,6 +3,7 @@
 
 #include "ReactionOnUpdate.h"
 #include <unordered_map>
+#include <fstream>
 
 namespace simu5g {
 
@@ -35,6 +36,9 @@ class MigrateOnPrediction : public ReactionOnUpdate
 
     // Map from UE address → scheduled self-message pointer
     std::unordered_map<std::string, omnetpp::cMessage*> scheduledPredictions_;
+
+    // CSV log file for post-simulation analysis of migration types
+    std::ofstream logFile_;
 
   public:
     MigrateOnPrediction(IOrchestratorApi* api, omnetpp::cSimpleModule* owner, double migrationTime);

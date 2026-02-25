@@ -2,9 +2,39 @@
 #include "../DataUpdates/UserMEHUpdate.h"
 
 namespace simu5g {
+
+	static size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* output)
+	{
+	    size_t totalSize = size * nmemb;
+	    output->append((char*)contents, totalSize);
+	    return totalSize;
+	}
+
 	SendToExternalServer::SendToExternalServer(RavensControllerApp* controllerApp): LocationDataHandlerPolicyBase(controllerApp)
 	{
-		flaskUrl_ = "http://localhost:5001/predict"; //
+		flaskUrl_ = "http://localhost:5001/predict";
+
+		// Reset Flask state at the start of each simulation run
+		// to prevent stale UE buffers from previous runs
+		CURL* curl = curl_easy_init();
+		if (curl) {
+			std::string resetUrl = "http://localhost:5001/reset";
+			std::string response;
+			curl_easy_setopt(curl, CURLOPT_URL, resetUrl.c_str());
+			curl_easy_setopt(curl, CURLOPT_POST, 1L);
+			curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, 0L);
+			curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+			curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+			curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
+			CURLcode res = curl_easy_perform(curl);
+			if (res == CURLE_OK) {
+				std::cout << "[SendToExternalServer] Flask state reset: " << response << std::endl;
+			} else {
+				std::cout << "[SendToExternalServer] WARNING: Flask reset failed: "
+				          << curl_easy_strerror(res) << std::endl;
+			}
+			curl_easy_cleanup(curl);
+		}
 	}
 
 	SendToExternalServer::~SendToExternalServer()
@@ -45,7 +75,22 @@ namespace simu5g {
 				update.setAddress(user.second.getAddress());
 				addUserUpdate(update);
 			}
-			// No else block — handovers are Flask's responsibility
+			else
+			{
+				// Reactive fallback: detect handovers that Flask hasn't predicted
+				// (e.g., during observation buffer warmup, or prediction gaps)
+				if (userIt->second.currentMEH != updatedSnapshot->getMecHostId())
+				{
+					if (controllerApp_->shouldAcceptHandover(user.first, updatedSnapshot->getMecHostId()))
+					{
+						UserMEHUpdate update;
+						update.setLastMEHId(userIt->second.currentMEH);
+						update.setNewMEHId(updatedSnapshot->getMecHostId());
+						update.setAddress(user.second.getAddress());
+						addUserUpdate(update);
+					}
+				}
+			}
 		}
 
 		// 3. Update state maps (needed for entry/exit detection)
@@ -129,13 +174,6 @@ namespace simu5g {
 	    return payload;
 	}
 
-
-	static size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* output)
-	{
-	    size_t totalSize = size * nmemb;
-	    output->append((char*)contents, totalSize);
-	    return totalSize;
-	}
 
 	std::string SendToExternalServer::postToFlask(const nlohmann::json& payload)
 	{

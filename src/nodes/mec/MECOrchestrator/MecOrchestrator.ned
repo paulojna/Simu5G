@@ -27,7 +27,7 @@ simple MecOrchestrator
     parameters:
         @display("i=device/mainframe;bgb=1006.50995,692.76");
         string selectionPolicy = default("LocationBased"); // available policies: "MecHostBased", "MecServiceBased", "AvailableResourcesBased", "LocationBased"
-        string reactionStrategy = default("MigrateOnChange"); // available strategies: "RemoveOnExit", "MigrateOnChange", "MigrateOnTime", "MigrateOnPrediction"
+        string reactionStrategy = default("MigrateOnPrediction"); // available strategies: "RemoveOnExit", "MigrateOnChange", "MigrateOnTime", "MigrateOnPrediction"
         int mecHostIndex = default(10); // to be used with the MecHostBased policybased
         string mecHostList = default("");
         string mecApplicationPackageList = default("");

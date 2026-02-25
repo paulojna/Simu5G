@@ -23,6 +23,16 @@ using namespace omnetpp;
 MigrateOnPrediction::MigrateOnPrediction(IOrchestratorApi* api, cSimpleModule* owner, double migrationTime)
     : ReactionOnUpdate(api), owner_(owner), migrationTime_(migrationTime)
 {
+    // Open CSV log file with run number for post-simulation analysis
+    int runNumber = cSimulation::getActiveSimulation()->getActiveEnvir()->getConfigEx()->getActiveRunNumber();
+    std::string filename = "migration_log_run" + std::to_string(runNumber) + ".csv";
+    logFile_.open(filename, std::ios::out | std::ios::trunc);
+    if (logFile_.is_open()) {
+        logFile_ << "sim_time,ue_address,type,from_meh,to_meh,result" << std::endl;
+        std::cout << "[MigrateOnPrediction] Opened migration log: " << filename << std::endl;
+    } else {
+        std::cerr << "[MigrateOnPrediction] WARNING: Could not open migration log: " << filename << std::endl;
+    }
 }
 
 MigrateOnPrediction::~MigrateOnPrediction()
@@ -32,6 +42,11 @@ MigrateOnPrediction::~MigrateOnPrediction()
         owner_->cancelAndDelete(msg);
     }
     scheduledPredictions_.clear();
+
+    // Close migration log
+    if (logFile_.is_open()) {
+        logFile_.close();
+    }
 }
 
 // ─── Reactive path: handle entry/exit from USERS_UPDATE ───
@@ -79,8 +94,43 @@ void MigrateOnPrediction::reactOnUpdate(const UserMEHUpdate& update)
             EV << "MigrateOnPrediction::reactOnUpdate - " << result.errorMessage << endl;
         }
     }
-    // No handover scenario — in SendToExternalServer mode, handovers are
-    // Flask's responsibility and arrive via MIGRATION_PLAN, not USERS_UPDATE
+    // Scenario 3: Handover — reactive fallback for unpredicted handovers
+    // Flask needs ~30s of observations before it can predict. During this
+    // warmup period (or when the model fails to predict), handovers go
+    // undetected. This reactive fallback catches them.
+    // checkIfMigrationIsNeeded is idempotent: if Flask already migrated
+    // proactively, the app is already on the correct MEH → "no migration needed".
+    else if (update.getNewMEHId() != "" && update.getLastMEHId() != ""
+             && update.getNewMEHId() != update.getLastMEHId())
+    {
+        EV << "MigrateOnPrediction::reactOnUpdate - Reactive fallback: handover detected" << endl;
+        EV << "  UE: " << update.getAddress() << endl;
+        EV << "  From: " << update.getLastMEHId() << " To: " << update.getNewMEHId() << endl;
+
+        MigrationResult result = api_->checkIfMigrationIsNeeded(
+            update.getAddress(), update.getNewMEHId(), update.getLastMEHId());
+
+        if (result.success) {
+            EV << "MigrateOnPrediction::reactOnUpdate - Reactive migration initiated, request #"
+               << result.requestNumber << endl;
+            std::cout << "[MigrateOnPrediction t=" << simTime()
+                      << "] REACTIVE fallback migration for UE " << update.getAddress()
+                      << " from " << update.getLastMEHId() << " to " << update.getNewMEHId() << std::endl;
+        } else {
+            // Expected when Flask already handled this proactively
+            EV << "MigrateOnPrediction::reactOnUpdate - " << result.errorMessage << endl;
+        }
+
+        // Log reactive handover
+        if (logFile_.is_open()) {
+            logFile_ << simTime() << ","
+                     << update.getAddress() << ","
+                     << "REACTIVE_HANDOVER" << ","
+                     << update.getLastMEHId() << ","
+                     << update.getNewMEHId() << ","
+                     << (result.success ? "INITIATED" : "NO_MIGRATION_NEEDED") << std::endl;
+        }
+    }
     else
     {
         EV << "MigrateOnPrediction::reactOnUpdate - No action for UE " << update.getAddress() << endl;
@@ -192,6 +242,16 @@ void MigrateOnPrediction::handleScheduledEvent(cMessage* msg)
             std::cout << "[MigrateOnPrediction t=" << simTime()
                       << "] Migration initiated for UE " << ueAddress
                       << ", request #" << result.requestNumber << std::endl;
+        }
+
+        // Log proactive migration
+        if (logFile_.is_open()) {
+            logFile_ << simTime() << ","
+                     << ueAddress << ","
+                     << "PROACTIVE_MIGRATION" << ","
+                     << oldMEHId << ","
+                     << newMEHId << ","
+                     << (result.success ? "INITIATED" : "FAILED") << std::endl;
         }
     }
 }
