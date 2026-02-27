@@ -149,12 +149,24 @@ void MigrateOnPrediction::reactOnUpdate(const std::vector<MigrationPrediction>& 
     {
         const std::string& ueAddress = pred.getUeAddress();
 
-        // Cancel any previously scheduled prediction for this user
-        // (newer prediction replaces older one)
+        // Check for existing scheduled prediction for this UE
         auto it = scheduledPredictions_.find(ueAddress);
         if (it != scheduledPredictions_.end())
         {
-            EV << "MigrateOnPrediction - Replacing existing prediction for UE " << ueAddress << endl;
+            MigrateAppMessage* existingMsg = check_and_cast<MigrateAppMessage*>(it->second);
+            std::string existingTarget = existingMsg->getNewMEHId();
+
+            if (existingTarget == pred.getTargetMEHId())
+            {
+                // Same target — keep existing prediction (better lead time)
+                EV << "MigrateOnPrediction - Keeping existing prediction for UE " << ueAddress
+                   << " (same target " << existingTarget << ")" << endl;
+                continue;
+            }
+
+            // Different target — replace with new prediction
+            EV << "MigrateOnPrediction - Replacing prediction for UE " << ueAddress
+               << " (target changed: " << existingTarget << " -> " << pred.getTargetMEHId() << ")" << endl;
             owner_->cancelAndDelete(it->second);
             scheduledPredictions_.erase(it);
         }

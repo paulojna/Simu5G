@@ -186,16 +186,16 @@ network tust_1to1
 
         mecHost11.ppp++ <--> Eth10G {  delay = 0.05s; } <--> upf.pppg++;
 
-        iUpf1.pppg++ <--> Eth10G {  delay = 0.003s; } <--> core_router.pppg++;
-        iUpf2.pppg++ <--> Eth10G {  delay = 0.003s; } <--> core_router.pppg++;
-        iUpf3.pppg++ <--> Eth10G {  delay = 0.003s; } <--> core_router.pppg++;
-        iUpf4.pppg++ <--> Eth10G {  delay = 0.003s; } <--> core_router.pppg++;
-        iUpf5.pppg++ <--> Eth10G {  delay = 0.003s; } <--> core_router.pppg++;
-        iUpf6.pppg++ <--> Eth10G {  delay = 0.003s; } <--> core_router.pppg++;
-        iUpf7.pppg++ <--> Eth10G {  delay = 0.003s; } <--> core_router.pppg++;
-        iUpf8.pppg++ <--> Eth10G {  delay = 0.003s; } <--> core_router.pppg++;
-        iUpf9.pppg++ <--> Eth10G {  delay = 0.003s; } <--> core_router.pppg++;
-        iUpf10.pppg++ <--> Eth10G {  delay = 0.003s; } <--> core_router.pppg++;
+        iUpf1.pppg++ <--> Eth10G {  delay = 0.010s; } <--> core_router.pppg++;
+        iUpf2.pppg++ <--> Eth10G {  delay = 0.010s; } <--> core_router.pppg++;
+        iUpf3.pppg++ <--> Eth10G {  delay = 0.010s; } <--> core_router.pppg++;
+        iUpf4.pppg++ <--> Eth10G {  delay = 0.010s; } <--> core_router.pppg++;
+        iUpf5.pppg++ <--> Eth10G {  delay = 0.010s; } <--> core_router.pppg++;
+        iUpf6.pppg++ <--> Eth10G {  delay = 0.010s; } <--> core_router.pppg++;
+        iUpf7.pppg++ <--> Eth10G {  delay = 0.010s; } <--> core_router.pppg++;
+        iUpf8.pppg++ <--> Eth10G {  delay = 0.010s; } <--> core_router.pppg++;
+        iUpf9.pppg++ <--> Eth10G {  delay = 0.010s; } <--> core_router.pppg++;
+        iUpf10.pppg++ <--> Eth10G {  delay = 0.010s; } <--> core_router.pppg++;
 
         core_router.pppg++ <--> Eth10G { delay = 0.004s; } <--> upf.pppg++;
 
@@ -235,31 +235,31 @@ network tust_1to1
         server.hostInGate <-- mecOrchestrator.toRavensController;
 
         // X2 connections
-        gnb1.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb2.x2++;
-        gnb4.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb1.x2++;
-        gnb1.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb5.x2++;
+        gnb1.x2++ <--> Eth10G {  delay = 0.010s; } <--> gnb2.x2++;
+        gnb4.x2++ <--> Eth10G {  delay = 0.010s; } <--> gnb1.x2++;
+        gnb1.x2++ <--> Eth10G {  delay = 0.010s; } <--> gnb5.x2++;
 
-        gnb2.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb3.x2++;
-        gnb2.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb6.x2++;
-        gnb2.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb5.x2++;
+        gnb2.x2++ <--> Eth10G {  delay = 0.010s; } <--> gnb3.x2++;
+        gnb2.x2++ <--> Eth10G {  delay = 0.010s; } <--> gnb6.x2++;
+        gnb2.x2++ <--> Eth10G {  delay = 0.010s; } <--> gnb5.x2++;
 
-        gnb3.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb6.x2++;
-        gnb3.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb7.x2++;
+        gnb3.x2++ <--> Eth10G {  delay = 0.010s; } <--> gnb6.x2++;
+        gnb3.x2++ <--> Eth10G {  delay = 0.010s; } <--> gnb7.x2++;
 
-        gnb5.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb6.x2++;
+        gnb5.x2++ <--> Eth10G {  delay = 0.010s; } <--> gnb6.x2++;
 
-        gnb4.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb8.x2++;
-        gnb4.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb5.x2++;
+        gnb4.x2++ <--> Eth10G {  delay = 0.010s; } <--> gnb8.x2++;
+        gnb4.x2++ <--> Eth10G {  delay = 0.010s; } <--> gnb5.x2++;
 
-        gnb7.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb6.x2++;
-        gnb7.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb10.x2++;
+        gnb7.x2++ <--> Eth10G {  delay = 0.010s; } <--> gnb6.x2++;
+        gnb7.x2++ <--> Eth10G {  delay = 0.010s; } <--> gnb10.x2++;
 
-        gnb8.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb9.x2++;
-        gnb8.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb5.x2++;
+        gnb8.x2++ <--> Eth10G {  delay = 0.010s; } <--> gnb9.x2++;
+        gnb8.x2++ <--> Eth10G {  delay = 0.010s; } <--> gnb5.x2++;
 
-        gnb9.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb5.x2++;
-        gnb9.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb10.x2++;
-        gnb9.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb6.x2++;
+        gnb9.x2++ <--> Eth10G {  delay = 0.010s; } <--> gnb5.x2++;
+        gnb9.x2++ <--> Eth10G {  delay = 0.010s; } <--> gnb10.x2++;
+        gnb9.x2++ <--> Eth10G {  delay = 0.010s; } <--> gnb6.x2++;
 
-        gnb10.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb6.x2++;
+        gnb10.x2++ <--> Eth10G {  delay = 0.010s; } <--> gnb6.x2++;
 }
