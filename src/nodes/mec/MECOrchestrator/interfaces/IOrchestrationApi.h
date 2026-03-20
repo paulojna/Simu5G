@@ -18,6 +18,8 @@ class IOrchestratorApi {
         virtual MigrationResult checkIfMigrationIsNeeded(std::string ueAddress, std::string newMEHId, std::string oldMEHId) = 0;
         virtual MigrationResult completeMigration(UALCMPMessage* ackMsg) = 0;
 
+        virtual std::string getAppCurrentMEH(std::string ueAddress) = 0;
+
         virtual ~IOrchestratorApi() = default;
 };
 

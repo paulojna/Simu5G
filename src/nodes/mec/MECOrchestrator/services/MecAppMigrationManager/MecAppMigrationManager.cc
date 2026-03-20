@@ -110,6 +110,19 @@ MigrationResult MecAppMigrationManager::checkIfMigrationIsNeeded(std::string ueA
     return migrateApp(ueAddress, newMEHId, currentMEHId);
 }
 
+std::string MecAppMigrationManager::getAppCurrentMEH(std::string ueAddress)
+{
+    std::string ueIp = ueAddress;
+    if (ueAddress.find("acr:") == 0) {
+        ueIp = ueAddress.substr(4);
+    }
+    auto result = mecAppRegistry_->findAppByUeAddress(ueIp);
+    if (!result.found) {
+        return "";
+    }
+    return result.appEntry->mecHost->getName();
+}
+
 MigrationResult MecAppMigrationManager::migrateApp(std::string ueAddress, std::string newMEHId, std::string oldMEHId)
 {
     EV << "MecAppMigrationManager::migrateApplication - Starting migration" << endl;
@@ -132,11 +145,10 @@ MigrationResult MecAppMigrationManager::migrateApp(std::string ueAddress, std::s
     int contextId = lookupResult.contextId;
     const MecAppRegistry::AppEntry* appEntry = lookupResult.appEntry;
 
-    // PENDING MIGRATION - NEW CHECK! Skip if app is already on target MEH
+    // Skip if app is already on target MEH
     std::string currentMEHId = appEntry->mecHost->getName();
     if (currentMEHId == newMEHId) {
         EV << "MecAppMigrationManager::migrateApp - App already on target MEH: " << newMEHId << endl;
-        EV << "  Skipping redundant migration" << endl;
         return MigrationResult(false, "App already on target MEH", contextId, 0, newMEHId, oldMEHId);
     }
 

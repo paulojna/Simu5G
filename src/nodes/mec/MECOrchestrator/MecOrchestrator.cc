@@ -496,6 +496,10 @@ T* safe_check_and_cast(U* ptr) {
         return mecAppMigrationManager_->completeMigration(ackMsg);
     }
 
+    std::string MecOrchestrator::getAppCurrentMEH(std::string ueAddress) {
+        return mecAppMigrationManager_->getAppCurrentMEH(ueAddress);
+    }
+
     const ApplicationDescriptor* MecOrchestrator::getApplicationDescriptorByAppName(std::string& appName) const
     {
         if(!mecAppLifecycleManager_)

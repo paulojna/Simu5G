@@ -233,7 +233,27 @@ void MigrateOnPrediction::handleScheduledEvent(cMessage* msg)
     }
     else
     {
-        // Predicted migration
+        // Predicted migration — verify app is still at expected source MEH
+        std::string currentMEH = api_->getAppCurrentMEH(ueAddress);
+        if (!currentMEH.empty() && currentMEH != oldMEHId)
+        {
+            EV << "MigrateOnPrediction::handleScheduledEvent - Stale prediction for UE "
+               << ueAddress << " (expected " << oldMEHId << ", app at " << currentMEH << ")" << endl;
+            std::cout << "[MigrateOnPrediction t=" << simTime()
+                      << "] Stale prediction for UE " << ueAddress
+                      << " (expected " << oldMEHId << ", app at " << currentMEH << ")" << std::endl;
+
+            if (logFile_.is_open()) {
+                logFile_ << simTime() << ","
+                         << ueAddress << ","
+                         << "PROACTIVE_MIGRATION" << ","
+                         << oldMEHId << ","
+                         << newMEHId << ","
+                         << "STALE" << std::endl;
+            }
+            return;
+        }
+
         std::cout << "[MigrateOnPrediction t=" << simTime()
                   << "] Executing predicted MIGRATION for UE " << ueAddress
                   << " from " << oldMEHId << " to " << newMEHId << std::endl;

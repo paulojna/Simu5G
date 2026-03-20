@@ -147,6 +147,7 @@ public:
                                            std::string oldMEHId,
                                            std::string newMEHId) override;
   MigrationResult completeMigration(UALCMPMessage *ackMsg) override;
+  std::string getAppCurrentMEH(std::string ueAddress) override;
 
   double getMigrationTime() const { return migrationTime_; }
 
