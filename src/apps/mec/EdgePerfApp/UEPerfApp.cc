@@ -202,45 +202,53 @@ void UEPerfApp::handleMessage(cMessage *msg)
     // Receiver Side
     else
     {
-        inet::Packet* packet = check_and_cast<inet::Packet*>(msg);
-        inet::L3Address ipAdd = packet->getTag<L3AddressInd>()->getSrcAddress();
+        //inet::Packet* packet = check_and_cast<inet::Packet*>(msg);
+        //inet::L3Address ipAdd = packet->getTag<L3AddressInd>()->getSrcAddress();
+    	inet::Packet *packet = dynamic_cast<inet::Packet*>(msg);
 
-        /*
-         * From Device app
-         * device app usually runs in the UE (loopback), but it could also run in other places
-         */
+    	if(packet != nullptr) {
+    		inet::L3Address ipAdd = packet->getTag<L3AddressInd>()->getSrcAddress();
 
-        
-        if(ipAdd == deviceAppAddress_ || ipAdd == inet::L3Address("127.0.0.1")) // dev app
-        {
-            auto mePkt = packet->peekAtFront<DeviceAppPacket>();
+    		/*
+			 * From Device app
+			 * device app usually runs in the UE (loopback), but it could also run in other places
+			 */
 
-            if (mePkt == 0)
-                throw cRuntimeError("UEPerfApp::handleMessage - \tFATAL! Error when casting to DeviceAppPacket");
 
-            if( !strcmp(mePkt->getType(), ACK_START_MECAPP) )
-                handleAckStartMECRequestApp(msg);
-            else if(!strcmp(mePkt->getType(), ACK_STOP_MECAPP))
-                handleAckStopMECRequestApp(msg);
-            else if(!strcmp(mePkt->getType(), MEH_CHANGE))
-                handleChangeMecHost(msg);
-            else
-                throw cRuntimeError("UEPerfApp::handleMessage - \tFATAL! Error, DeviceAppPacket type %s not recognized", mePkt->getType());
-        }
-        // From MEC application
-        else
-        {
-            auto mePkt = packet->peekAtFront<RequestResponseAppPacket>();
-            if (mePkt == 0)
-                throw cRuntimeError("UEPerfApp::handleMessage - \tFATAL! Error when casting to RequestAppPacket");
+    		if(ipAdd == deviceAppAddress_ || ipAdd == inet::L3Address("127.0.0.1")) // dev app
+    		{
+    			auto mePkt = packet->peekAtFront<DeviceAppPacket>();
 
-            if(mePkt->getType() == MECAPP_RESPONSE)
-                recvResponse(msg);
-            else if(mePkt->getType() == UEAPP_ACK_STOP)
-                handleStopApp(msg);
-            else
-                throw cRuntimeError("UEPerfApp::handleMessage - \tFATAL! Error, RequestAppPacket type %d not recognized", mePkt->getType());
-        }
+    			if (mePkt == 0)
+    				throw cRuntimeError("UEPerfApp::handleMessage - \tFATAL! Error when casting to DeviceAppPacket");
+
+    			if( !strcmp(mePkt->getType(), ACK_START_MECAPP) )
+    				handleAckStartMECRequestApp(msg);
+    			else if(!strcmp(mePkt->getType(), ACK_STOP_MECAPP))
+    				handleAckStopMECRequestApp(msg);
+    			else if(!strcmp(mePkt->getType(), MEH_CHANGE))
+    				handleChangeMecHost(msg);
+    			else
+    				throw cRuntimeError("UEPerfApp::handleMessage - \tFATAL! Error, DeviceAppPacket type %s not recognized", mePkt->getType());
+    		}
+    		// From MEC application
+    		else
+    		{
+    			auto mePkt = packet->peekAtFront<RequestResponseAppPacket>();
+    			if (mePkt == 0)
+    				throw cRuntimeError("UEPerfApp::handleMessage - \tFATAL! Error when casting to RequestAppPacket");
+
+    			if(mePkt->getType() == MECAPP_RESPONSE)
+    				recvResponse(msg);
+    			else if(mePkt->getType() == UEAPP_ACK_STOP)
+    				handleStopApp(msg);
+    			else
+    				throw cRuntimeError("UEPerfApp::handleMessage - \tFATAL! Error, RequestAppPacket type %d not recognized", mePkt->getType());
+    		}
+    	}
+    	else {
+    		delete msg;
+    	}
     }
 }
 
@@ -466,6 +474,8 @@ void UEPerfApp::recvResponse(cMessage* msg)
     simtime_t respTime = simTime()- res->getRequestSentTimestamp();
 
     mehostId_ = res->getMecHostId();
+
+	//std::cout << simTime() << " - UEPerfApp: response received with respTime: " << respTime << endl;
 
     //std::cout << "MEC HOST ID" << mecHostId << std::endl;
     //emit stats

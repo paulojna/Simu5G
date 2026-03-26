@@ -24,7 +24,7 @@
     <time>
         <begin value="0"/>
 		<step-length value="1"/>
-		<end value="3600"/>
+		<end value="86400"/>
     </time>
 
     <processing>

@@ -1225,6 +1225,7 @@ double Binder::computeRequestedRbsFromSinr(double sinr, double reqLoad)
 
 void Binder::addUeCollectorToEnodeB(MacNodeId ue, UeStatsCollector* ueCollector , MacNodeId cell)
 {
+    //std::cout << "addUeCollectorToEnodeB - ue: " << ue << ", cell: " << cell << std::endl;
     EV << "LteBinder::addUeCollector"<< endl;
     std::vector<EnbInfo*>::iterator it = enbList_.begin(), end = enbList_.end();
     cModule *enb = nullptr;
@@ -1258,6 +1259,8 @@ void Binder::addUeCollectorToEnodeB(MacNodeId ue, UeStatsCollector* ueCollector 
     {
         enbColl = check_and_cast<BaseStationStatsCollector *>(enb->getSubmodule("collector"));
         enbColl->addUeCollector(ue, ueCollector);
+        EV << "We are addind the cell to a ueCollector!" << endl;
+        ueCollector->setRegisteredCell(cell, ue);  // Store cell ID for cleanup during UE deletion
         EV << "LteBinder::addUeCollector - UeCollector for node [" << ue << "] added to eNodeB [" << cell << "]" << endl;
     }
     else
@@ -1268,9 +1271,43 @@ void Binder::addUeCollectorToEnodeB(MacNodeId ue, UeStatsCollector* ueCollector 
     }
 }
 
+void Binder::removeUeCollectorFromEnodeB(MacNodeId ue, MacCellId cell)
+{
+    EV << "removeUeCollectorFromEnodeB called - ue: " << ue << ", cell: " << cell << std::endl;
+
+    const char* cellModuleName = getModuleNameByMacNodeId(cell);
+    cModule* enb = getParentModule()->getModuleByPath(cellModuleName);
+
+    if (enb == nullptr)
+    {
+        EV << "LteBinder::removeUeCollectorFromEnodeB - eNodeB module for cell [" << cell << "] not found" << endl;
+        return;
+    }
+
+    if (enb->getSubmodule("collector") != nullptr)
+    {
+        BaseStationStatsCollector* enbColl = check_and_cast<BaseStationStatsCollector*>(enb->getSubmodule("collector"));
+        if (enbColl->hasUeCollector(ue))
+        {
+            enbColl->removeUeCollector(ue);
+            EV << "removeUeCollectorFromEnodeB - successfully removed" << std::endl;
+        }
+        else
+        {
+            EV << "LteBinder::removeUeCollectorFromEnodeB - UeCollector for node [" << ue << "] not found in eNodeB [" << cell << "]" << endl;
+        }
+    }
+    else
+    {
+        EV << "LteBinder::removeUeCollectorFromEnodeB - eNodeB [" << cell << "] does not have the collector submodule" << endl;
+    }
+}
+
 
 void Binder::moveUeCollector(MacNodeId ue, MacCellId oldCell, MacCellId newCell)
 {
+    inet::Ipv4Address ip = getIPv4Address(ue);
+    //std::cout << "moveUeCollector - ue: " << ue << " (IP: " << ip << ") from cell " << oldCell << " to cell " << newCell << std::endl;
     EV << "LteBinder::moveUeCollector" << endl;
     RanNodeType oldCellType = getBaseStationTypeById(oldCell);
     RanNodeType newCellType = getBaseStationTypeById(newCell);
@@ -1301,6 +1338,7 @@ void Binder::moveUeCollector(MacNodeId ue, MacCellId oldCell, MacCellId newCell)
     // if the two base station are the same type, just move the collector
     if(oldCellType == newCellType)
     {
+        //std::cout << "moveUeCollector - adding ue " << ue << " to cell " << newCell << " (same type)" << endl;
         addUeCollectorToEnodeB(ue, ueColl, newCell);
     }
     else

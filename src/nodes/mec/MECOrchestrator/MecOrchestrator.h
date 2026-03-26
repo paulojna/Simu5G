@@ -104,6 +104,8 @@ class MecOrchestrator : public cSimpleModule, public IOrchestratorApi {
   //------------------------------------
 
   std::vector<cModule *> mecHosts;
+  // PERFORMANCE IMPROVEMENT: Index for O(1) MEC host lookup by name
+  std::unordered_map<std::string, cModule*> mecHostIndex_;
 
   // NEW
   std::unique_ptr<MecAppRegistry> mecAppRegistry_;
@@ -123,6 +125,7 @@ class MecOrchestrator : public cSimpleModule, public IOrchestratorApi {
 
 public:
   MecOrchestrator();
+  virtual ~MecOrchestrator();
   const ApplicationDescriptor *
   getApplicationDescriptorByAppName(std::string &appName) const;
   const std::map<std::string, ApplicationDescriptor> *
@@ -135,10 +138,6 @@ public:
    * @param ServiceDescriptor descriptor of the MEC service to register
    */
   void registerMecService(ServiceDescriptor &) const;
-  nlohmann::json formatDataFromRAVENS(
-      std::vector<UserEntryUpdate> UserEntryUpdatedList) override;
-  std::string postRequestPrediction(const std::string &url,
-                                    const nlohmann::json &jsonObject) override;
   // IOrchestratorApi methods
   void removeAppFromSystem(std::string ueAddress,
                            std::string oldMEHId) override;
@@ -148,6 +147,7 @@ public:
                                            std::string oldMEHId,
                                            std::string newMEHId) override;
   MigrationResult completeMigration(UALCMPMessage *ackMsg) override;
+  std::string getAppCurrentMEH(std::string ueAddress) override;
 
   double getMigrationTime() const { return migrationTime_; }
 

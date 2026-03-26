@@ -49,13 +49,14 @@ MECPerfApp::~MECPerfApp()
 
     requestQueue_ = std::queue<requestInfo*>();
 
-    removeSocket(serviceSocket_);
+    if (serviceSocket_ != nullptr)
+        removeSocket(serviceSocket_);
     
     //if(serviceSocket_->getState() == inet::TcpSocket::CONNECTED)
     //    serviceSocket_->close();
 
 	//print the IP of the UE app connected to this MEC app
-	std::cout << simTime() << " - MECPerfApp Destructor - MEC Host: " << mecHost->getName() << " connected to UE IP: " << ueAppAddress.str() << std::endl;
+	//std::cout << simTime() << " - MECPerfApp Destructor - MEC Host: " << mecHost->getName() << " connected to UE IP: " << ueAppAddress.str() << std::endl;
 	//print the number of requests processed
 	//std::cout << simTime() << " - MECPerfApp Destructor - MEC Host: " << mecHost->getName() << " To be processed: " << requestQueue_.size() << " requests." << std::endl;
 }
@@ -119,10 +120,12 @@ void MECPerfApp::handleProcessedMessage(cMessage *msg)
 
 void MECPerfApp::finish()
 {
+    EV << "MECPerfApp::finish" << std::endl;
     MecAppBase::finish();
     if(gate("socketOut")->isConnected())
     {
-        serviceSocket_->close();
+        if (serviceSocket_ != nullptr)
+            serviceSocket_->close();
         //std::cout << simTime() << " - MECPerfApp::finish - serviceSocket_ state" << serviceSocket_->getState() << std::endl;
     }
 }
@@ -358,6 +361,8 @@ void MECPerfApp::socketClosed(inet::TcpSocket *sock)
     else
     {
         EV <<"Service socket closed" << endl;
+        if (serviceSocket_ == sock)
+            serviceSocket_ = nullptr;
         removeSocket(sock);
         //sendStopAck();
     }

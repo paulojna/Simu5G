@@ -73,7 +73,6 @@ bool LocationService::manageSubscription()
         currentSubscriptionServed_ = nullptr;
         return true;
     }
-
     else{
         EV << "LocationService::manageSubscription() - subscription with id: " << subId << " not found. Removing from subscriptionTimer.." << endl;
         // the subscription has been deleted, e.g. due to closing socket

@@ -14,6 +14,9 @@
 #include "stack/mac/layer/LteMacBase.h"
 #include "inet/common/ModuleAccess.h"
 #include "stack/packetFlowManager/PacketFlowManagerUe.h"
+#include "inet/networklayer/common/NetworkInterface.h"
+#include "inet/networklayer/ipv4/Ipv4InterfaceData.h"
+#include "common/binder/Binder.h"
 
 namespace simu5g {
 
@@ -24,7 +27,8 @@ UeStatsCollector::UeStatsCollector()
 //    pdcp_ = nullptr;
     mac_ = nullptr;
     packetFlowManager_ = nullptr;
-
+    registeredCell_ = 0;
+    registeredNodeId_ = 0;
 }
 
 void UeStatsCollector::initialize(int stage)
@@ -226,5 +230,28 @@ void UeStatsCollector::resetStats()
     dl_nongbr_data_volume_ue.reset();
 }
 
-} //namespace
+void UeStatsCollector::finish()
+{
+    EV << "UeStatsCollector::finish() called - registeredCell_: " << registeredCell_ << endl;
 
+    if (getSimulation()->getSimulationStage() != CTX_FINISH)
+    {
+        EV << "UeStatsCollector::finish() - during simulation deletion" << endl;
+
+        if (registeredCell_ != 0 && registeredNodeId_ != 0)
+        {
+            EV << "UeStatsCollector::finish() - removing nodeId: " << registeredNodeId_  << " from cell: " << registeredCell_ << endl;
+            Binder* binder = getBinder();
+            if (binder != nullptr)
+            {
+                binder->removeUeCollectorFromEnodeB(registeredNodeId_, registeredCell_);
+            }
+        }
+        else
+        {
+            EV << "UeStatsCollector::finish() - skipping cleanup (registeredCell_=" << registeredCell_ << ", mac_=" << mac_ << ")" << endl;
+        }
+    }
+}
+
+} //namespace

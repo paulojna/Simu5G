@@ -627,6 +627,14 @@ class Binder : public omnetpp::cSimpleModule
      */
     void addUeCollectorToEnodeB(MacNodeId ue, UeStatsCollector* ueCollector, MacCellId cell);
 
+    // Cleanup method to prevent dangling pointers when a UE leaves the simulation
+    /* this method removes the UeStatsCollector reference from the eNB/gNB's BaseStationStatsCollector.
+    * Called when a UE is deleted from the simulation (e.g., leaves the map).
+    *  ue: MacNodeId of the Ue
+    *  cell: MacCellId of the eNB where the collector is registered
+    */
+    void removeUeCollectorFromEnodeB(MacNodeId ue, MacCellId cell);
+
     /* this method moves the UeStastCollector reference between the eNB/gNB's baseStationStatsCollector
      * structure.
      * @params:

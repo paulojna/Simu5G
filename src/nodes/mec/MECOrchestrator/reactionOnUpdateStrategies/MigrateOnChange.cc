@@ -22,7 +22,7 @@ namespace simu5g {
 
 using namespace omnetpp;
 
-void MigrateOnChange::reactOnUpdate(const std::vector<UserEntryUpdate> &updatedList)
+void MigrateOnChange::reactOnUpdate(const std::vector<MigrationPrediction> &updatedList)
 {
     // not implemented
 }

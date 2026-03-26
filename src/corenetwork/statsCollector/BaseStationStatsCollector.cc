@@ -9,6 +9,7 @@
 // and cannot be removed from it.
 //
 
+#include "common/binder/Binder.h"
 #include "corenetwork/statsCollector/BaseStationStatsCollector.h"
 #include "corenetwork/statsCollector/UeStatsCollector.h"
 #include "stack/packetFlowManager/PacketFlowManagerEnb.h"

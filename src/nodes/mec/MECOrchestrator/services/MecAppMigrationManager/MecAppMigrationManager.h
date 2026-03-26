@@ -55,7 +55,8 @@ public:
       MecAppRegistry* appRegistry,
       MecAppLifecycleManager* lifecycleManager,
       std::vector<cModule*>* mecHosts,
-      cSimpleModule* owner  
+      std::unordered_map<std::string, cModule*>* mecHostIndex,  // PERFORMANCE IMPROVEMENT: O(1) lookup
+      cSimpleModule* owner
     );
 
     virtual ~MecAppMigrationManager();
@@ -65,6 +66,7 @@ public:
     MigrationResult checkIfMigrationIsNeeded(std::string ueAddress, std::string newMEHId, std::string oldMEHId);
     MigrationResult migrateApp(std::string ueAddress, std::string newMEHId, std::string oldMEHId);
     MigrationResult completeMigration(UALCMPMessage* ackMsg);
+    std::string getAppCurrentMEH(std::string ueAddress);
 
    // Timeout handling
     void handleMigrationTimeout(unsigned int requestNumber);
@@ -88,6 +90,7 @@ private:
     MecAppRegistry* mecAppRegistry_;
     MecAppLifecycleManager* mecAppLifecycleManager_;
     std::vector<cModule*>* mecHosts_;
+    std::unordered_map<std::string, cModule*>* mecHostIndex_;  // PERFORMANCE IMPROVEMENT: O(1) lookup
     cSimpleModule* owner_;  // For sending self-messages
 
     // Configuration
@@ -97,6 +100,8 @@ private:
     // State management
     unsigned int requestCounter_;
     std::map<unsigned int, StandByElement> standByList_;
+    // PERFORMANCE IMPROVEMENT: Index for O(1) duplicate migration check by UE address
+    std::unordered_map<std::string, unsigned int> standByUeIndex_;
     std::map<unsigned int, cMessage*> timeoutMessages_;  // Track scheduled timeouts
 
     // Private helper methods

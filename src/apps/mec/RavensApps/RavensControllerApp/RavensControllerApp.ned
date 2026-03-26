@@ -8,9 +8,9 @@ simple RavensControllerApp like IApp
 {
     parameters:
         @class("RavensControllerApp");
-        string mode = default("SaveDataHistory"); // available modes: "SaveDataHistory", "NotifyOnDataChange" and "NotifyOnUserEntry"
+        string mode = default("SendToExternalServer"); // available modes: "SaveDataHistory", "NotifyOnDataChange" and "SendToExternalServer"
         int threshold = default(10);
-        int snapshot_frequency = default(2); 
+        int snapshot_frequency = default(2);  
         int snapshot_starting_time = default(2);
         string path = default("../tust_1to1/results/"); // path to save the data
         
