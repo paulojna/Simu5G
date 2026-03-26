@@ -9,57 +9,83 @@ cModule* LocationSelectionBased::findBestMecHost(const ApplicationDescriptor &ap
     EV << "LocationSelectionBased::findBestMecHost - finding best MecHost..." << endl;
     cModule *bestHost = nullptr;
 
-    // copy userMEHMap to a local variable
-    std::map<std::string, std::pair<std::string, std::string>> userMEHMapCopy = mecOrchestrator_->userMEHMap;
-
     std::string ueToFind = "acr:"+ueAddress.str();
-    auto it = userMEHMapCopy.find(ueToFind);
-    if(it == userMEHMapCopy.end())
+    auto it = mecOrchestrator_->userMEHMap.find(ueToFind);
+
+	// 1 - check if we have location information so we instantiate the app closest to the UE
+    if(it != mecOrchestrator_->userMEHMap.end())
     {
         EV << "LocationSelectionBased::findBestMecHost - We don't have information on [" << ueToFind << "]. Searching for the best MEC host on a AvailableResourcesBased strategy"<< endl;
-        double maxCpuSpeed = -1;
+		// find the closest host
+    	const std::string& closestHostName = it->second.second;
 
+    	// now let's check if the host has enough resources
         for(auto mecHost : mecOrchestrator_->mecHosts)
         {
-            VirtualisationInfrastructureManager *vim = check_and_cast<VirtualisationInfrastructureManager *>(mecHost->getSubmodule("vim"));
-            ResourceDescriptor resources = appDesc.getVirtualResources();
-            bool res = vim->isAllocable(resources.ram, resources.disk, resources.cpu);
-            if (!res)
+            if (std::string(mecHost->getName()) == closestHostName)
             {
-                EV << "LocationSelectionBased::findBestMecHost - MEC host [" << mecHost->getName() << "] has not got enough resources. Searching again..." << endl;
-                continue;
-            }
-            if (vim->getAvailableResources().cpu > maxCpuSpeed)
-            {
-                // Temporally select this mec host as the best
-                EV << "LocationSelectionBased::findBestMecHost - MEC host [" << mecHost->getName() << "] temporally chosen as bet MEC host. Available resources: " << endl;
-                vim->printResources();
-                bestHost = mecHost;
-                maxCpuSpeed = vim->getAvailableResources().cpu;
+				VirtualisationInfrastructureManager *vim = check_and_cast<VirtualisationInfrastructureManager *>(mecHost->getSubmodule("vim"));
+            	const ResourceDescriptor& requiredResources = appDesc.getVirtualResources();
+
+            	if (vim->isAllocable(requiredResources.ram, requiredResources.disk, requiredResources.cpu))
+            	{
+            		bestHost = mecHost;
+            	}
+            	else
+            	{
+            		// the closest host does not have resources, we should go for the resource based
+            		EV << "LocationSelectionBased::findBestMecHost - " << mecHost->getName() << "did not have enough resources!";
+            	}
             }
         }
     }
-    else
-    {
-        EV << "LocationSelectionBased::findBestMecHost - We have information on [" << ueToFind << "]. Searching for the best MEC host on a LocationSelectionBased strategy" << endl;
-        // find the mecHost on mecHosts
-        for(auto mecHost : mecOrchestrator_->mecHosts)
-        {
-            if(mecHost->getName() == it->second.second)
-            {
-                EV << "LocationSelectionBased::findBestMecHost - MEC host ["<< mecHost->getName() << "] has been chosen as the best Mec Host" << endl;
-                bestHost = mecHost;
-                break;
-            }
-        }
-    }
+
+	if (bestHost == nullptr)
+	{
+		bestHost = findBestHostByResources(appDesc);
+	}
 
     if(bestHost != nullptr)
         EV << "LocationSelectionBased::findBestMecHost - MEC host ["<< bestHost->getName() << "] has been chosen as the best Mec Host" << endl;
     else
         EV << "LocationSelectionBased::findBestMecHost - No Mec Host found" << endl;
-    
+
     return bestHost;
+}
+
+/**
+ * This method goes through all the available MEC hosts managed by the MEO.
+ * It selects the one that has enough resources AND has the maximum ammount of CPU available.
+ *
+ * @param app The descriptor of the application to be deployed
+ * @return A pointer to the best cModule host, or nullptr if no suitable host is found (mainly it will be the "Cloud-like Host", if available)
+ */
+cModule *LocationSelectionBased::findBestHostByResources(const ApplicationDescriptor &app)
+{
+	EV << "LocationSelectionBased::findeBestHostByResource - searching for host with the most available CPU..";
+	cModule* bestHost = nullptr;
+	double maxCpuAvailable = -1;
+
+	const ResourceDescriptor& requiredResources = app.getVirtualResources();
+	for (auto mecHost : mecOrchestrator_->mecHosts)
+	{
+		VirtualisationInfrastructureManager *vim = check_and_cast<VirtualisationInfrastructureManager *>(mecHost->getSubmodule("vim"));
+
+		//check if there are enough resources to allocate the application - if not, get out quickly
+		if (!vim->isAllocable(requiredResources.ram, requiredResources.disk, requiredResources.cpu))
+		{
+			continue;
+		}
+
+		double availableCPU = vim->getAvailableResources().cpu;
+		if (availableCPU > maxCpuAvailable)
+		{
+			bestHost = mecHost;
+			maxCpuAvailable = availableCPU;
+		}
+	}
+	return bestHost;
+
 }
 
 }

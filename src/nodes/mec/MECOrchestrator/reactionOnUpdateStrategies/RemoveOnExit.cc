@@ -7,7 +7,7 @@
 
 namespace simu5g {
 
-void RemoveOnExit::reactOnUpdate(const std::vector<UserEntryUpdate> &updatedList)
+void RemoveOnExit::reactOnUpdate(const std::vector<MigrationPrediction> &updatedList)
 {
     // not implemented
 }
@@ -15,8 +15,11 @@ void RemoveOnExit::reactOnUpdate(const std::vector<UserEntryUpdate> &updatedList
 void RemoveOnExit::reactOnUpdate(const UserMEHUpdate &update)
 {
     // check it the newMEH is empty
-    if (update.getNewMEHId()==" ")
+    if (update.getNewMEHId()=="")
     {
+
+        api_->removeAppFromSystem(update.getAddress(), update.getLastMEHId());
+        /*
         EV << "RemoveOnExit::reactOnUpdate - newMEHId is empty - it got out of the system -> removing MEC app" << endl;
         // remove the acr: part of the address and convertit to inet::L3Address
         std::string ueAddress = update.getAddress();
@@ -56,10 +59,11 @@ void RemoveOnExit::reactOnUpdate(const UserMEHUpdate &update)
         // invoke stopMECApp method from MecOrchestrator
         EV << "RemoveOnExit::reactOnUpdate - sending DeleteContextAppMessage to MecOrchestrator to stop MEC app with contextId " << contextId << endl;
         mecOrchestrator_->stopMECApp(msg);
+        */
     }
     else
     {
-        EV << "RemoveOnExit::reactOnUpdate - newMEHId is not empty, no action required" << endl;
+        
     }
 }
 

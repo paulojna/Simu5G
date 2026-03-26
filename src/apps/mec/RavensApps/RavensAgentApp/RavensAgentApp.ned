@@ -49,6 +49,8 @@ simple RavensAgentApp like IMECApp, IApp
         int controllerPort = default(5001); 
 
         int localPort = default(1993);
+
+        double ttl @unit(s) = default(5s);
 		
 	gates:
 	 	input mePlatformIn;

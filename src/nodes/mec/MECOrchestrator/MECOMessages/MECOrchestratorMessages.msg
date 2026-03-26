@@ -28,6 +28,10 @@ message MigrateAppMessage {
     string oldMEHId;
 }
 
+message MigrateTimeoutMessage {
+    unsigned int requestNumber;
+}
+
 
 class CreateAppMessage extends inet::FieldsChunk {
    

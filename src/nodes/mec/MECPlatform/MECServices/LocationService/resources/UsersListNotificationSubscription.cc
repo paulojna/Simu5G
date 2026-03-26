@@ -152,6 +152,21 @@ EventNotification* UsersListNotificationSubscription::handleSubscription(){
 
     userList.clear();
 
+    // PERFORMANCE IMPROVEMENT: Count total UEs first to reserve capacity and avoid reallocations
+    // Original code: no reserve, causing O(n) reallocations during push_back
+    size_t totalUeCount = 0;
+    for(auto cellIt = cells_.begin(); cellIt != cells_.end(); ++cellIt)
+    {
+        CellInfo* cellInfo = eNodeBs_.at(*cellIt);
+        if(cellInfo != nullptr)
+        {
+            const std::map<MacNodeId, inet::Coord>* uePositionList = cellInfo->getUePositionList();
+            if(uePositionList != nullptr)
+                totalUeCount += uePositionList->size();
+        }
+    }
+    userList.reserve(totalUeCount);
+
     // run through the cells set and retrieve the users in each cell
     for(auto it = cells_.begin(); it != cells_.end(); ++it)
     {

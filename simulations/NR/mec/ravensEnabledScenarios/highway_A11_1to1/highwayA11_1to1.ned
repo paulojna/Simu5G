@@ -118,6 +118,9 @@ network highwayA11_1to1
         mecHost6: MECHost {
             @display("p=8567.95,5923.28");
         }
+        mecHost_backup: MECHost {
+            @display("p=5893.6826,1301.9352");
+        }
 
 
         // MEC Orchestrator and UALCMP
@@ -134,11 +137,6 @@ network highwayA11_1to1
 
     connections:
 
-        // 5G Core Network connections
-        //iUpf0.pppg++ <--> Eth10G <--> iUpf1.pppg++;
-        //mecHost1.ppp++ <--> Eth10G <--> centralUpf.pppg++;
-        //mecHost1.ppp++ <--> Eth10G <--> centralUpf.pppg++;
-
         mecHost1.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf1.pppg++;
         mecHost2.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf2.pppg++;
         mecHost3.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf3.pppg++;
@@ -146,7 +144,7 @@ network highwayA11_1to1
         mecHost5.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf5.pppg++;
         mecHost6.ppp++ <--> Eth10G {  delay = 0.001s; } <--> iUpf6.pppg++;
 
-        //mecHost1.ppp++ <--> Eth10G {  delay=0.002s; } <--> upf.pppg++;
+
         iUpf1.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
         iUpf2.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
         iUpf3.pppg++ <--> Eth10G {  delay = 0.003s; } <--> upf.pppg++;
@@ -162,25 +160,7 @@ network highwayA11_1to1
         iUpf6.pppg++ <--> Eth10G {  delay = 0.001s; } <--> gnb6.ppp;
 
         // intra iUPF connections
-        iUpf1.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf2.pppg++;
-        iUpf1.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf3.pppg++;
-        iUpf1.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf4.pppg++;
-        iUpf1.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf5.pppg++;
-        iUpf1.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf6.pppg++;
 
-        iUpf2.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf3.pppg++;
-        iUpf2.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf4.pppg++;
-        iUpf2.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf5.pppg++;
-        iUpf2.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf6.pppg++;
-
-        iUpf3.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf4.pppg++;
-        iUpf3.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf5.pppg++;
-        iUpf3.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf6.pppg++;
-
-        iUpf4.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf5.pppg++;
-        iUpf4.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf6.pppg++;
-
-        iUpf5.pppg++ <--> Eth10G {  delay = 0.003s; } <--> iUpf6.pppg++;
 
         //connect mecHost with upf
         //mecHost1.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
@@ -190,10 +170,7 @@ network highwayA11_1to1
         //mecHost5.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
         //mecHost6.ppp++ <--> Eth10G {  delay = 0.004s; } <--> upf.pppg++;
 
-        //mecHost1.ppp++ <--> Eth10G <--> upf.pppg++;
-        //mecHost1.ppp++ <--> Eth10G <--> upf.pppg++;
-
-        //mecHost1.ppp++ <--> Eth10G <--> mecHost1.ppp++;
+        mecHost_backup.ppp++ <--> Eth10G <--> upf.pppg++;
 
         // MEC-related connections
         router.pppg++ <--> Eth10G <--> upf.filterGate;
@@ -210,9 +187,9 @@ network highwayA11_1to1
         server.hostInGate <-- mecOrchestrator.toRavensController;
 
         // X2 connections
-        gnb1.x2++ <--> Eth10G <--> gnb2.x2++;
-        gnb2.x2++ <--> Eth10G <--> gnb3.x2++;
-        gnb3.x2++ <--> Eth10G <--> gnb4.x2++;
-        gnb4.x2++ <--> Eth10G <--> gnb5.x2++;
-        gnb5.x2++ <--> Eth10G <--> gnb6.x2++;
+        gnb1.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb2.x2++;
+        gnb2.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb3.x2++;
+        gnb3.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb4.x2++;
+        gnb4.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb5.x2++;
+        gnb5.x2++ <--> Eth10G {  delay = 0.003s; } <--> gnb6.x2++;
 }

@@ -1,3 +1,4 @@
+
 //
 //                  Simu5G
 //
@@ -12,58 +13,61 @@
 #ifndef __MECORCHESTRATORMANAGER_H_
 #define __MECORCHESTRATORMANAGER_H_
 
-//BINDER and UTILITIES
+// BINDER and UTILITIES
 #include "common/LteCommon.h"
+#include "common/binder/Binder.h" //to handle Car dynamically leaving the Network
 #include "nodes/mec/utils/MecCommon.h"
-#include "common/binder/Binder.h"           //to handle Car dynamically leaving the Network
+#include <memory>
 
-//UDP SOCKET for INET COMMUNICATION WITH UE APPs
-#include "inet/transportlayer/contract/udp/UdpSocket.h"
+// UDP SOCKET for INET COMMUNICATION WITH UE APPs
 #include "inet/networklayer/common/L3Address.h"
 #include "inet/networklayer/common/L3AddressResolver.h"
+#include "inet/transportlayer/contract/udp/UdpSocket.h"
 
-//MEAppPacket
+#include <utility>
+
+// MEAppPacket
 #include "nodes/mec/MECPlatform/MEAppPacket_Types.h"
 #include "nodes/mec/MECPlatform/MEAppPacket_m.h"
 
-//Ravens Controller Updates
+// Ravens Controller Updates
 #include "apps/mec/RavensApps/RavensControllerUpdatePacket_m.h"
 
 #include "nodes/mec/MECOrchestrator/ApplicationDescriptor/ApplicationDescriptor.h"
+
+// Services
+#include "nodes/mec/MECOrchestrator/services/MecAppLifecycleManager/MecAppLifecycleManager.h"
+#include "nodes/mec/MECOrchestrator/services/MecAppMigrationManager/MecAppMigrationManager.h"
+#include "nodes/mec/MECOrchestrator/services/MecAppRegistry/MecAppRegistry.h"
+
+// Interfaces
+#include "nodes/mec/MECOrchestrator/interfaces/IOrchestrationApi.h"
 
 namespace simu5g {
 
 using namespace omnetpp;
 
-struct mecAppMapEntry
-{
-    int contextId;
-    std::string appDId;
-    std::string mecAppName;
-    std::string mecAppIsntanceId;
-    int mecUeAppID;         //ID
-    cModule* mecHost; // reference to the mecHost where the mec app has been deployed
-    cModule* vim;       // for virtualisationInfrastructureManager methods
-    cModule* mecpm;     // for mecPlatformManager methods
+struct mecAppMapEntry {
+  int contextId;
+  std::string appDId;
+  std::string mecAppName;
+  std::string mecAppIsntanceId;
+  int mecUeAppID; // ID
+  cModule
+      *mecHost; // reference to the mecHost where the mec app has been deployed
+  cModule *vim; // for virtualisationInfrastructureManager methods
+  cModule *mecpm; // for mecPlatformManager methods
 
-    std::string ueSymbolicAddres;
-    inet::L3Address ueAddress;  //for downstream using UDP Socket
-    int uePort;
-    inet::L3Address mecAppAddress;  //for downstream using UDP Socket
-    int mecAppPort;
+  std::string ueSymbolicAddres;
+  inet::L3Address ueAddress; // for downstream using UDP Socket
+  int uePort;
+  inet::L3Address mecAppAddress; // for downstream using UDP Socket
+  int mecAppPort;
 
-    bool isEmulated;
+  bool isEmulated;
 
-    int lastAckStartSeqNum;
-    int lastAckStopSeqNum;
-
-};
-
-struct standByElement
-{
-    unsigned int request;
-    cModule* mecpm;
-    int mecUeAppID; 
+  int lastAckStartSeqNum;
+  int lastAckStopSeqNum;
 };
 
 class UALCMPMessage;
@@ -73,147 +77,137 @@ class ReactionOnUpdate;
 
 //
 // This module implements the MEC orchestrator of a MEC system.
-// It does not follow ETSI compliant APIs, but the it handles the lifecycle operations
-// of the standard by using OMNeT++ features.
-// Communications with the LCM proxy occur via connections, while the MEC hosts associated with
-// the MEC system (and the MEC orchestrator) are managed with the mecHostList parameter.
+// It does not follow ETSI compliant APIs, but the it handles the lifecycle
+// operations of the standard by using OMNeT++ features. Communications with the
+// LCM proxy occur via connections, while the MEC hosts associated with the MEC
+// system (and the MEC orchestrator) are managed with the mecHostList parameter.
 // This MEC orchestrator provides:
 //   - MEC app instantiation
 //   - MEC app termination
 //   - MEC app run-time onboarding
 //
 
-class MecOrchestrator : public cSimpleModule
-{
-    // Selection Policies modules access grants
-    friend class SelectionPolicyBase;
-    friend class MecServiceSelectionBased;
-    friend class AvailableResourcesSelectionBased;
-    friend class MecHostSelectionBased;
-    friend class LocationSelectionBased;
+class MecOrchestrator : public cSimpleModule, public IOrchestratorApi {
+  // Selection Policies modules access grants
+  friend class SelectionPolicyBase;
+  friend class MecServiceSelectionBased;
+  friend class AvailableResourcesSelectionBased;
+  friend class MecHostSelectionBased;
+  friend class LocationSelectionBased;
 
-    friend class ReactionOnUpdate;
-    friend class RemoveOnExit;
-    friend class MigrateOnChange;
+  SelectionPolicyBase *mecHostSelectionPolicy_;
+  ReactionOnUpdate *reactionOnUpdate_;
 
-    SelectionPolicyBase* mecHostSelectionPolicy_;
-    ReactionOnUpdate* reactionOnUpdate_;
+  //------------------------------------
+  // Binder module
+  Binder *binder_;
+  //------------------------------------
 
-    //------------------------------------
-    //Binder module
-    Binder* binder_;
-    //------------------------------------
+  std::vector<cModule *> mecHosts;
+  // PERFORMANCE IMPROVEMENT: Index for O(1) MEC host lookup by name
+  std::unordered_map<std::string, cModule*> mecHostIndex_;
 
-    //parent modules
+  // NEW
+  std::unique_ptr<MecAppRegistry> mecAppRegistry_;
+  std::unique_ptr<MecAppLifecycleManager> mecAppLifecycleManager_;
+  std::unique_ptr<MecAppMigrationManager> mecAppMigrationManager_;
 
-    std::vector<cModule*> mecHosts;
+  std::map<std::string, std::pair<std::string, std::string>> userMEHMap;
 
-    //storing the UEApp and MEApp informations
-    //key = contextId - value mecAppMapEntry
-    std::map<int, mecAppMapEntry> meAppMap;
-    std::map<std::string, ApplicationDescriptor> mecApplicationDescriptors_;
+  int contextIdCounter;
 
-    unsigned int requestCounter;
-    std::map<unsigned int, standByElement> standByList;
+  double onboardingTime;
+  double instantiationTime;
+  double terminationTime;
 
-    std::map<std::string, std::pair<std::string, std::string>> userMEHMap;
+  double migrationTime_;
+  double migrationTimeout_;
 
-    int contextIdCounter;
+public:
+  MecOrchestrator();
+  virtual ~MecOrchestrator();
+  const ApplicationDescriptor *
+  getApplicationDescriptorByAppName(std::string &appName) const;
+  const std::map<std::string, ApplicationDescriptor> *
+  getAllApplicationDescriptors() const;
 
-    double onboardingTime;
-    double instantiationTime;
-    double terminationTime;
+  /*
+   * This method registers the MEC service on all the Service Registry of the
+   * MEC host associated with the MEC system
+   *
+   * @param ServiceDescriptor descriptor of the MEC service to register
+   */
+  void registerMecService(ServiceDescriptor &) const;
+  // IOrchestratorApi methods
+  void removeAppFromSystem(std::string ueAddress,
+                           std::string oldMEHId) override;
+  MigrationResult migrateApp(std::string ueAddress, std::string newMEHId,
+                             std::string oldMEHId) override;
+  MigrationResult checkIfMigrationIsNeeded(std::string ueAddress,
+                                           std::string oldMEHId,
+                                           std::string newMEHId) override;
+  MigrationResult completeMigration(UALCMPMessage *ackMsg) override;
+  std::string getAppCurrentMEH(std::string ueAddress) override;
 
-    double migrationTime;
+  double getMigrationTime() const { return migrationTime_; }
 
-    public:
-        MecOrchestrator();
-        const ApplicationDescriptor* getApplicationDescriptorByAppName(std::string& appName) const;
-        const std::map<std::string, ApplicationDescriptor>* getApplicationDescriptors() const { return &mecApplicationDescriptors_;}
+protected:
+  virtual int numInitStages() const { return inet::NUM_INIT_STAGES; }
+  void initialize(int stage);
+  virtual void handleMessage(cMessage *msg);
 
-        /*
-         * This method registers the MEC service on all the Service Registry of the MEC host associated
-         * with the MEC system
-         *
-         * @param ServiceDescriptor descriptor of the MEC service to register
-         */
-        void registerMecService(ServiceDescriptor&) const;
-        nlohmann::json formatDataFromRAVENS(std::vector<UserEntryUpdate> UserEntryUpdatedList);
-        std::string postRequestPrediction(const std::string &url, const nlohmann::json &jsonObject);
-        void migrateAppTime(std::string ueAddress, std::string newMEHId, std::string oldMEHId);
-        void removeAppTime(std::string ueAddress, std::string oldMEHId);
+  void handleUALCMPMessage(cMessage *msg);
 
-        int getMigrationTime() const { return migrationTime; }
+  // sending ACK_CREATE_CONTEXT_APP or ACK_DELETE_CONTEXT_APP
+  void sendCreateAppContextAck(bool result, unsigned int requestSno,
+                               int contextId = -1);
+  void sendDeleteAppContextAck(bool result, unsigned int requestSno,
+                               int contextId = -1);
 
-    protected:
+  void sendMehChangeRequest(std::string ueAddress, std::string newMehId,
+                            int newPort, unsigned int requestNumber);
 
-        virtual int numInitStages() const { return inet::NUM_INIT_STAGES; }
-        void initialize(int stage);
-        virtual void handleMessage(cMessage *msg);
+  /*
+   * This method selects the most suitable MEC host where to deploy the MEC app.
+   * The policies for the choice of the MEC host refer both from computation
+   * requirements and required MEC services.
+   *
+   * The current implementations of the method selects the MEC host based on the
+   * availability of the required resources and the MEC host that also runs the
+   * required MEC service (if any) has precedence among the others.
+   *
+   * @param ApplicationDescriptor with the computation and MEC services
+   * requirements
+   *
+   * @return pointer to the MEC host compound module (if any, else nullptr)
+   */
+  cModule *findBestMecHost(const ApplicationDescriptor &);
 
+  /*
+   * MEC hosts associated to the MEC system are configured through the
+   * mecHostList NED parameter. This method gets the references to them.
+   */
+  void getConnectedMecHosts();
 
+  /*
+   * The list of the MEC app descriptor to be onboarded at initialization time
+   * is configured through the mecApplicationPackageList NED parameter. This
+   * method loads the app descriptors in the mecApplicationDescriptors_ map
+   *
+   */
+  void onboardApplicationPackages();
 
-        void handleUALCMPMessage(cMessage* msg);
+  /*
+   * This method loads the app descriptors at runtime.
+   *
+   * @param ApplicationDescriptor with the computation and MEC services
+   * requirements
+   *
+   * @return ApplicationDescriptor structure of the MEC app descriptor
+   */
+  const ApplicationDescriptor &onboardApplicationPackage(const char *fileName);
+};
 
-        void handleMehChangeAck(UALCMPMessage*);
-
-        // handling CREATE_CONTEXT_APP type
-        // it selects the most suitable MEC host and calls the method of its MEC platform manager to require
-        // the MEC app instantiation
-        void startMECApp(UALCMPMessage*);
-
-        // handling DELETE_CONTEXT_APP type
-        // it calls the method of the MEC platform manager of the MEC host where the MEC app has been deployed
-        // to delete the MEC app
-        void stopMECApp(UALCMPMessage*);
-        void stopMECApp(unsigned int ref);
-
-
-        // sending ACK_CREATE_CONTEXT_APP or ACK_DELETE_CONTEXT_APP
-        void sendCreateAppContextAck(bool result, unsigned int requestSno, int contextId = -1);
-        void sendDeleteAppContextAck(bool result, unsigned int requestSno, int contextId = -1);
-
-        void sendMehChangeRequest(std::string ueAddress, std::string newMehId, int newPort, unsigned int requestNumber);
-
-        /*
-         * This method selects the most suitable MEC host where to deploy the MEC app.
-         * The policies for the choice of the MEC host refer both from computation requirements
-         * and required MEC services.
-         *
-         * The current implementations of the method selects the MEC host based on the availability of the
-         * required resources and the MEC host that also runs the required MEC service (if any) has precedence
-         * among the others.
-         *
-         * @param ApplicationDescriptor with the computation and MEC services requirements
-         *
-         * @return pointer to the MEC host compound module (if any, else nullptr)
-         */
-        cModule* findBestMecHost(const ApplicationDescriptor&);
-
-        /*
-         * MEC hosts associated to the MEC system are configured through the mecHostList NED parameter.
-         * This method gets the references to them.
-         */
-        void getConnectedMecHosts();
-
-        /*
-         * The list of the MEC app descriptor to be onboarded at initialization time is
-         * configured through the mecApplicationPackageList NED parameter.
-         * This method loads the app descriptors in the mecApplicationDescriptors_ map
-         *
-         */
-        void onboardApplicationPackages();
-
-        /*
-         * This method loads the app descriptors at runtime.
-         *
-         * @param ApplicationDescriptor with the computation and MEC services requirements
-         *
-         * @return ApplicationDescriptor structure of the MEC app descriptor
-         */
-        const ApplicationDescriptor& onboardApplicationPackage(const char* fileName);
-    };
-
-} //namespace
+} // namespace simu5g
 
 #endif

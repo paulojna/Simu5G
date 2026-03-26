@@ -20,7 +20,6 @@ Define_Module(RavensAgentApp);
 
 RavensAgentApp::RavensAgentApp(): MecAppBase()
 {
-    std::map<std::string, int> m;
     this->sendInterval = 1; // default value
     this->localSnapshotCounter = 0;
 }
@@ -28,6 +27,7 @@ RavensAgentApp::RavensAgentApp(): MecAppBase()
 RavensAgentApp::~RavensAgentApp()
 {
     cancelAndDelete(userList);
+	delete accessPointRadioInformation;
 }
 
 void RavensAgentApp::initialize(int stage)
@@ -44,23 +44,22 @@ void RavensAgentApp::initialize(int stage)
 
     controllerPort = par("controllerPort");
     localPort_ = par("localPort");
+    ttl_ = par("ttl"); // Initialize TTL
 
     userList = new cMessage("userList");
-    userLocation = new cMessage("userLocation");
 
     accessPoints = std::vector<AccessPointData>();
     users = std::unordered_map<std::string, UserData>();
 
     this->mecHostId = mecHost->getName();
+	this->forceUpdateInterval_ = 5;
+	this->lastSentTimestamp_ = simTime();
+	this->hasPendingUpdates_ = false;
 
-    //define a file with the name of the mec_host -> not necessary anymore
-    /*
-    std::string host = getParentModule()->getFullName();
-    std::string name = host+".csv";
-    myfile.open (name, std::ios_base::app);
-    */
+	accessPointRadioInformation = new AccessPointRadioInfoData();
 
-    cMessage *msg = new cMessage("connectRC");
+    // connection to the RAVENS CONTROLLER
+    auto *msg = new cMessage("connectRC");
     scheduleAt(simTime() + 0.5, msg);
 }
 
@@ -74,17 +73,28 @@ void RavensAgentApp::finish()
     }
 }
 
+/**
+ * Callback invoked when a TCP socket connection is successfully established.
+ * Routes to appropriate setup logic based on socket type: MP1 (service discovery),
+ * LS (access point query), or RNIS (L2 measurement subscription).
+ */
 void RavensAgentApp::established(int connId)
 {
     if(connId == mp1Socket_->getSocketId())
     {
         EV << "RavensAgentApp::established - Mp1Socket" << endl;
+    	std::string host = mp1Socket_->getRemoteAddress().str()+":"+std::to_string(mp1Socket_->getRemotePort());
 
         // get endpoint for the location service
         const char *location_service_uri = "/example/mec_service_mgmt/v1/services?ser_name=LocationService";
-        std::string host = mp1Socket_->getRemoteAddress().str()+":"+std::to_string(mp1Socket_->getRemotePort());
         Http::sendGetRequest(mp1Socket_, host.c_str(), location_service_uri);
-        EV << "RavensAgentApp::established - Request Sent to " << host.c_str() << " to " << location_service_uri << endl;
+    	EV << "RavensAgentApp::established - Request Sent to " << host.c_str() << " to " << location_service_uri << endl;
+
+        // RAVENS V3 - Using RNIS besides LS
+        // Immediately request RNIS service discovery to parallelize setup
+    	const char *rnis_service_uri = "/example/mec_service_mgmt/v1/services?ser_name=RNIService";
+    	Http::sendGetRequest(mp1Socket_, host.c_str(), rnis_service_uri);
+        EV << mecHostId << " - RavensAgentApp::established - Request Sent to " << host.c_str() << " to " << rnis_service_uri << endl;
         return;
     }
     else if (connId == lsSocket_->getSocketId())
@@ -93,12 +103,25 @@ void RavensAgentApp::established(int connId)
         sendAPListRequest();
         return;
     }
+	else if (connId == rnisSocket_->getSocketId())
+	{
+        // RAVENS V3 - Using RNIS besides LS
+        // Send initial query to RNIS for Layer 2 measurements
+		EV << mecHostId << " - RavensAgentApp::established - rnisSocket"<< endl;
+		cMessage *msg = new cMessage("sendL2MeasSub");
+		scheduleAt(simTime() + 0, msg);
+		return;
+	}
     else 
     {
         throw cRuntimeError("RavenAgentApp::socketEstablished - Socket %d not recognized", connId);
     }
 }
 
+/**
+* Sends a join request to the RAVENS Controller to register this MEC agent.
+* Includes the MEC host identifier so the controller knows where the specific agent is located.
+*/
 void RavensAgentApp::sendJoinNetworkRequest()
 {
     EV << "RavensAgentApp::sendJoinNetworkRequest - Sending Join Network Request" << endl;
@@ -114,6 +137,10 @@ void RavensAgentApp::sendJoinNetworkRequest()
     controllerSocket_.send(packet);
 }
 
+/**
+* Sends the list of discovered access points to the RAVENS Controller.
+* This provides the controller with infrastructure topology information for this MEC host.
+*/
 void RavensAgentApp::sendAPList()
 {
     EV << "RavensAgentApp::sendAPList - Sending AP List" << endl;
@@ -129,13 +156,48 @@ void RavensAgentApp::sendAPList()
     controllerSocket_.send(packet);
 }
 
+/**
+ * Sends periodic snapshots of user information to the RAVENS Controller.
+ *
+ * Implements hybrid send strategy:
+ * - Sends immediately when any user has fresh data from Location Service or RNIS (timestamp-based change detection)
+ * - Forces periodic heartbeat updates even without changes to prevent controller timeout
+ *
+ * Before sending, purges stale users whose data hasn't been updated within the TTL window.
+ * Includes both per-user data (location + radio stats) and AP-level radio information in each snapshot.
+ */
 void RavensAgentApp::sendUsersInfoSnapshot()
 {
-    // only send the information if the users map has changed
-    if (users.size() != last_users.size() || !std::equal(users.begin(), users.end(), last_users.begin(), last_users.end(), [](const auto& p1, const auto& p2) {return p1.first == p2.first && p1.second == p2.second; }))
+    // Check if force update interval has been reached
+    bool timeToForceUpdate = (simTime() - lastSentTimestamp_) >= forceUpdateInterval_;
+
+    // PERFORMANCE IMPROVEMENT TEST: Using dirty flag instead of full user scan
+    // Original code commented out for comparison:
+    // bool hasRecentUpdate = false;
+    // for (const auto& [address, user] : users) {
+    //     if (user.getLsUpdate() > lastSentTimestamp_ ||
+    //         user.getRnisUpdate() > lastSentTimestamp_) {
+    //         hasRecentUpdate = true;
+    //         break;
+    //     }
+    // }
+
+    // Send if we have fresh data (dirty flag) OR force interval reached
+    if (hasPendingUpdates_ || timeToForceUpdate)
     {
-        // get the information available on the users map and send it to the controller using the message type USER_INFO_SNAPSHOT
-        EV << "RavensAgentApp::sendUsersInfoSnapshot - Sending User Info Snapshot" << endl;
+        // Purge stale users (TTL check)
+        auto it = users.begin();
+        while (it != users.end()) {
+            if (simTime() - it->second.getLastUpdated() > ttl_) {
+                EV << "RavensAgentApp::sendUsersInfoSnapshot - Purging stale user: " << it->first << endl;
+                it = users.erase(it);
+            } else {
+                ++it;
+            }
+        }
+
+        // Build and send the snapshot message
+        EV << "RavensAgentApp::sendUsersInfoSnapshot - Sending User Info Snapshot (reason: "<< (hasPendingUpdates_ ? "fresh data" : "force update") << ")" << endl;
         inet::Packet* packet = new inet::Packet("RavensLinkUsersInfoSnapshotMessage");
         auto request = inet::makeShared<RavensLinkUsersInfoSnapshotMessage>();
         request->setChunkLength(B(500));
@@ -144,19 +206,42 @@ void RavensAgentApp::sendUsersInfoSnapshot()
         request->setTimeStamp(simTime());
         request->setMecHostId(getMecHostId().c_str());
         request->setUsers(users);
+
+        // Include AP-level radio information
+        if (accessPointRadioInformation != nullptr)
+        {
+            request->setApRadioInfo(*accessPointRadioInformation);
+        }
+        else
+        {
+            EV << "RavensAgentApp::sendUsersInfoSnapshot - WARNING: accessPointRadioInformation is null" << endl;
+        }
+
         packet->insertAtBack(request);
         controllerSocket_.send(packet);
+
+        // Update state
         localSnapshotCounter++;
-        last_users = users;
+        lastSentTimestamp_ = simTime();
+        hasPendingUpdates_ = false;  // Reset dirty flag after sending
+    }
+    else
+    {
+        EV << "RavensAgentApp::sendUsersInfoSnapshot - No fresh data and force interval not reached, skipping send" << endl;
     }
 
-    // schedule the next snapshot to send
+    // Schedule next check
     cMessage *msg = new cMessage("sendUserList");
-    EV << "RavensAgentApp::sendUsersInfoSnapshot - Next snapshot scheduled in " << getRetrievalInterval() << " seconds" << endl;
-    simtime_t interval = simTime() + getRetrievalInterval();
-    scheduleAt(interval, msg);
+    EV << "RavensAgentApp::sendUsersInfoSnapshot - Next check scheduled in " << getRetrievalInterval() << " seconds" << endl;
+    scheduleAt(simTime() + getRetrievalInterval(), msg);
 }
 
+
+/**
+* Processes HTTP responses from the MP1 service registry interface.
+* Parses service discovery responses to extract LocationService and RNIService
+* endpoints, then schedules socket connections to the discovered services.
+*/
 void RavensAgentApp::handleMp1Message(int connId)
 {
     HttpMessageStatus *msgStatus = (HttpMessageStatus*) mp1Socket_->getUserData();
@@ -179,7 +264,7 @@ void RavensAgentApp::handleMp1Message(int connId)
             {
                 if(jsonBody[i]["isLocal"] == "TRUE")
                 {
-                    std::cout << "The choosen one was: " << jsonBody[i]["transportInfo"]["endPoint"]["addresses"] << std::endl;
+                    EV << "The choosen one was: " << jsonBody[i]["transportInfo"]["endPoint"]["addresses"] << std::endl;
                     target = i;
                 }
                 i++;
@@ -192,17 +277,34 @@ void RavensAgentApp::handleMp1Message(int connId)
                 if(jsonBody.contains("transportInfo"))
                 {
                     nlohmann::json endPoint = jsonBody["transportInfo"]["endPoint"]["addresses"];
-                    std::cout << "address: " << endPoint["host"] << " port: " <<  endPoint["port"] << endl;
+                    EV << "address: " << endPoint["host"] << " port: " <<  endPoint["port"] << endl;
                     std::string address = endPoint["host"];
-                    serviceAddress = L3AddressResolver().resolve(address.c_str());;
+                    serviceAddress = L3AddressResolver().resolve(address.c_str());
                     servicePort = endPoint["port"];
                     lsSocket_ = addNewSocket();
                     cMessage *m = new cMessage("connectLS");
                     scheduleAt(simTime()+0, m);
                 }
-            } else 
+            }
+        	else if (serName.compare("RNIService") == 0)
+        	{
+                // RAVENS V3 - Using RNIS besides LS
+                // Store RNIS connection details in dedicated variables to avoid race condition with Location Service
+        		if(jsonBody.contains("transportInfo"))
+        		{
+        			nlohmann::json endPoint = jsonBody["transportInfo"]["endPoint"]["addresses"];
+        			EV << "address: " << endPoint["host"] << " port: " <<  endPoint["port"] << endl;
+        			std::string address = endPoint["host"];
+        			rnisAddress = L3AddressResolver().resolve(address.c_str());
+        			rnisPort = endPoint["port"];
+        			rnisSocket_ = addNewSocket();
+        			cMessage *m = new cMessage("connectRNIService");
+        			scheduleAt(simTime()+0, m);
+        		}
+        	}
+        	else
             {
-                EV << "RavensAgentApp::handleMp1Message - Location Service not found"<< endl;
+                EV << "RavensAgentApp::handleMp1Message - No service found"<< endl;
                 serviceAddress = L3Address();
             }
         }
@@ -216,6 +318,10 @@ void RavensAgentApp::handleMp1Message(int connId)
     }
 }
 
+/**
+* Routes incoming HTTP messages to the appropriate handler based on socket origin.
+* Dispatches to MP1, Location Service, or RNIS message handlers accordingly.
+*/
 void RavensAgentApp::handleHttpMessage(int connId)
 {
     EV << "RavensAgentApp::handleHttpMessage - Http Message Received" <<  connId << endl;
@@ -227,8 +333,27 @@ void RavensAgentApp::handleHttpMessage(int connId)
     {
         handleLSMessage(connId);
     }
+	else if (rnisSocket_ != nullptr && connId == rnisSocket_->getSocketId())
+	{
+		handleRNISMessage(connId);
+	}
 }
 
+/**
+* Handles self-scheduled messages that drive the agent's logic and periodic tasks.
+*
+* Connection handlers:
+*   - "connectMp1": Establishes connection to the MEC Platform (MP1 interface)
+*   - "connectLS": Connects to the Location Service for user/AP tracking
+*   - "connectRNIService": Connects to the RNI Service for radio measurements
+*   - "connectRC": Initiates connection to the RAVENS Controller and sends join request
+*
+* Data transmission handlers:
+*   - "sendAPDetails": Transmits discovered access point list to the controller
+*   - "sendUserListSub": Subscribes to user list notifications from Location Service
+*   - "sendUserList": Sends periodic user info snapshots to the controller
+*   - "sendL2MeasSub": Subscribes to Layer 2 measurement notifications from RNIS
+*/
 void RavensAgentApp::handleSelfMessage(cMessage *msg)
 {
     if(strcmp(msg->getName(), "connectMp1") == 0)
@@ -252,6 +377,23 @@ void RavensAgentApp::handleSelfMessage(cMessage *msg)
                 EV << "RavensAgentApp::handleSelfMessage - Location service socket is already connected" << endl;
         }
         delete msg;
+    }
+	// RAVENS V3
+    else if(strcmp(msg->getName(), "connectRNIService") == 0)
+    {
+    	EV << "RavensAgentApp::handleMessage- " << msg->getName() << endl;
+    	if(!rnisAddress.isUnspecified() && rnisSocket_->getState() != inet::TcpSocket::CONNECTED)
+    	{
+    		connect(rnisSocket_, rnisAddress, rnisPort);
+    	}
+    	else
+    	{
+    		if(rnisAddress.isUnspecified())
+    			EV << "RavensAgentApp::handleSelfMessage - RNI service IP address is  unspecified (maybe response from the service registry is arriving)" << endl;
+    		else if(rnisSocket_->getState() == inet::TcpSocket::CONNECTED)
+    			EV << "RavensAgentApp::handleSelfMessage - RNI service socket is already connected" << endl;
+    	}
+    	delete msg;
     }
     else if(strcmp(msg->getName(), "connectRC") == 0)
     {
@@ -279,12 +421,23 @@ void RavensAgentApp::handleSelfMessage(cMessage *msg)
         sendUsersInfoSnapshot();
         delete msg;
     }
+    else if(strcmp(msg->getName(), "sendL2MeasSub") == 0)
+    {
+    	EV << "RavensAgentApp::handleMessage- " << msg->getName() << endl;
+    	sendL2MeasSubscription();
+    	delete msg;
+    }
     else
     {
-        EV << "RavensAgentApp::handleMessage- " << msg->getName() << endl;
+        EV << "RavensAgentApp::handleMessage - " << msg->getName() << endl;
     }
 }
 
+/**
+* Establishes a UDP socket connection to the RAVENS Controller.
+* Resolves the controller module path and address from configuration parameters.
+* If the controller is not yet available, schedules a retry after 50ms.
+*/
 void RavensAgentApp::connectToRavensController()
 {
     cMessage *msg = new cMessage("connectRC");
@@ -313,6 +466,123 @@ void RavensAgentApp::connectToRavensController()
     } 
 }
 
+/**
+ * Processes HTTP responses from the Radio Network Information Service (RNIS).
+ *
+ * Handles two types of responses:
+ * - Code 201: Confirms successful subscription creation to Layer 2 measurements
+ * - Code 200: Processes subscription notifications containing radio metrics
+ *
+ * When receiving notifications (code 200), extracts and updates:
+ * 1. Cell-level radio statistics (AP-level): PRB usage and PDR metrics stored in accessPointRadioInformation
+ * 2. Per-user radio statistics (UE-level): delay, PDR, and data volume metrics for each connected user
+ *
+ * Uses upsert pattern: only updates radio metrics for users already in the users map (created by Location Service).
+ * Updates both rnisUpdate and lastUpdated timestamps to track data freshness.
+ */
+void RavensAgentApp::handleRNISMessage(int connId)
+{
+	EV << mecHostId << " - RavensAgentApp::handleRNISMessage - RNIS Message Received - Socket ID: " << connId << endl;
+	HttpMessageStatus *msgStatus = (HttpMessageStatus*) rnisSocket_->getUserData();
+	serviceHttpMessage = (HttpBaseMessage*) msgStatus->httpMessageQueue.front();
+	HttpResponseMessage *rspMsg = dynamic_cast<HttpResponseMessage*>(serviceHttpMessage);
+
+    if (rspMsg == nullptr) {
+        EV << mecHostId << " - RavensAgentApp::handleRNISMessage - Error: Received message is not a valid HttpResponseMessage" << endl;
+        return;
+    }
+
+	int code = rspMsg->getCode();
+	EV << mecHostId << " - RavensAgentApp::handleRNISMessage - RNIS Message payload with code " << code << " received with body: " << rspMsg->getBody() << endl;
+
+	if (code == 200)
+	{
+	    //std::cout << mecHostId << " - RNIS 200 response received" << std::endl;
+		nlohmann::json jsonBody = nlohmann::json::parse(serviceHttpMessage->getBody());
+		if (jsonBody.contains("subscriptionNotification")) {
+			nlohmann::json notification = jsonBody["subscriptionNotification"];
+
+			// Update AP-level stats
+			if (notification.contains("cellInfo")) {
+				nlohmann::json cellInfo = notification["cellInfo"];
+				if (cellInfo.contains("ecgi")) {
+					std::string cellId = std::to_string(cellInfo["ecgi"]["cellId"].get<int>());
+					accessPointRadioInformation->setAccessPointId(cellId);
+					accessPointRadioInformation->setDlTotalPrbUsageCell(cellInfo.value("dl_total_prb_usage_cell", 0.0));
+					accessPointRadioInformation->setUlTotalPrbUsageCell(cellInfo.value("ul_total_prb_usage_cell", 0.0));
+					accessPointRadioInformation->setDlNongbrPdrCell(cellInfo.value("dl_nongbr_pdr_cell", 0.0));
+					accessPointRadioInformation->setUlNongbrPdrCell(cellInfo.value("ul_nongbr_pdr_cell", 0.0));
+				}
+			}
+
+			// Update per-user stats
+			if (notification.contains("cellUEInfo")) {
+			    // Handle both array (multiple UEs) and single object (one UE) formats
+			    std::vector<nlohmann::json> ueList;
+			    if (notification["cellUEInfo"].is_array()) {
+			        for (auto &ue : notification["cellUEInfo"]) {
+			            ueList.push_back(ue);
+			        }
+			    } else {
+			        // Single UE case - wrap in vector
+			        ueList.push_back(notification["cellUEInfo"]);
+			    }
+
+			    //std::cout << mecHostId << "RNIS response contains " << ueList.size() << " UEs" << endl;
+				for (auto &ue : ueList) {
+					if (ue.contains("associatedId") && ue["associatedId"].contains("value")) {
+						std::string address = "acr:" + ue["associatedId"]["value"].get<std::string>();
+					    //std::cout << mecHostId << "  RNIS UE address: " << address << std::endl;
+
+						auto it = users.find(address);
+						if (it != users.end()) {
+						    //std::cout << mecHostId << "    -> FOUND in users map, updating RNIS" << std::endl;
+							// Update radio stats for existing user
+							it->second.setDlNongbrDelayUe(ue.value("dl_nongbr_delay_ue", 0.0));
+							it->second.setDlNongbrPdrUe(ue.value("dl_nongbr_pdr_ue", 0.0));
+							it->second.setDlNongbrDataVolumeUe(ue.value("dl_nongbr_data_volume_ue", 0.0));
+							it->second.setUlNongbrDelayUe(ue.value("ul_nongbr_delay_ue", 0.0));
+							it->second.setUlNongbrPdrUe(ue.value("ul_nongbr_pdr_ue", 0.0));
+							it->second.setUlNongbrDataVolumeUe(ue.value("ul_nongbr_data_volume_ue", 0.0));
+							omnetpp::simtime_t dataTime = simTime();
+							it->second.setRnisUpdate(dataTime);
+							it->second.setLastUpdated(dataTime);
+							hasPendingUpdates_ = true;  // Mark dirty for snapshot
+						}
+					    else
+					    {
+					        //std::cout << mecHostId << "    -> NOT FOUND in users map" << std::endl;
+					    }
+					}
+				}
+			}
+		}
+	}
+
+    else if (code == 201)
+    {
+        EV << mecHostId << " - RNIS SUBSCRIPTION CREATED!" << std::endl;
+    }
+    else
+    {
+        EV << "ERROR when getting info from RNIS" << std::endl;
+    }
+}
+
+/**
+ * Processes HTTP responses from the Location Service.
+ *
+ * Handles three types of responses:
+ * - Initial cellList (code 200): Discovers access points and their positions, triggers AP details transmission to controller
+ * - Subscription notification (code 200): Receives periodic user location updates from subscribed cells
+ * - Subscription confirmation (code 201): Confirms successful subscription, triggers periodic snapshot sending
+ *
+ * For user location notifications, implements upsert logic:
+ * - Existing users: Updates location and access point while preserving RNIS radio statistics
+ * - New users: Creates UserData entry with location, will be enriched with radio stats when RNIS updates arrive
+ *
+ * Updates both lsUpdate and lastUpdated timestamps to track when location data was last refreshed.
+ */
 void RavensAgentApp::handleLSMessage(int connId)
 {
     EV << "RavensAgentApp::handleLSMessage - LS Message Received - Socket ID: " << connId << endl;
@@ -325,10 +595,6 @@ void RavensAgentApp::handleLSMessage(int connId)
 
     EV << "RavensAgentApp::handleLSMessage - LS Message payload with code " << code << " received: " <<  serviceHttpMessage->getBody() << endl;
 
-    // clean users vector
-    users.clear();
-
-    // if the response is a 200 OK
     if(code == 200)
     {
         // get the JSON structure
@@ -339,8 +605,8 @@ void RavensAgentApp::handleLSMessage(int connId)
             if(jsonBody.contains("cellList"))
             {
                 nlohmann::json cellList = jsonBody["cellList"];
-                std::cout << "MecHostId" << getMecHostId() << std::endl;
-                std::cout << "cellList: " << jsonBody << std::endl;
+                //std::cout << "MecHostId" << getMecHostId() << std::endl;
+                //std::cout << "cellList: " << jsonBody << std::endl;
                 for (auto& cell : cellList)
                 {
                     std::string cellId = to_string(cell["cellId"]);
@@ -349,6 +615,7 @@ void RavensAgentApp::handleLSMessage(int connId)
                     NodeLocation apLocation = NodeLocation(x, y, 0);
                     AccessPointData apData = AccessPointData(cellId, apLocation);
                     accessPoints.push_back(apData);
+                    apIndex_[cellId] = &accessPoints.back();
                 }
                 // send the information we were just given to the RavensController
                 cMessage *msg = new cMessage("sendAPDetails");
@@ -361,15 +628,11 @@ void RavensAgentApp::handleLSMessage(int connId)
                 {
                     std::string address = user["userInfo"]["address"];
                     std::string accessPointId = to_string(user["userInfo"]["accessPointId"]);
-                    // get accessPointData from accessPoints vector
+                    // get accessPointData from index (O(1) lookup)
                     AccessPointData apData;
-                    for (auto& ap : accessPoints)
-                    {
-                        if(ap.getAccessPointId().compare(accessPointId) == 0)
-                        {
-                            apData = ap;
-                            break;
-                        }
+                    auto apIt = apIndex_.find(accessPointId);
+                    if (apIt != apIndex_.end()) {
+                        apData = *(apIt->second);
                     }
                     EV << "X" << endl;
                     long x = user["userInfo"]["locationInfo"]["x"];
@@ -378,19 +641,37 @@ void RavensAgentApp::handleLSMessage(int connId)
                     //long bearing = user["userInfo"]["locationInfo"]["velocity"]["bearing"];
                     long bearing = user["userInfo"]["locationInfo"]["velocity"]["bearing"].is_null() ? 0 : user["userInfo"]["locationInfo"]["velocity"]["bearing"].get<long>();                    
                     long speed = user["userInfo"]["locationInfo"]["velocity"]["horizontalSpeed"];
+                    
                     UserLocation userLocation = UserLocation(x, y, z, bearing, speed);
-                    UserData userData = UserData(address, apData, userLocation);
-                    users[address] = userData;
-                }
-                // add users to history
-                // history.emplace(userInfoList["timeStamp"], users);
+                    
+                    // Upsert Logic
+                    auto it = users.find(address);
+                    if (it != users.end()) {
+                        // Update existing user (preserves Radio Stats)
+                        it->second.setAccessPointId(apData.getAccessPointId());
+                        it->second.setCurrentLocation(userLocation);
+                        // Recalculate distance to AP after location update
+                        double newDistance = it->second.calculateDistanceToAP(
+                            apData.getAccessPointLocation().getX(),
+                            apData.getAccessPointLocation().getY(),
+                            userLocation.getX(),
+                            userLocation.getY()
+                        );
+                        it->second.setDistanceToAP(newDistance);
+                    	omnetpp::simtime_t dataTime = simTime();
+                    	it->second.setLsUpdate(dataTime);
+                    	it->second.setLastUpdated(dataTime);
 
-                // run through users
-                /*for (auto& user : users)
-                {
-                    // send user data to myfile
-                    myfile << to_string(jsonBody["subscriptionNotification"]["timeStamp"]) << "," << user.first << "," << user.second.getAccessPointId() << "," << user.second.getCurrentLocation().getX() << "," << user.second.getCurrentLocation().getY() << "," << to_string(user.second.getDistanceToAP()) << "," << to_string(user.second.getCurrentLocation().getHorizontalSpeed()) << endl;
-                }*/ 
+                    } else {
+                        // Insert new user
+                        UserData userData = UserData(address, apData, userLocation);
+                    	omnetpp::simtime_t dataTime = simTime();
+                    	userData.setLsUpdate(dataTime);
+                    	userData.setLastUpdated(dataTime);
+                        users[address] = userData;
+                    }
+                    hasPendingUpdates_ = true;  // Mark dirty for snapshot
+                }
             }
         }
         else
@@ -417,6 +698,12 @@ void RavensAgentApp::handleLSMessage(int connId)
     }
 }
 
+/**
+* Processes incoming messages from the RAVENS Controller socket.
+* Handles JOIN_NETWORK_ACK by initiating MP1 connection for service discovery.
+* Handles INFRAESTRUCTURE_DETAILS_ACK by extracting the retrieval rate and
+* scheduling the user list subscription. Delegates other messages to MecAppBase.
+*/
 void RavensAgentApp::handleProcessedMessage(cMessage *msg)
 {
     EV << "RavensAgentApp::handleProcessedMessage - Message Received" <<  msg->getName() << endl;
@@ -458,6 +745,7 @@ void RavensAgentApp::handleProcessedMessage(cMessage *msg)
     }
 }
 
+/** Sends a POST request to subscribe to user list notifications from the Location Service. */
 void RavensAgentApp::sendUsersListSubscription()
 {
     EV << "RavensAgentApp::sendUsersListSubscription - Sending users/list Subscription" << endl;
@@ -476,6 +764,7 @@ void RavensAgentApp::sendUsersListSubscription()
     Http::sendPostRequest(lsSocket_, body.c_str(), host.c_str(), uri.c_str());
 }
 
+/** Sends a POST request to subscribe to user density notifications from the Location Service. */
 void RavensAgentApp::sendUsersDensitySubscription()
 {
     EV << "RavensAgentApp::sendUsersDensitySubscription - Sending users/density Subscription" << endl;
@@ -494,6 +783,39 @@ void RavensAgentApp::sendUsersDensitySubscription()
     Http::sendPostRequest(lsSocket_, body.c_str(), host.c_str(), uri.c_str());
 }
 
+/** Sends a POST request to subscribe to Layer 2 measurement notifications from RNIS. */
+void RavensAgentApp::sendL2MeasSubscription()
+{
+    EV << "RavensAgentApp::sendRNISSubscription - Sending RNIS L2 Measurement Subscription" << endl;
+
+    std::string body =
+        "{ \"L2MeasurementSubscription\": {"
+            "\"callbackReference\": {"
+                "\"callbackData\": \"v0\","
+                "\"notifyURL\": \"ravens.rnis.layer2\"},"
+            "\"cells\": [0],"
+            "\"checkImmediate\": \"true\","  // Get data immediately after subscription
+            "\"frequency\": 1"  // Notification frequency in seconds
+        "}"
+        "}\r\n";
+
+    std::string uri = "/example/rni/v2/subscriptions/layer2_meas";
+    std::string host = rnisSocket_->getRemoteAddress().str() + ":" +
+                       std::to_string(rnisSocket_->getRemotePort());
+
+    Http::sendPostRequest(rnisSocket_, body.c_str(), host.c_str(), uri.c_str());
+}
+
+/** Sends a GET request to query Layer 2 measurements from the RNIS. */
+void RavensAgentApp::sendRNISRequest()
+{
+    const char *users_uri = "/example/rni/v2/queries/layer2_meas";
+    std::string host = rnisSocket_->getRemoteAddress().str()+":"+std::to_string(rnisSocket_->getRemotePort());
+    Http::sendGetRequest(rnisSocket_, host.c_str(), users_uri);
+    EV << mecHostId << " - RavensAgentApp::sendUserListRequest - uri " << users_uri << " to host " << host.c_str() << endl;
+}
+
+/** Sends a GET request to query the list of connected users from the Location Service. */
 void RavensAgentApp::sendUserListRequest()
 {
     const char *users_uri = "/example/location/v2/queries/users";
@@ -503,6 +825,7 @@ void RavensAgentApp::sendUserListRequest()
     return;
 }
 
+/** Sends a GET request to query the list of access points from the Location Service. */
 void RavensAgentApp::sendAPListRequest()
 {
     const char *zones_uri = "/example/location/v2/queries/accessPoints";
@@ -510,19 +833,6 @@ void RavensAgentApp::sendAPListRequest()
     Http::sendGetRequest(lsSocket_, host.c_str(), zones_uri);
     EV << "RavensAgentApp::sendAPListRequest - uri " << zones_uri << " to host " << host.c_str() << endl;
     return;
-}
-
-std::string RavensAgentApp::collectionString(std::vector<std::string> vec)
-{
-    std::string userListString = "";
-    std::stringstream ss;
-    for (size_t i = 0; i < vec.size(); i++) {
-        if (i != 0) {
-            ss << ",";
-        }
-        ss << vec[i];
-    }
-    return ss.str();
 }
 
 void RavensAgentApp::handleServiceMessage(int connId)
@@ -545,6 +855,23 @@ void RavensAgentApp::socketErrorArrived(UdpSocket *socket, inet::Indication *ind
 
 void RavensAgentApp::socketClosed(UdpSocket *socket){
     EV << "RavensAgentApp::socketClosed - socketClosed" << endl;
+}
+
+void RavensAgentApp::socketClosed(inet::TcpSocket* socket)
+{
+    std::string socketType = "UNKNOWN";
+    if (socket == rnisSocket_)
+        socketType = "RNIS";
+    else if (socket == lsSocket_)
+        socketType = "LS";
+    else if (socket == mp1Socket_)
+        socketType = "MP1";
+
+    EV_WARN << "[" << simTime() << "] " << mecHostId
+            << " - TCP SOCKET CLOSED! Socket ID: " << socket->getSocketId()
+            << " (" << socketType << " SOCKET)" << endl;
+
+    MecAppBase::socketClosed(socket);
 }
 
 simtime_t RavensAgentApp::getRetrievalInterval()

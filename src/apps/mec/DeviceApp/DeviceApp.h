@@ -60,6 +60,10 @@ class DeviceApp : public omnetpp::cSimpleModule, public inet::TcpSocket::ICallba
         HttpBaseMessage* UALCMPMessage;
         std::string UALCMPMessageBuffer;
 
+        // RAVENS V3 - Using RNIS besides LS
+        // Queue to handle TCP coalescing (multiple HTTP messages in one segment)
+        omnetpp::cQueue httpMessageQueue;
+
         omnetpp::cMessage* processedUALCMPMessage;
 
         int localPort;

@@ -30,6 +30,12 @@ UEPerfApp::~UEPerfApp()
     cancelAndDelete(selfStart_);
     cancelAndDelete(selfStop_);
 
+	// print the IP of the Device app connected to this UE app
+	//std::cout << simTime() << " -  UEPerfApp Destructor - UE App: " << ueId_ << " connected to Device App IP: " << deviceAppAddress_.str() << std::endl;
+	// print the number of lost packets and the number of messages still pending
+	//std::cout << simTime() << " - UEPerfApp Destructor - UE App: " << ueId_ << " lost " << lostPackets_ << " packets." << std::endl;
+	//std::cout << simTime() << " - UEPerfApp Destructor - UE App: " << ueId_ << " has " << ueRequestMsgs.size() << " pending requests." << std::endl;
+
     // run through ueRequestMsgs and ueTimeoutMsgs and delete or cancel them
     for(auto & ueRequestMsg : ueRequestMsgs)
     {
@@ -51,6 +57,8 @@ UEPerfApp::~UEPerfApp()
     }
 }
 
+	
+
 void UEPerfApp::initialize(int stage)
 {
     EV << "UEPerfApp::initialize - stage " << stage << endl;
@@ -59,6 +67,9 @@ void UEPerfApp::initialize(int stage)
     if (stage!=inet::INITSTAGE_APPLICATION_LAYER)
         return;
 
+	sTime = registerSignal("sTime");
+	eTime = registerSignal("eTime");
+	emit(sTime, simTime());
 
     sno_ = 0;
 
@@ -116,7 +127,7 @@ void UEPerfApp::initialize(int stage)
 
     ueId_ = deviceAppAddress_.str(); 
 
-    std::cout << ueId_ << std::endl;
+    std::cout << "Starting " << ueId_ << std::endl;
 
     // dive the ueId_ into 4 parts divided by the dots and emit the signal for ip_0, ip_1, ip_2, ip_3
     std::string ip = deviceAppAddress_.str();
@@ -161,6 +172,16 @@ void UEPerfApp::handleMessage(cMessage *msg)
         {
             EV << "UEPerfApp::handleMessage - \tSending a new request with IP " << deviceAppAddress_ << endl;
             sendRequest();
+
+            // Clean up the CURRENT request message from the tracking vector
+            for (auto it = ueRequestMsgs.begin(); it != ueRequestMsgs.end(); ++it) {
+                if ((*it)->requestMsg == msg) {
+                    delete *it;             // Delete the wrapper struct
+                    ueRequestMsgs.erase(it);// Remove from vector
+                    break;
+                }
+            }
+            delete msg;
         } 
         else if(!strcmp(msg->getName(), "UeTimeoutMessage"))
         {
@@ -173,6 +194,7 @@ void UEPerfApp::handleMessage(cMessage *msg)
         {
             inet::Packet *packet_to_send = static_cast<inet::Packet*>(msg->getContextPointer());
             socket.sendTo(packet_to_send, deviceAppAddress_, deviceAppPort_);
+            delete msg;
         }
         else
             throw cRuntimeError("UEPerfApp::handleMessage - \tWARNING: Unrecognized self message");
@@ -180,50 +202,59 @@ void UEPerfApp::handleMessage(cMessage *msg)
     // Receiver Side
     else
     {
-        inet::Packet* packet = check_and_cast<inet::Packet*>(msg);
-        inet::L3Address ipAdd = packet->getTag<L3AddressInd>()->getSrcAddress();
+        //inet::Packet* packet = check_and_cast<inet::Packet*>(msg);
+        //inet::L3Address ipAdd = packet->getTag<L3AddressInd>()->getSrcAddress();
+    	inet::Packet *packet = dynamic_cast<inet::Packet*>(msg);
 
-        /*
-         * From Device app
-         * device app usually runs in the UE (loopback), but it could also run in other places
-         */
+    	if(packet != nullptr) {
+    		inet::L3Address ipAdd = packet->getTag<L3AddressInd>()->getSrcAddress();
 
-        
-        if(ipAdd == deviceAppAddress_ || ipAdd == inet::L3Address("127.0.0.1")) // dev app
-        {
-            auto mePkt = packet->peekAtFront<DeviceAppPacket>();
+    		/*
+			 * From Device app
+			 * device app usually runs in the UE (loopback), but it could also run in other places
+			 */
 
-            if (mePkt == 0)
-                throw cRuntimeError("UEPerfApp::handleMessage - \tFATAL! Error when casting to DeviceAppPacket");
 
-            if( !strcmp(mePkt->getType(), ACK_START_MECAPP) )
-                handleAckStartMECRequestApp(msg);
-            else if(!strcmp(mePkt->getType(), ACK_STOP_MECAPP))
-                handleAckStopMECRequestApp(msg);
-            else if(!strcmp(mePkt->getType(), MEH_CHANGE))
-                handleChangeMecHost(msg);
-            else
-                throw cRuntimeError("UEPerfApp::handleMessage - \tFATAL! Error, DeviceAppPacket type %s not recognized", mePkt->getType());
-        }
-        // From MEC application
-        else
-        {
-            auto mePkt = packet->peekAtFront<RequestResponseAppPacket>();
-            if (mePkt == 0)
-                throw cRuntimeError("UEPerfApp::handleMessage - \tFATAL! Error when casting to RequestAppPacket");
+    		if(ipAdd == deviceAppAddress_ || ipAdd == inet::L3Address("127.0.0.1")) // dev app
+    		{
+    			auto mePkt = packet->peekAtFront<DeviceAppPacket>();
 
-            if(mePkt->getType() == MECAPP_RESPONSE)
-                recvResponse(msg);
-            else if(mePkt->getType() == UEAPP_ACK_STOP)
-                handleStopApp(msg);
-            else
-                throw cRuntimeError("UEPerfApp::handleMessage - \tFATAL! Error, RequestAppPacket type %d not recognized", mePkt->getType());
-        }
+    			if (mePkt == 0)
+    				throw cRuntimeError("UEPerfApp::handleMessage - \tFATAL! Error when casting to DeviceAppPacket");
+
+    			if( !strcmp(mePkt->getType(), ACK_START_MECAPP) )
+    				handleAckStartMECRequestApp(msg);
+    			else if(!strcmp(mePkt->getType(), ACK_STOP_MECAPP))
+    				handleAckStopMECRequestApp(msg);
+    			else if(!strcmp(mePkt->getType(), MEH_CHANGE))
+    				handleChangeMecHost(msg);
+    			else
+    				throw cRuntimeError("UEPerfApp::handleMessage - \tFATAL! Error, DeviceAppPacket type %s not recognized", mePkt->getType());
+    		}
+    		// From MEC application
+    		else
+    		{
+    			auto mePkt = packet->peekAtFront<RequestResponseAppPacket>();
+    			if (mePkt == 0)
+    				throw cRuntimeError("UEPerfApp::handleMessage - \tFATAL! Error when casting to RequestAppPacket");
+
+    			if(mePkt->getType() == MECAPP_RESPONSE)
+    				recvResponse(msg);
+    			else if(mePkt->getType() == UEAPP_ACK_STOP)
+    				handleStopApp(msg);
+    			else
+    				throw cRuntimeError("UEPerfApp::handleMessage - \tFATAL! Error, RequestAppPacket type %d not recognized", mePkt->getType());
+    		}
+    	}
+    	else {
+    		delete msg;
+    	}
     }
 }
 
 void UEPerfApp::finish()
 {
+    emit(eTime, simTime());
     std::cout << simTime() << " - UEPerfApp with deviceApp ip " << deviceAppAddress_ <<  " finished!" << std::endl;
 }
 
@@ -379,7 +410,7 @@ void UEPerfApp::sendRequest()
     socket.sendTo(pkt, mecAppAddress_ , mecAppPort_);
 
     EV<<"UEPerfApp::sendRequest() - Request sent and stored on stanby with sno [" << sno_ << "]" << endl;
-    //std::cout << "UEPerfApp::sendRequest() - Request sent and stored on stanby with sno [" << sno_ << "]" << std::endl;
+    //std::cout << simTime() << " - UEPerfApp::sendRequest() with" << deviceAppAddress_ << " - Request sent and stored on stanby with sno [" << sno_ << "]" << std::endl;
 
     scheduleAt(simTime() + requestPeriod_, request); // next request
     scheduleAt(simTime() + requestTimeout_, sendRequestTimeout); // timeout
@@ -389,7 +420,7 @@ void UEPerfApp::sendRequest()
     reqMsg->requestMsg = request;
     reqMsg->sno = sno_;
     ueRequestMsgs.push_back(reqMsg);
-    ueTimeoutMsgs.push_back(sendRequestTimeout);
+    ueTimeoutMsgs.insert(sendRequestTimeout);
     sno_++;
 }
 
@@ -432,7 +463,7 @@ void UEPerfApp::recvResponse(cMessage* msg)
     }
     else
     {
-        EV << "UEPerfApp::recvResponse - Received a response with sno [" << res->getSno() << "] that is not in the map" << endl;
+        EV << simTime() << " - UEPerfApp::recvResponse - Received a response with sno [" << res->getSno() << "] that is not in the map" << endl;
         //std::cout << "entramos aqui" << std::endl;
         delete packet;
         return;
@@ -444,15 +475,9 @@ void UEPerfApp::recvResponse(cMessage* msg)
 
     mehostId_ = res->getMecHostId();
 
-    //std::cout << "MEC HOST ID" << mecHostId << std::endl;
+	//std::cout << simTime() << " - UEPerfApp: response received with respTime: " << respTime << endl;
 
-    EV << "UEPerfApp::recvResponse - message with sno [" << res->getSno() << "] " <<
-            "upLinkDelay [" << upLinkDelay << "ms]\t" <<
-            "downLinkDelay [" << downLinkDelay << "ms]\t" <<
-            "processingTime [" << res->getProcessingTime() << "ms]\t" <<
-            "serviceResponseTime [" << res->getServiceResponseTime() << "ms]\t" <<
-            "responseTime [" << respTime << "ms]" << 
-            "mecHostId [" << mehostId_ << "]" << endl;
+    //std::cout << "MEC HOST ID" << mecHostId << std::endl;
     //emit stats
     emit(upLinkTime_, upLinkDelay);
     emit(downLinkTime_, downLinkDelay);
@@ -472,13 +497,15 @@ void UEPerfApp::handleUeTimeoutMessage(UeTimeoutMessage* msg)
     {
         //remove the packet from the map
         ueRequestMap.erase(it);
+        lostPackets_++;
+        emit(lostMessages_, 1);
     }
 
     
-    auto it_timeout = std::find(ueTimeoutMsgs.begin(), ueTimeoutMsgs.end(), msg);
+    auto it_timeout = ueTimeoutMsgs.find(msg);
     if(it_timeout != ueTimeoutMsgs.end())
     {
-        ueTimeoutMsgs.erase(it_timeout); // Remove the pointer from the vector
+        ueTimeoutMsgs.erase(it_timeout); // Remove the pointer from the set
     } 
     
     delete msg;

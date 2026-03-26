@@ -18,6 +18,8 @@
 
 #include "nodes/mec/MECPlatform/ServiceRegistry/ServiceRegistry.h"
 
+#include "AccessPointRadioInfoData.h"
+
 #include "apps/mec/MecApps/MecAppBase.h"
 #include "inet/common/lifecycle/NodeStatus.h"
 
@@ -40,6 +42,12 @@ protected:
     simtime_t sendInterval;
     int localSnapshotCounter;
 
+	// to work with our Lazy Heartbeat logic
+	simtime_t forceUpdateInterval_;
+	simtime_t lastSentTimestamp_;
+    simtime_t ttl_; // Added TTL for user data freshness
+    bool hasPendingUpdates_; // Dirty flag to avoid full user scan
+
     std::string mecHostId;
 
     inet::UdpSocket controllerSocket_;
@@ -48,20 +56,25 @@ protected:
     int controllerPort;
     inet::L3Address controllerAddress_;
 
+    // RAVENS V3 - Using RNIS besides LS
+    int rnisPort;
+    inet::L3Address rnisAddress;
+
     inet::TcpSocket* lsSocket_;
     inet::TcpSocket* mp1Socket_;
+    inet::TcpSocket* rnisSocket_;
 
     HttpBaseMessage* mp1HttpMessage;
     HttpBaseMessage* serviceHttpMessage;
 
     cMessage *userList;
-    cMessage *userLocation;
-    
+
+
     std::vector<AccessPointData> accessPoints;
-    std::unordered_map<std::string, UserData> users; 
-    // to compare before sending the information to the controller to ensure that we are not sending the same information twice
-    std::unordered_map<std::string, UserData> last_users; 
-    std::map<long, std::map<std::string, UserData>> history;
+	std::unordered_map<std::string, AccessPointData*> apIndex_;
+    std::unordered_map<std::string, UserData> users;
+
+	AccessPointRadioInfoData* accessPointRadioInformation;
 
     virtual int numInitStages() const override { return inet::NUM_INIT_STAGES; }
     virtual void initialize(int stage) override;
@@ -79,13 +92,17 @@ protected:
     virtual void established(int connId) override;
 
     void handleLSMessage(int connId);
+	void handleRNISMessage(int connId);
 
     void sendUserListRequest();
+	// for RAVENS V3
     void sendUserLocationRequest();
+	void sendRNISRequest();
     void sendAPListRequest();
 
     void sendUsersDensitySubscription();
     void sendUsersListSubscription();
+	void sendL2MeasSubscription();
 
     void connectToRavensController();
     void sendJoinNetworkRequest();
@@ -99,8 +116,7 @@ protected:
     virtual void socketDataArrived(inet::UdpSocket *socket, inet::Packet *packet) override;
     virtual void socketErrorArrived(inet::UdpSocket *socket, inet::Indication *indication) override;
     virtual void socketClosed(inet::UdpSocket *socket) override;
-
-    std::string collectionString(std::vector<std::string> vec);
+	virtual void socketClosed(inet::TcpSocket *socket) override;
 
 
 public:

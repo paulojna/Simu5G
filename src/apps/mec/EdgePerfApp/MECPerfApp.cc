@@ -49,14 +49,16 @@ MECPerfApp::~MECPerfApp()
 
     requestQueue_ = std::queue<requestInfo*>();
 
-    removeSocket(serviceSocket_);
+    if (serviceSocket_ != nullptr)
+        removeSocket(serviceSocket_);
     
     //if(serviceSocket_->getState() == inet::TcpSocket::CONNECTED)
     //    serviceSocket_->close();
 
-    //std::cout << "APP IN MECHOST " << mecHost->getName() << " FINISHED" << std::endl;
-
-    
+	//print the IP of the UE app connected to this MEC app
+	//std::cout << simTime() << " - MECPerfApp Destructor - MEC Host: " << mecHost->getName() << " connected to UE IP: " << ueAppAddress.str() << std::endl;
+	//print the number of requests processed
+	//std::cout << simTime() << " - MECPerfApp Destructor - MEC Host: " << mecHost->getName() << " To be processed: " << requestQueue_.size() << " requests." << std::endl;
 }
 
 void MECPerfApp::initialize(int stage)
@@ -118,10 +120,12 @@ void MECPerfApp::handleProcessedMessage(cMessage *msg)
 
 void MECPerfApp::finish()
 {
+    EV << "MECPerfApp::finish" << std::endl;
     MecAppBase::finish();
     if(gate("socketOut")->isConnected())
     {
-        serviceSocket_->close();
+        if (serviceSocket_ != nullptr)
+            serviceSocket_->close();
         //std::cout << simTime() << " - MECPerfApp::finish - serviceSocket_ state" << serviceSocket_->getState() << std::endl;
     }
 }
@@ -146,7 +150,8 @@ void MECPerfApp::handleRequest(cMessage* msg)
     reqInfo->msgArrivedInfo_ = simTime();
     reqInfo->requestMsg_ = msg;
     requestQueue_.push(reqInfo);
-    //std::cout << simTime() << " - Request Received! Size of requestQueue: " << requestQueue_.size() << std::endl;
+    EV << "MECPerfApp::handleRequest from user at " << reqInfo->requestMsg_ << endl;
+    EV << simTime() << " MECPerfApp - Request Received! Size of requestQueue: " << requestQueue_.size() << std::endl;
     if(requestQueue_.size() == 1)
     {
         sendGetRequest();
@@ -183,10 +188,13 @@ void MECPerfApp::sendResponse()
     pkt->insertAtBack(req);
     
     if(ueAppSocket_.getState() != inet::UdpSocket::CLOSED)
+    {
+        EV << "Sending response to: " << ueAppAddress << endl;
         ueAppSocket_.sendTo(pkt, ueAppAddress, ueAppPort);
+    }
     else
     {
-        EV << "MECPerfApp::sendResponse - socket is not connected" << endl;
+        EV << "MECPerfApp::sendResponse - socket to " << ueAppAddress << " is not connected" << endl;
         return;
     }
 
@@ -301,13 +309,13 @@ void MECPerfApp::doComputation()
 void MECPerfApp::sendGetRequest()
 {
     //check if the ueAppAddress is specified
-    if (serviceSocket_->getState() == inet::TcpSocket::CONNECTED) {
+    if (serviceSocket_ != nullptr && serviceSocket_->getState() == inet::TcpSocket::CONNECTED) {
         EV << "MECPerfApp::sendGetRequest(): send request to the Location Service" << endl;
         std::stringstream uri;
         uri << "/example/location/v2/queries/users"; //TODO filter the request to get less data
         EV << "MECPerfApp::requestLocation(): uri: " << uri.str() << endl;
         std::string host = serviceSocket_->getRemoteAddress().str() + ":" + std::to_string(serviceSocket_->getRemotePort());
-        //std::cout << "MECPerfApp::sendGetRequest"<< std::endl;    
+        EV << "MECPerfApp::sendGetRequest"<< std::endl;
         Http::sendGetRequest(serviceSocket_, host.c_str(), uri.str().c_str());
         // save the time when the request was sent into the oldest request in the queue
         requestQueue_.front()->getRequestSentInfo_ = simTime();
@@ -331,6 +339,14 @@ void MECPerfApp::established(int connId)
 
         Http::sendGetRequest(mp1Socket_, host.c_str(), uri);
     }
+    else if (serviceSocket_ != nullptr && connId == serviceSocket_->getSocketId())
+    {
+        EV << "MECPerfApp::established - ServiceSocket" << endl;
+        if(!requestQueue_.empty())
+        {
+            sendGetRequest();
+        }
+    }
 
 }
 
@@ -345,6 +361,8 @@ void MECPerfApp::socketClosed(inet::TcpSocket *sock)
     else
     {
         EV <<"Service socket closed" << endl;
+        if (serviceSocket_ == sock)
+            serviceSocket_ = nullptr;
         removeSocket(sock);
         //sendStopAck();
     }

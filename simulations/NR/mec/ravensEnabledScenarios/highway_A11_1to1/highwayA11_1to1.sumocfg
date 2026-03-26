@@ -12,13 +12,12 @@
 
     <time>
     	<begin value="0"/>
-    	<end value="400"/>
-    	<step-length value="0.1"/>
+    	<end value="3600"/>
+    	<step-length value="1"/>
     </time>
 
     <report>
         <xml-validation value="never"/>
         <xml-validation.net value="never"/>
     </report>
-
 </configuration>

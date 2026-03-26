@@ -22,7 +22,7 @@ simple UEPerfApp like IApp
         int deviceAppPort = default(4000); // ipAddress of the DeviceApp
         string deviceAppAddress; // port of the DeviceApp
                 
-        int requestPacketSize = default(300);
+        int requestPacketSize = default(1500);
         
         int tos = default(-1); // if not -1, set the Type Of Service (IPv4) / Traffic Class (IPv6) field of sent packets to this value
         
@@ -61,6 +61,12 @@ simple UEPerfApp like IApp
 
         @signal[lostMessages];
         @statistic[lostMessages](title="lostMessages"; source="lostMessages"; record=stats, mean, vector);
+
+        @signal[sTime];
+        @statistic[sTime](title="sTime"; source="sTime"; record=last);
+
+        @signal[eTime];
+        @statistic[eTime](title="eTime"; source="eTime"; record=last);
 
         @signal[ip_0];
         @statistic[ip_0](title="ip_0"; source="ip_0"; record=last);

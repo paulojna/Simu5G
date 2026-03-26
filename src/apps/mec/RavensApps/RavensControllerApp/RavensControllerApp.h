@@ -23,7 +23,7 @@
 
 #include "MECHostData.h"
 #include "DataUpdates/UserMEHUpdate.h"
-#include "DataUpdates/UserEntryUpdate.h"
+#include "DataUpdates/MigrationPrediction.h"
 
 #include "../RavensLinkPacket_m.h"
 #include "../UsersInfoPacket_m.h"
@@ -33,16 +33,16 @@
 #include <fstream>
 
 namespace simu5g {
+	using namespace omnetpp;
 
-using namespace omnetpp;
-
-// the most updated state of a given user 
+// the most updated state of a given user
 struct UserState
 {
     std::string userId;
     std::string currentMEH;
     simtime_t timestamp;
     UserData userData;
+    simtime_t lastHandoverTime;  // Track last handover time for ping-pong prevention
 };
 
 // structure that contains the type of change and the user data at the moment the change happens
@@ -71,8 +71,10 @@ class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket:
         int threshold_;
 
         // Data structures to be sent to the MEO depending on the mode we are in
-        std::vector<UserMEHUpdate> userUpdates; 
-        std::vector<UserEntryUpdate> userEntryUpdates; 
+        // PERFORMANCE IMPROVEMENT: Changed from vector to map for O(1) lookup in addUserUpdate()
+        // Original: std::vector<UserMEHUpdate> userUpdates;
+        std::unordered_map<std::string, UserMEHUpdate> userUpdates;
+		std::unordered_map<std::string, MigrationPrediction> migrationPredictions;
 
         inet::UdpSocket udpSocket;
         inet::SocketMap socketMap;
@@ -80,7 +82,7 @@ class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket:
         friend class LocationDataHandlerPolicyBase;
         friend class SaveDataHistory;
         friend class NotifyOnDataChange;
-        friend class NotifyOnUserEntry;
+        friend class SendToExternalServer;
         
         LocationDataHandlerPolicyBase* locationDataHandlerPolicy_;
 
@@ -92,6 +94,7 @@ class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket:
 
     protected:
         virtual void initialize(int stage) override;
+        virtual void finish() override;
 
         virtual void handleMessageWhenUp(cMessage *msg) override;
         virtual void handleStartOperation(inet::LifecycleOperation *operation) override;
@@ -111,14 +114,16 @@ class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket:
 
         // methods to deal with userStateMap
         void updateUserStateMap(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet);
+        void updateMehStateMap(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet); // Added new method
         std::vector<UserState> removeInactiveUsers();
+
+        // Ping-pong prevention helper - checks if handover should be accepted based on lockout
+        bool shouldAcceptHandover(const std::string& userId, const std::string& newMEH);
 
         std::string getMecHostIdFromAccessPointId(std::string accessPointId);
 
         void handleSelfMessage(inet::cMessage *msg);
 
-        void calculateAvgNetworkData();
-    
     public:
         RavensControllerApp();
         ~RavensControllerApp();

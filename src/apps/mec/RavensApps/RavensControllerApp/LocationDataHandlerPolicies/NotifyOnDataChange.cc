@@ -9,9 +9,7 @@ namespace simu5g {
 
 NotifyOnDataChange::NotifyOnDataChange(RavensControllerApp *controllerApp, int treshold) : LocationDataHandlerPolicyBase(controllerApp)
 {
-    stanby_treshold_ = treshold;
-    //controllerApp_->hostsDataHistory[simTime()] = controllerApp_->hostsData;
-    EV << "NotifyOnDataChange::NotifyOnDataChange - max_iterations = " << max_iterations << endl;
+
 }
 
 /*
@@ -25,8 +23,10 @@ NotifyOnDataChange::NotifyOnDataChange(RavensControllerApp *controllerApp, int t
 */
 inet::Packet *NotifyOnDataChange::handleDataMessage(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet)
 {
-    // remove the inactive users
-    std::vector<UserState> removedUsers = controllerApp_->removeInactiveUsers();
+	inet::Packet* pck = nullptr; // Initialize pck to nullptr as before
+
+	// remove the inactive users
+	std::vector<UserState> removedUsers = controllerApp_->removeInactiveUsers();
 
     // add the removed users to the userUpdates list
     for (auto &user : removedUsers)
@@ -44,10 +44,16 @@ inet::Packet *NotifyOnDataChange::handleDataMessage(inet::Ptr<const RavensLinkUs
     // run through the users in the snapshot and check if they are in the userStateMap
     for (const auto &user : updatedSnapshot->getUsers())
     {
+        // Only consider users with valid radio stats (attached to this MEC Host's cell)
+        // Assuming -1 indicates invalid/no connection
+        if(user.second.getDlNongbrDelayUe() == -1) {
+            continue; 
+        }
+
         auto userIt = controllerApp_->userStateMap.find(user.first);
         if (userIt == controllerApp_->userStateMap.end())
         {
-            // add the user to the userUpdates list
+            // New user - ALWAYS add to userUpdates (not a handover, no lockout check needed)
             UserMEHUpdate update;
             update.setLastMEHId("");
             update.setNewMEHId(updatedSnapshot->getMecHostId());
@@ -59,39 +65,55 @@ inet::Packet *NotifyOnDataChange::handleDataMessage(inet::Ptr<const RavensLinkUs
             // user is in the map, let's check if the user has changed MEH
             if (userIt->second.currentMEH != updatedSnapshot->getMecHostId())
             {
-                // add the user to the userUpdates list
-                UserMEHUpdate update;
-                update.setLastMEHId(userIt->second.currentMEH);
-                update.setNewMEHId(updatedSnapshot->getMecHostId());
-                update.setAddress(user.second.getAddress());
-                addUserUpdate(update);
+                // This IS a handover - check if it will be accepted (ping-pong prevention)
+                if (controllerApp_->shouldAcceptHandover(user.first, updatedSnapshot->getMecHostId()))
+                {
+                    UserMEHUpdate update;
+                    update.setLastMEHId(userIt->second.currentMEH);
+                    update.setNewMEHId(updatedSnapshot->getMecHostId());
+                    update.setAddress(user.second.getAddress());
+                    addUserUpdate(update);
+                }
+                else
+                {
+                    EV << "NotifyOnDataChange - Handover NOT added to userUpdates (lockout active for " << user.first << ")" << endl;
+                }
             }
         }
     }
+	// Update MEH State (Radio Info)
+	controllerApp_->updateMehStateMap(received_packet);
 
     // update the userStateMap
     controllerApp_->updateUserStateMap(received_packet);
+
+    // return nullptr since we don't need to send any packet
+    return pck;
 }
 
 void NotifyOnDataChange::addUserUpdate(UserMEHUpdate &update)
 {
-    EV << "NotifyOnDataChange::addUserUpdate - user " << update.getAddress() << " was sent to be added to the userUpdates list" << endl;
+    EV << "NotifyOnDataChange::addUserUpdate - user " << update.getAddress() << " was sent to be added to the userUpdates map" << endl;
 
-    // check if the user is already in the list, if so update the values
-    for (auto &userUpdate : controllerApp_->userUpdates)
-    {
-        if (userUpdate.getAddress() == update.getAddress())
-        {
-            userUpdate.setLastMEHId(update.getLastMEHId());
-            userUpdate.setNewMEHId(update.getNewMEHId());
-            EV << "NotifyOnDataChange::addUserUpdate - user " << update.getAddress() << " was updated in the userUpdates list" << endl;
-            return;
-        }
+    // PERFORMANCE IMPROVEMENT: O(1) insert/update using map instead of O(n) linear search
+    // Original linear search code commented out for reference:
+    // for (auto &userUpdate : controllerApp_->userUpdates) {
+    //     if (userUpdate.getAddress() == update.getAddress()) {
+    //         userUpdate.setLastMEHId(update.getLastMEHId());
+    //         userUpdate.setNewMEHId(update.getNewMEHId());
+    //         return;
+    //     }
+    // }
+    // controllerApp_->userUpdates.push_back(update);
+
+    const std::string& address = update.getAddress();
+    auto [it, inserted] = controllerApp_->userUpdates.insert_or_assign(address, update);
+
+    if (inserted) {
+        EV << "NotifyOnDataChange::addUserUpdate - user " << address << " added to the userUpdates map" << endl;
+    } else {
+        EV << "NotifyOnDataChange::addUserUpdate - user " << address << " was updated in the userUpdates map" << endl;
     }
-
-    // if the user is not in the list, add it
-    controllerApp_->userUpdates.push_back(update);
-    EV << "NotifyOnDataChange::addUserUpdate - user " << update.getAddress() << " added to the userUpdates list" << endl;
 }
 
 }

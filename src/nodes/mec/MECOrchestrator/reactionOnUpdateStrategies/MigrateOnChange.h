@@ -3,18 +3,19 @@
 
 #include "ReactionOnUpdate.h"
 
-#include "nodes/mec/MECPlatformManager/MecPlatformManager.h"
-#include "nodes/mec/VirtualisationInfrastructureManager/VirtualisationInfrastructureManager.h"
+//#include "nodes/mec/MECPlatformManager/MecPlatformManager.h"
+//#include "nodes/mec/VirtualisationInfrastructureManager/VirtualisationInfrastructureManager.h"
+
+class IOrchestratorApi;
 
 namespace simu5g {
 
 class MigrateOnChange : public ReactionOnUpdate
 {
-  protected:
-    virtual void reactOnUpdate(const UserMEHUpdate&) override;
-    virtual void reactOnUpdate(const std::vector<UserEntryUpdate>&) override;
   public:
-    MigrateOnChange(MecOrchestrator* mecOrchestrator):ReactionOnUpdate(mecOrchestrator){}
+    using ReactionOnUpdate::ReactionOnUpdate; 
+    virtual void reactOnUpdate(const simu5g::UserMEHUpdate&) override;
+    virtual void reactOnUpdate(const std::vector<simu5g::MigrationPrediction>&) override;
     virtual ~MigrateOnChange(){}
 };
 

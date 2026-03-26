@@ -155,9 +155,11 @@ void UALCMPApp::handleUpdateMEHIpMessage(UALCMPMessage *msg)
     for(; it != socketMap.getMap().end(); ++it)
     {
         inet::TcpSocket *socket = check_and_cast_nullable<inet::TcpSocket *>(it->second);
-        if(socket->getRemoteAddress().str().c_str() == ueAddress)
+
+        // Compare string contents, not pointer addresses
+        if(socket->getRemoteAddress().str() == ueAddress)
         {
-            EV << "UALCMPApp::handleUpdateMEHIpMessage - found the socket for the device app in: " << socket->getRemoteAddress().str().c_str() << " that needs to reconnect in " << newMehIp << ":" << newMehPort << endl;
+            EV << "UALCMPApp::handleUpdateMEHIpMessage - found the socket for the device app in: " << ueAddress << " that needs to reconnect in " << newMehIp << ":" << newMehPort << endl;
             // send the new MEH IP to the device app through a POST request
             nlohmann::json jsonRequestBody;
             jsonRequestBody["newMehIp"] = newMehIp;
@@ -331,7 +333,7 @@ void UALCMPApp::handleGETRequest(const HttpRequestMessage *currentRequestMessage
 
         else { //no query params
             nlohmann::ordered_json appList;
-            auto appDescs = mecOrchestrator_->getApplicationDescriptors();
+            auto appDescs = mecOrchestrator_->getAllApplicationDescriptors();
             auto it = appDescs->begin();
             for(; it != appDescs->end() ; ++it)
             {
