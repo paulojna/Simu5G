@@ -22,6 +22,8 @@ RavensAgentApp::RavensAgentApp(): MecAppBase()
 {
     this->sendInterval = 1; // default value
     this->localSnapshotCounter = 0;
+    this->accessPointRadioInformation = nullptr;
+    this->userList = nullptr;
 }
 
 RavensAgentApp::~RavensAgentApp()
@@ -429,7 +431,8 @@ void RavensAgentApp::handleSelfMessage(cMessage *msg)
     }
     else
     {
-        EV << "RavensAgentApp::handleMessage - " << msg->getName() << endl;
+        EV << "RavensAgentApp::handleMessage - Unrecognized message: " << msg->getName() << endl;
+        delete msg;
     }
 }
 
@@ -738,6 +741,7 @@ void RavensAgentApp::handleProcessedMessage(cMessage *msg)
                 cMessage *msg = new cMessage("sendUserListSub");
                 scheduleAt(simTime() + 0, msg);
             }
+            delete packet;
         } catch (const cRuntimeError& err)
         {
             std::cerr << "received uncastable msg with name " << msg->getName() << " of class " << msg->getClassName() << std::endl;
