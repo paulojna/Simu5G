@@ -591,6 +591,11 @@ void RavensAgentApp::handleLSMessage(int connId)
     serviceHttpMessage = (HttpBaseMessage*) msgStatus->httpMessageQueue.front();
     HttpResponseMessage *rspMsg = dynamic_cast<HttpResponseMessage*>(serviceHttpMessage);
 
+    if (rspMsg == nullptr) {
+        EV << "RavensAgentApp::handleLSMessage - Error: received message is not a valid HttpResponseMessage" << endl;
+        return;
+    }
+
     int code = rspMsg->getCode();
 
     EV << "RavensAgentApp::handleLSMessage - LS Message payload with code " << code << " received: " <<  serviceHttpMessage->getBody() << endl;
