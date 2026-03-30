@@ -69,9 +69,6 @@ protected:
     HttpBaseMessage* mp1HttpMessage;
     HttpBaseMessage* serviceHttpMessage;
 
-    cMessage *userList;
-
-
     std::vector<AccessPointData> accessPoints;
 	std::unordered_map<std::string, size_t> apIndex_;
     std::unordered_map<std::string, UserData> users;

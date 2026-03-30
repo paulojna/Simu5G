@@ -23,12 +23,10 @@ RavensAgentApp::RavensAgentApp(): MecAppBase()
     this->sendInterval = 1; // default value
     this->localSnapshotCounter = 0;
     this->accessPointRadioInformation = nullptr;
-    this->userList = nullptr;
 }
 
 RavensAgentApp::~RavensAgentApp()
 {
-    cancelAndDelete(userList);
 	delete accessPointRadioInformation;
 }
 
@@ -47,8 +45,6 @@ void RavensAgentApp::initialize(int stage)
     controllerPort = par("controllerPort");
     localPort_ = par("localPort");
     ttl_ = par("ttl"); // Initialize TTL
-
-    userList = new cMessage("userList");
 
     accessPoints = std::vector<AccessPointData>();
     users = std::unordered_map<std::string, UserData>();
