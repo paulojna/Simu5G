@@ -22,6 +22,8 @@ precompiled_*.h.*
 *CLAUDE*
 
 *.idea/*
+.clangd
+.zed/
 
 # output and result files
 .settings/
