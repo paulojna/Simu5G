@@ -112,7 +112,7 @@ void RavensAgentApp::established(int connId)
 		scheduleAt(simTime() + 0, msg);
 		return;
 	}
-    else 
+    else
     {
         throw cRuntimeError("RavenAgentApp::socketEstablished - Socket %d not recognized", connId);
     }
@@ -259,7 +259,7 @@ void RavensAgentApp::handleMp1Message(int connId)
             int i = 0;
             //std::cout << jsonBody << std::endl;
             // jsonBody is a list of json objects. Lets run through it
-    
+
             while(i < jsonBody.size())
             {
                 if(jsonBody[i]["isLocal"] == "TRUE")
@@ -457,13 +457,13 @@ void RavensAgentApp::connectToRavensController()
         controllerSocket_.setOutputGate(gate("socketOut"));
         controllerSocket_.bind(localPort_);
         controllerSocket_.setCallback(this);
-        
+
         controllerAddress_ = L3AddressResolver().resolve(par("controllerAddress")); // ravensController
-        
+
         EV << "Connecting to " << controllerAddress_ << " port=" << controllerPort << endl;
-        
-        controllerSocket_.connect(controllerAddress_, controllerPort);    
-    } 
+
+        controllerSocket_.connect(controllerAddress_, controllerPort);
+    }
 }
 
 /**
@@ -615,7 +615,7 @@ void RavensAgentApp::handleLSMessage(int connId)
                     NodeLocation apLocation = NodeLocation(x, y, 0);
                     AccessPointData apData = AccessPointData(cellId, apLocation);
                     accessPoints.push_back(apData);
-                    apIndex_[cellId] = &accessPoints.back();
+                    apIndex_[cellId] = accessPoints.size() - 1;
                 }
                 // send the information we were just given to the RavensController
                 cMessage *msg = new cMessage("sendAPDetails");
@@ -632,18 +632,18 @@ void RavensAgentApp::handleLSMessage(int connId)
                     AccessPointData apData;
                     auto apIt = apIndex_.find(accessPointId);
                     if (apIt != apIndex_.end()) {
-                        apData = *(apIt->second);
+                        apData = accessPoints[apIt->second];
                     }
                     EV << "X" << endl;
                     long x = user["userInfo"]["locationInfo"]["x"];
                     long y = user["userInfo"]["locationInfo"]["y"];
                     long z = user["userInfo"]["locationInfo"]["z"];
                     //long bearing = user["userInfo"]["locationInfo"]["velocity"]["bearing"];
-                    long bearing = user["userInfo"]["locationInfo"]["velocity"]["bearing"].is_null() ? 0 : user["userInfo"]["locationInfo"]["velocity"]["bearing"].get<long>();                    
+                    long bearing = user["userInfo"]["locationInfo"]["velocity"]["bearing"].is_null() ? 0 : user["userInfo"]["locationInfo"]["velocity"]["bearing"].get<long>();
                     long speed = user["userInfo"]["locationInfo"]["velocity"]["horizontalSpeed"];
-                    
+
                     UserLocation userLocation = UserLocation(x, y, z, bearing, speed);
-                    
+
                     // Upsert Logic
                     auto it = users.find(address);
                     if (it != users.end()) {
@@ -728,7 +728,7 @@ void RavensAgentApp::handleProcessedMessage(cMessage *msg)
                 EV << "RavensAgentApp::handleProcessedMessage - Rate received: " << infrastructureDetailsAck->getRate() << endl;
                 simtime_t interval = infrastructureDetailsAck->getRate();
                 // convert to int
-                int intervalInt = (int) interval.dbl();  
+                int intervalInt = (int) interval.dbl();
                 setRetrievalInterval(intervalInt/1000);
                 cMessage *msg = new cMessage("sendUserListSub");
                 scheduleAt(simTime() + 0, msg);

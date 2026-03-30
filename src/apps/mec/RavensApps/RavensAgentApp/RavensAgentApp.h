@@ -3,6 +3,8 @@
 #ifndef _APPS_MEC_MEAPPS_RAAPP_H_
 #define _APPS_MEC_MEAPPS_RAAPP_H_
 
+#include <cstddef>
+#include <iterator>
 #define JOIN_NETWORK_REQUEST 0
 #define JOIN_NETWORK_ACK 1
 #define INFRAESTRUCTURE_DETAILS 2
@@ -36,7 +38,7 @@ using namespace std;
 
 using namespace omnetpp;
 
-class RavensAgentApp : public MecAppBase, public inet::UdpSocket::ICallback  
+class RavensAgentApp : public MecAppBase, public inet::UdpSocket::ICallback
 {
 protected:
     simtime_t sendInterval;
@@ -71,7 +73,7 @@ protected:
 
 
     std::vector<AccessPointData> accessPoints;
-	std::unordered_map<std::string, AccessPointData*> apIndex_;
+	std::unordered_map<std::string, size_t> apIndex_;
     std::unordered_map<std::string, UserData> users;
 
 	AccessPointRadioInfoData* accessPointRadioInformation;
