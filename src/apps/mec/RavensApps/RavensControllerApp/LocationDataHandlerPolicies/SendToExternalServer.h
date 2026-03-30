@@ -5,7 +5,7 @@
 #include "../../RavensControllerUpdatePacket_m.h"
 #include "../DataUpdates/MigrationPrediction.h"
 
-#include <nlohmann/json.hpp>
+#include "nodes/mec/utils/httpUtils/json.hpp"
 #include <curl/curl.h>
 #include <string>
 
