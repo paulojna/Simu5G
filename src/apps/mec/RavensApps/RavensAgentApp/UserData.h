@@ -15,18 +15,8 @@ class UserData
         std::string accessPointId;
         UserLocation currentLocation;
         double distance_to_ap;
-        
-        omnetpp::simtime_t lastUpdated; // Added timestamp
-		omnetpp::simtime_t rnisUpdate;
-	    omnetpp::simtime_t lsUpdate;
 
-        // RNIS Radio Metrics
-        double dl_nongbr_delay_ue;
-        double dl_nongbr_pdr_ue;
-        double dl_nongbr_data_volume_ue;
-        double ul_nongbr_delay_ue;
-        double ul_nongbr_pdr_ue;
-        double ul_nongbr_data_volume_ue;
+        omnetpp::simtime_t timestamp;
 
     public:
         UserData();
@@ -38,35 +28,14 @@ class UserData
         void setAccessPointId(const std::string& accessPointId);
         void setCurrentLocation(const UserLocation& currentLocation);
         void setDistanceToAP(double distance);
-        void setLastUpdated(omnetpp::simtime_t time); // Added setter
-		void setRnisUpdate(omnetpp::simtime_t time);
-		void setLsUpdate(omnetpp::simtime_t time);
+        void setTimestamp(omnetpp::simtime_t time);
 
         // getters
         std::string getAddress() const;
         std::string getAccessPointId() const;
         UserLocation getCurrentLocation() const;
         double getDistanceToAP() const;
-        omnetpp::simtime_t getLastUpdated() const; // Added getter
-		omnetpp::simtime_t getRnisUpdate() const;
-		omnetpp::simtime_t getLsUpdate() const;
-
-
-        // RNIS Radio Metrics Getters
-        double getDlNongbrDelayUe() const;
-        double getDlNongbrPdrUe() const;
-        double getDlNongbrDataVolumeUe() const;
-        double getUlNongbrDelayUe() const;
-        double getUlNongbrPdrUe() const;
-        double getUlNongbrDataVolumeUe() const;
-
-        // RNIS Radio Metrics Setters
-        void setDlNongbrDelayUe(double delay);
-        void setDlNongbrPdrUe(double pdr);
-        void setDlNongbrDataVolumeUe(double dataVolume);
-        void setUlNongbrDelayUe(double delay);
-        void setUlNongbrPdrUe(double pdr);
-        void setUlNongbrDataVolumeUe(double dataVolume);
+        omnetpp::simtime_t getTimestamp() const;
 
         // method that calculates the eculedean distance between two points
         double calculateDistanceToAP(long x_AP, long y_AP, long x_UE, long y_UE);

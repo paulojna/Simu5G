@@ -50,7 +50,7 @@ simple RavensAgentApp like IMECApp, IApp
 
         int localPort = default(1993);
 
-        double ttl @unit(s) = default(5s);
+        double frameInterval @unit(s) = default(3s); // default, overridden by Controller ACK
 		
 	gates:
 	 	input mePlatformIn;

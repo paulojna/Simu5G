@@ -11,7 +11,9 @@
 #include "nodes/mec/MECPlatform/MECServices/packets/HttpRequestMessage/HttpRequestMessage.h"
 #include "nodes/mec/MECPlatform/MECServices/packets/HttpResponseMessage/HttpResponseMessage.h"
 
+#include <filesystem>
 #include <map>
+#include <unordered_set>
 
 namespace simu5g {
 
@@ -20,7 +22,6 @@ Define_Module(RavensAgentApp);
 
 RavensAgentApp::RavensAgentApp(): MecAppBase()
 {
-    this->sendInterval = 1; // default value
     this->localSnapshotCounter = 0;
     this->accessPointRadioInformation = nullptr;
 }
@@ -44,15 +45,14 @@ void RavensAgentApp::initialize(int stage)
 
     controllerPort = par("controllerPort");
     localPort_ = par("localPort");
-    ttl_ = par("ttl"); // Initialize TTL
 
     accessPoints = std::vector<AccessPointData>();
     users = std::unordered_map<std::string, UserData>();
 
     this->mecHostId = mecHost->getName();
-	this->forceUpdateInterval_ = 5;
-	this->lastSentTimestamp_ = simTime();
-	this->hasPendingUpdates_ = false;
+
+    frameInterval_ = par("frameInterval");
+    agentMode_ = AGENT_MODE_CONTROL_AND_DATA; // default until ACK received
 
 	accessPointRadioInformation = new AccessPointRadioInfoData();
 
@@ -569,18 +569,33 @@ void RavensAgentApp::handleRNISMessage(int connId)
 }
 
 /**
- * Processes HTTP responses from the Location Service.
+ * Handles HTTP responses from the Location Service (LS).
  *
- * Handles three types of responses:
- * - Initial cellList (code 200): Discovers access points and their positions, triggers AP details transmission to controller
- * - Subscription notification (code 200): Receives periodic user location updates from subscribed cells
- * - Subscription confirmation (code 201): Confirms successful subscription, triggers periodic snapshot sending
+ * The LS sends the full list of currently attached UEs on every notification
+ * (replacement semantics — absence from the list means the UE is gone).
+ * This function runs at 1s granularity (LS subscription frequency) and is
+ * the sole source of truth for user presence at this MEH.
  *
- * For user location notifications, implements upsert logic:
- * - Existing users: Updates location and access point while preserving RNIS radio statistics
- * - New users: Creates UserData entry with location, will be enriched with radio stats when RNIS updates arrive
+ * Three response types:
  *
- * Updates both lsUpdate and lastUpdated timestamps to track when location data was last refreshed.
+ * code 200 / cellList:
+ *   One-time response to the initial AP list query. Populates accessPoints
+ *   and apIndex_, then triggers AP details transmission to the Controller.
+ *
+ * code 200 / subscriptionNotification:
+ *   Periodic UE list from the LS subscription. Runs the eRAVENS diff logic:
+ *   1. Upsert loop — updates existing users, inserts new ones.
+ *      New users are recorded in pendingEntries_ with firstDetectedAt and
+ *      sampleCount, which accumulate across 1s intervals until the next
+ *      control frame fires (every frameInterval_).
+ *   2. Departure detection — any user in the local map absent from this
+ *      notification is removed immediately and added to pendingExits_.
+ *      pendingExits_ tracks firstDetectedAt and sampleCount so the Controller
+ *      receives confidence context (e.g. absent for 3 samples = confident EXIT).
+ *   Both pending maps are cleared by sendControlEvents() after each frame.
+ *
+ * code 201:
+ *   Subscription confirmed. Schedules the first frame timer.
  */
 void RavensAgentApp::handleLSMessage(int connId)
 {
@@ -590,7 +605,8 @@ void RavensAgentApp::handleLSMessage(int connId)
     serviceHttpMessage = (HttpBaseMessage*) msgStatus->httpMessageQueue.front();
     HttpResponseMessage *rspMsg = dynamic_cast<HttpResponseMessage*>(serviceHttpMessage);
 
-    if (rspMsg == nullptr) {
+    if (rspMsg == nullptr)
+    {
         EV << "RavensAgentApp::handleLSMessage - Error: received message is not a valid HttpResponseMessage" << endl;
         return;
     }
@@ -601,16 +617,13 @@ void RavensAgentApp::handleLSMessage(int connId)
 
     if(code == 200)
     {
-        // get the JSON structure
         nlohmann::json jsonBody = nlohmann::json::parse(serviceHttpMessage->getBody());
         if(!jsonBody.empty())
         {
-            // find if the json contains the cellList and fill the accessPoints vector
+            // --- AP list (one-time, on initial query) ---
             if(jsonBody.contains("cellList"))
             {
                 nlohmann::json cellList = jsonBody["cellList"];
-                //std::cout << "MecHostId" << getMecHostId() << std::endl;
-                //std::cout << "cellList: " << jsonBody << std::endl;
                 for (auto& cell : cellList)
                 {
                     std::string cellId = to_string(cell["cellId"]);
@@ -621,40 +634,42 @@ void RavensAgentApp::handleLSMessage(int connId)
                     accessPoints.push_back(apData);
                     apIndex_[cellId] = accessPoints.size() - 1;
                 }
-                // send the information we were just given to the RavensController
                 cMessage *msg = new cMessage("sendAPDetails");
                 scheduleAt(simTime() + 0.5, msg);
             }
+            // --- Periodic UE list from subscription ---
             else if(jsonBody.contains("subscriptionNotification"))
             {
                 nlohmann::json userInfoList = jsonBody["subscriptionNotification"]["userInfoList"];
+
+                // Build current address set while upserting — single pass over userInfoList.
+                // currentLSAddrs is used after the loop for departure detection.
+                std::unordered_set<std::string> currentLSAddrs;
                 for (auto& user : userInfoList)
                 {
                     std::string address = user["userInfo"]["address"];
+                    currentLSAddrs.insert(address);
+
                     std::string accessPointId = to_string(user["userInfo"]["accessPointId"]);
-                    // get accessPointData from index (O(1) lookup)
                     AccessPointData apData;
                     auto apIt = apIndex_.find(accessPointId);
                     if (apIt != apIndex_.end()) {
                         apData = accessPoints[apIt->second];
                     }
-                    EV << "X" << endl;
-                    long x = user["userInfo"]["locationInfo"]["x"];
-                    long y = user["userInfo"]["locationInfo"]["y"];
-                    long z = user["userInfo"]["locationInfo"]["z"];
-                    //long bearing = user["userInfo"]["locationInfo"]["velocity"]["bearing"];
-                    long bearing = user["userInfo"]["locationInfo"]["velocity"]["bearing"].is_null() ? 0 : user["userInfo"]["locationInfo"]["velocity"]["bearing"].get<long>();
-                    long speed = user["userInfo"]["locationInfo"]["velocity"]["horizontalSpeed"];
 
+                    long x       = user["userInfo"]["locationInfo"]["x"];
+                    long y       = user["userInfo"]["locationInfo"]["y"];
+                    long z       = user["userInfo"]["locationInfo"]["z"];
+                    long bearing = user["userInfo"]["locationInfo"]["velocity"]["bearing"].is_null() ? 0 : user["userInfo"]["locationInfo"]["velocity"]["bearing"].get<long>();
+                    long speed   = user["userInfo"]["locationInfo"]["velocity"]["horizontalSpeed"];
                     UserLocation userLocation = UserLocation(x, y, z, bearing, speed);
 
-                    // Upsert Logic
                     auto it = users.find(address);
-                    if (it != users.end()) {
-                        // Update existing user (preserves Radio Stats)
+                    if (it != users.end())
+                    {
+                        // Existing user — update location state, preserve identity
                         it->second.setAccessPointId(apData.getAccessPointId());
                         it->second.setCurrentLocation(userLocation);
-                        // Recalculate distance to AP after location update
                         double newDistance = it->second.calculateDistanceToAP(
                             apData.getAccessPointLocation().getX(),
                             apData.getAccessPointLocation().getY(),
@@ -662,19 +677,54 @@ void RavensAgentApp::handleLSMessage(int connId)
                             userLocation.getY()
                         );
                         it->second.setDistanceToAP(newDistance);
-                    	omnetpp::simtime_t dataTime = simTime();
-                    	it->second.setLsUpdate(dataTime);
-                    	it->second.setLastUpdated(dataTime);
-
-                    } else {
-                        // Insert new user
-                        UserData userData = UserData(address, apData, userLocation);
-                    	omnetpp::simtime_t dataTime = simTime();
-                    	userData.setLsUpdate(dataTime);
-                    	userData.setLastUpdated(dataTime);
-                        users[address] = userData;
+                        it->second.setTimestamp(simTime());
                     }
-                    hasPendingUpdates_ = true;  // Mark dirty for snapshot
+                    else
+                    {
+                        // New user — insert and track as pending ENTRY.
+                        // timestamp serves as firstDetectedAt for the control frame.
+                        UserData userData = UserData(address, apData, userLocation);
+                        userData.setTimestamp(simTime());
+                        users[address] = userData;
+
+                        // If user reappeared after a pending EXIT, cancel the exit.
+                        // sampleCount accumulates across LS intervals until frame fires.
+                        pendingExits_.erase(address);
+                        auto entryIt = pendingEntries_.find(address);
+                        if (entryIt == pendingEntries_.end())
+                            pendingEntries_[address] = {simTime(), 1};
+                        else
+                            entryIt->second.sampleCount++;
+
+                        EV << "RavensAgentApp::handleLSMessage - New user detected: " << address << endl;
+                    }
+                }
+
+                // Departure detection — LS has replacement semantics: any user
+                // absent from this notification has left this cell. Remove from
+                // users map immediately and accumulate in pendingExits_ so the
+                // Controller receives sampleCount confidence on next control frame.
+                for (auto it = users.begin(); it != users.end(); )
+                {
+                    if (currentLSAddrs.find(it->first) == currentLSAddrs.end())
+                    {
+                        // Cancel any pending ENTRY for this user (left before frame fired)
+                        pendingEntries_.erase(it->first);
+                        auto exitIt = pendingExits_.find(it->first);
+                        if (exitIt == pendingExits_.end())
+                            pendingExits_[it->first] = {simTime(), 1};
+                        else
+                            exitIt->second.sampleCount++;
+
+                        EV << "RavensAgentApp::handleLSMessage - User departed: " << it->first
+                           << " (absent for " << pendingExits_[it->first].sampleCount << " sample(s))" << endl;
+
+                        it = users.erase(it);
+                    }
+                    else
+                    {
+                        ++it;
+                    }
                 }
             }
         }
@@ -727,13 +777,11 @@ void RavensAgentApp::handleProcessedMessage(cMessage *msg)
             }
             else if(received_packet->getType() == INFRAESTRUCTURE_DETAILS_ACK)
             {
-                EV << "RavensAgentApp::handleProcessedMessage - INFRAESTRUCTURE_DETAILS received" << endl;
+                EV << "RavensAgentApp::handleProcessedMessage - INFRAESTRUCTURE_DETAILS_ACK received" << endl;
                 auto infrastructureDetailsAck = packet->peekAtFront<RavensLinkInfrastructureDetailsMessageAck>();
-                EV << "RavensAgentApp::handleProcessedMessage - Rate received: " << infrastructureDetailsAck->getRate() << endl;
-                simtime_t interval = infrastructureDetailsAck->getRate();
-                // convert to int
-                int intervalInt = (int) interval.dbl();
-                setRetrievalInterval(intervalInt/1000);
+                frameInterval_ = infrastructureDetailsAck->getRate() / 1000.0;
+                agentMode_ = infrastructureDetailsAck->getAgentMode();
+                EV << "RavensAgentApp::handleProcessedMessage - frameInterval=" << frameInterval_ << "s, agentMode=" << agentMode_ << endl;
                 cMessage *msg = new cMessage("sendUserListSub");
                 scheduleAt(simTime() + 0, msg);
             }

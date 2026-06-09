@@ -5,13 +5,21 @@
 
 #include <cstddef>
 #include <iterator>
-#define JOIN_NETWORK_REQUEST 0
-#define JOIN_NETWORK_ACK 1
-#define INFRAESTRUCTURE_DETAILS 2
+// Message types (Agent <-> Controller)
+#define JOIN_NETWORK_REQUEST    0
+#define JOIN_NETWORK_ACK        1
+#define INFRAESTRUCTURE_DETAILS     2
 #define INFRAESTRUCTURE_DETAILS_ACK 3
-#define SET_RETRIEVAL_INTERVAL 4
-#define SET_RETRIEVAL_INTERVAL_ACK 5
-#define USERS_INFO_SNAPSHOT 6
+#define DATA_FRAME              6
+#define UE_CONTROL_EVENT        7
+
+// Agent operating mode (set by Controller via INFRAESTRUCTURE_DETAILS_ACK)
+#define AGENT_MODE_CONTROL_ONLY     0
+#define AGENT_MODE_CONTROL_AND_DATA 1
+
+// Control event subtypes (payload of UE_CONTROL_EVENT)
+#define CONTROL_ENTRY 0
+#define CONTROL_EXIT  1
 
 #include "omnetpp.h"
 
@@ -41,14 +49,18 @@ using namespace omnetpp;
 class RavensAgentApp : public MecAppBase, public inet::UdpSocket::ICallback
 {
 protected:
-    simtime_t sendInterval;
     int localSnapshotCounter;
 
-	// to work with our Lazy Heartbeat logic
-	simtime_t forceUpdateInterval_;
-	simtime_t lastSentTimestamp_;
-    simtime_t ttl_; // Added TTL for user data freshness
-    bool hasPendingUpdates_; // Dirty flag to avoid full user scan
+    simtime_t frameInterval_;   // negotiated with Controller, used for both frame types
+    int agentMode_;             // AGENT_MODE_CONTROL_ONLY or AGENT_MODE_CONTROL_AND_DATA
+
+    // Pending control events — accumulated between frame sends, cleared after each frame
+    struct PendingEvent {
+        simtime_t firstDetectedAt;
+        int       sampleCount;
+    };
+    std::unordered_map<std::string, PendingEvent> pendingEntries_; // users appeared since last frame
+    std::unordered_map<std::string, PendingEvent> pendingExits_;   // users absent since last frame
 
     std::string mecHostId;
 
@@ -106,10 +118,8 @@ protected:
     void connectToRavensController();
     void sendJoinNetworkRequest();
     void sendAPList();
-    void sendUsersInfoSnapshot();
-
-    simtime_t getRetrievalInterval();
-    void setRetrievalInterval(simtime_t interval);
+    void sendControlEvents();  // sends control frame if pending entries/exits exist
+    void sendDataFrame();      // sends data frame (only if agentMode_ == AGENT_MODE_CONTROL_AND_DATA)
 
     // udp socket callback methods
     virtual void socketDataArrived(inet::UdpSocket *socket, inet::Packet *packet) override;

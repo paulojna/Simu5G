@@ -1,19 +1,21 @@
 #ifndef _RAVENS_CONTROLLER_APP_H
 #define _RAVENS_CONTROLLER_APP_H
 
-#define JOIN_NETWORK_REQUEST 0
-#define JOIN_NETWORK_ACK 1
-#define INFRAESTRUCTURE_DETAILS 2
+// Message types (Agent <-> Controller)
+#define JOIN_NETWORK_REQUEST    0
+#define JOIN_NETWORK_ACK        1
+#define INFRAESTRUCTURE_DETAILS     2
 #define INFRAESTRUCTURE_DETAILS_ACK 3
-#define SET_RETRIEVAL_INTERVAL 4
-#define SET_RETRIEVAL_INTERVAL_ACK 5
-#define USERS_INFO_SNAPSHOT 6
+#define DATA_FRAME              6
+#define UE_CONTROL_EVENT        7
 
-#define CHANGE_ENTRY 0
-#define CHANGE_MEH 1
-#define CHANGE_POSITION 2
-#define CHANGE_EXIT 3
-#define NO_CHANGE 4
+// Agent operating mode (sent in INFRAESTRUCTURE_DETAILS_ACK)
+#define AGENT_MODE_CONTROL_ONLY     0
+#define AGENT_MODE_CONTROL_AND_DATA 1
+
+// Control event subtypes (payload of UE_CONTROL_EVENT)
+#define CONTROL_ENTRY 0
+#define CONTROL_EXIT  1
 
 #include <inet/networklayer/common/L3AddressResolver.h>
 #include <inet/transportlayer/contract/udp/UdpSocket.h>

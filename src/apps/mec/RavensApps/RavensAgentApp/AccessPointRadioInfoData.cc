@@ -4,23 +4,26 @@ namespace simu5g {
 
 AccessPointRadioInfoData::AccessPointRadioInfoData() {
     this->accessPointId = "";
-    this->dl_total_prb_usage_cell = -1.0;
-    this->ul_total_prb_usage_cell = -1.0;
-    this->dl_nongbr_pdr_cell = -1.0;
-    this->ul_nongbr_pdr_cell = -1.0;
-}
-
-AccessPointRadioInfoData::AccessPointRadioInfoData(const std::string& accessPointId, double dlPrbUsageCell, double ulPrbUsageCell, double dlNongbrPdrCell, double ulNongbrPdrCell) {
-    this->accessPointId = accessPointId;
-    this->dl_total_prb_usage_cell = dlPrbUsageCell;
-    this->ul_total_prb_usage_cell = ulPrbUsageCell;
-    this->dl_nongbr_pdr_cell = dlNongbrPdrCell;
-    this->ul_nongbr_pdr_cell = ulNongbrPdrCell;
+    this->timestamp = 0;
+    this->dl_total_prb_usage_cell = 0.0;
+    this->ul_total_prb_usage_cell = 0.0;
+    this->dl_nongbr_pdr_cell = 0.0;
+    this->ul_nongbr_pdr_cell = 0.0;
+    this->number_of_active_ue_dl_nongbr_cell = 0;
+    this->avg_dl_delay = 0.0;
+    this->avg_ul_delay = 0.0;
+    this->total_dl_data_volume = 0.0;
+    this->total_ul_data_volume = 0.0;
+    this->avg_distance_to_ap = 0.0;
 }
 
 // Getters
 std::string AccessPointRadioInfoData::getAccessPointId() const {
     return this->accessPointId;
+}
+
+omnetpp::simtime_t AccessPointRadioInfoData::getTimestamp() const {
+    return this->timestamp;
 }
 
 double AccessPointRadioInfoData::getDlTotalPrbUsageCell() const {
@@ -39,9 +42,37 @@ double AccessPointRadioInfoData::getUlNongbrPdrCell() const {
     return this->ul_nongbr_pdr_cell;
 }
 
+int AccessPointRadioInfoData::getNumberOfActiveUeDlNongbrCell() const {
+    return this->number_of_active_ue_dl_nongbr_cell;
+}
+
+double AccessPointRadioInfoData::getAvgDlDelay() const {
+    return this->avg_dl_delay;
+}
+
+double AccessPointRadioInfoData::getAvgUlDelay() const {
+    return this->avg_ul_delay;
+}
+
+double AccessPointRadioInfoData::getTotalDlDataVolume() const {
+    return this->total_dl_data_volume;
+}
+
+double AccessPointRadioInfoData::getTotalUlDataVolume() const {
+    return this->total_ul_data_volume;
+}
+
+double AccessPointRadioInfoData::getAvgDistanceToAp() const {
+    return this->avg_distance_to_ap;
+}
+
 // Setters
 void AccessPointRadioInfoData::setAccessPointId(const std::string& accessPointId) {
     this->accessPointId = accessPointId;
+}
+
+void AccessPointRadioInfoData::setTimestamp(omnetpp::simtime_t time) {
+    this->timestamp = time;
 }
 
 void AccessPointRadioInfoData::setDlTotalPrbUsageCell(double dlPrbUsageCell) {
@@ -58,6 +89,30 @@ void AccessPointRadioInfoData::setDlNongbrPdrCell(double dlNongbrPdrCell) {
 
 void AccessPointRadioInfoData::setUlNongbrPdrCell(double ulNongbrPdrCell) {
     this->ul_nongbr_pdr_cell = ulNongbrPdrCell;
+}
+
+void AccessPointRadioInfoData::setNumberOfActiveUeDlNongbrCell(int count) {
+    this->number_of_active_ue_dl_nongbr_cell = count;
+}
+
+void AccessPointRadioInfoData::setAvgDlDelay(double delay) {
+    this->avg_dl_delay = delay;
+}
+
+void AccessPointRadioInfoData::setAvgUlDelay(double delay) {
+    this->avg_ul_delay = delay;
+}
+
+void AccessPointRadioInfoData::setTotalDlDataVolume(double volume) {
+    this->total_dl_data_volume = volume;
+}
+
+void AccessPointRadioInfoData::setTotalUlDataVolume(double volume) {
+    this->total_ul_data_volume = volume;
+}
+
+void AccessPointRadioInfoData::setAvgDistanceToAp(double distance) {
+    this->avg_distance_to_ap = distance;
 }
 
 }
