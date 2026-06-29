@@ -19,6 +19,7 @@
 
 #include <inet/networklayer/common/L3AddressResolver.h>
 #include <inet/transportlayer/contract/udp/UdpSocket.h>
+#include <inet/transportlayer/contract/tcp/TcpSocket.h>
 #include <inet/common/socket/SocketMap.h>
 #include <inet/applications/base/ApplicationBase.h>
 #include <inet/common/packet/PacketFilter.h>
@@ -57,7 +58,9 @@ struct UserStateChange
 
 class LocationDataHandlerPolicyBase;
 
-class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket::ICallback
+class RavensControllerApp: public inet::ApplicationBase,
+                           public inet::UdpSocket::ICallback,
+                           public inet::TcpSocket::ICallback
 {
     private:
         // Structures to hold the state of the MEHs and the users and identify changes in the data
@@ -73,6 +76,10 @@ class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket:
 
         int threshold_;
 
+        int confirmationCount_;         // min samplesSinceChange on ENTRY to confirm handover
+        int exitConfidenceThreshold_;   // min samplesSinceChange on EXIT to act on it
+        double frameInterval_;          // pushed to Agents in INFRAESTRUCTURE_DETAILS_ACK
+
         // Data structures to be sent to the MEO depending on the mode we are in
         // PERFORMANCE IMPROVEMENT: Changed from vector to map for O(1) lookup in addUserUpdate()
         // Original: std::vector<UserMEHUpdate> userUpdates;
@@ -80,6 +87,7 @@ class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket:
 		std::unordered_map<std::string, MigrationPrediction> migrationPredictions;
 
         inet::UdpSocket udpSocket;
+        inet::TcpSocket serverSocket_;  // TCP listener on mgmtPort — accepts Agent handshake connections
         inet::SocketMap socketMap;
 
         friend class LocationDataHandlerPolicyBase;
@@ -104,13 +112,23 @@ class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket:
         virtual void handleStopOperation(inet::LifecycleOperation *operation) override;
         virtual void handleCrashOperation(inet::LifecycleOperation *operation) override;
 
-        // UdpSocket::ICallback mandatory methods
+        // UdpSocket::ICallback
         virtual void socketDataArrived(inet::UdpSocket *socket, inet::Packet *packet) override;
         virtual void socketErrorArrived(inet::UdpSocket *socket, inet::Indication *indication) override;
         virtual void socketClosed(inet::UdpSocket *socket) override;
-    
-        void sendJoinNetworkAck(inet::UdpSocket *socket, inet::L3Address remoteAddress, int port);
-        void sendInfrastructureDetailsAck(inet::UdpSocket *socket, inet::L3Address remoteAddress, int port);
+
+        // TcpSocket::ICallback
+        virtual void socketAvailable(inet::TcpSocket *socket, inet::TcpAvailableInfo *availableInfo) override;
+        virtual void socketEstablished(inet::TcpSocket *socket) override;
+        virtual void socketDataArrived(inet::TcpSocket *socket, inet::Packet *msg, bool urgent) override;
+        virtual void socketPeerClosed(inet::TcpSocket *socket) override;
+        virtual void socketClosed(inet::TcpSocket *socket) override;
+        virtual void socketFailure(inet::TcpSocket *socket, int code) override;
+        virtual void socketStatusArrived(inet::TcpSocket *socket, inet::TcpStatusInfo *status) override;
+        virtual void socketDeleted(inet::TcpSocket *socket) override;
+
+        void sendJoinNetworkAck(inet::TcpSocket *socket);
+        void sendInfrastructureDetailsAck(inet::TcpSocket *socket);
 
         // methods to deal with mehStateMap and userStateMap
         // std::vector<std::pair<std::string, std::string>> detectInactiveUsers();

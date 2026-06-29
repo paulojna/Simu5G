@@ -9,8 +9,8 @@
 #include "LocationDataHandlerPolicies/NotifyOnDataChange.h"
 #include "LocationDataHandlerPolicies/SendToExternalServer.h"
 
-#define USERS_UPDATE 7
-#define MIGRATION_PLAN 8
+#define USERS_UPDATE 20
+#define MIGRATION_PLAN 21
 #define MAX_MEH_STATE_MAP_SIZE 15
 
 namespace simu5g {
@@ -30,9 +30,9 @@ RavensControllerApp::~RavensControllerApp(){
 
 void RavensControllerApp::finish(){
     ApplicationBase::finish();
-    if (udpSocket.isOpen()) {
+    if (udpSocket.isOpen())
         udpSocket.close();
-    }
+    socketMap.deleteSockets();
 }
 
 void RavensControllerApp::initialize(int stage){
@@ -42,6 +42,9 @@ void RavensControllerApp::initialize(int stage){
     snapshot_frequency_ = par("snapshot_frequency");
     snapshot_starting_time_ = par("snapshot_starting_time");
     threshold_ = par("threshold");
+    confirmationCount_ = par("confirmationCount");
+    exitConfidenceThreshold_ = par("exitConfidenceThreshold");
+    frameInterval_ = par("frameInterval");
     update = nullptr;
 
     // start mehStateMap with a maximum size
@@ -84,18 +87,34 @@ void RavensControllerApp::handleMessageWhenUp(cMessage *msg){
     EV << "RavensControllerApp::handleMessage - new message received" << endl;
     if(msg->isSelfMessage()){
         handleSelfMessage(msg);
-    }else{
+    } else if (udpSocket.belongsToSocket(msg)) {
         udpSocket.processMessage(msg);
+    } else if (serverSocket_.belongsToSocket(msg)) {
+        serverSocket_.processMessage(msg);
+    } else if (auto *sock = socketMap.findSocketFor(msg)) {
+        sock->processMessage(msg);
+    } else {
+        EV << "RavensControllerApp::handleMessageWhenUp - unknown message, dropping" << endl;
+        delete msg;
     }
 }
 
 void RavensControllerApp::handleStartOperation(inet::LifecycleOperation *operation){
     EV << "RavensControllerApp::handleStartOperation - start operation" << endl;
-    int port = par("dataPort");
-    EV << "RavensControllerApp::initialize - binding to local port:" << port << endl;
+
+    // UDP data socket — receives event frames and data frames
+    int dataPort = par("dataPort");
     udpSocket.setOutputGate(gate("socketOut"));
-    udpSocket.bind(port);
+    udpSocket.bind(dataPort);
     udpSocket.setCallback(this);
+
+    // TCP mgmt server socket — accepts Agent config handshake connections
+    int mgmtPort = par("mgmtPort");
+    serverSocket_.setOutputGate(gate("socketOut"));
+    serverSocket_.setCallback(this);
+    serverSocket_.bind(mgmtPort);
+    serverSocket_.listen();
+    EV << "RavensControllerApp::handleStartOperation - TCP mgmt listening on port " << mgmtPort << endl;
 }
 
 void RavensControllerApp::handleStopOperation(inet::LifecycleOperation *operation){
@@ -175,57 +194,19 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
 
     if(ravensLinkPacketFilter.matches(packet))
     {
-        EV << "RavensControllerApp::socketDataArrived - ravens link packet received" << endl;
-        // get the type of the message received
+        EV << "RavensControllerApp::socketDataArrived(UDP) - packet received" << endl;
         auto received_packet = packet->peekAtFront<RavensLinkPacket>();
-        if(received_packet->getType() == JOIN_NETWORK_REQUEST)
+        if(received_packet->getType() == DATA_FRAME)
         {
-            //cast the packet from RavensLinkPacket to the specific type of packet
-            auto joinNetworkRequest = packet->peekAtFront<RavensLinkJoinNetworkRequestMessage>();
-
-            EV << "RavensControllerApp::socketDataArrived - join network request received" << endl;
-
-            // Create new MECHostState
-            MECHostData newHostData;
-            newHostData.setHostId(joinNetworkRequest->getMecHostId());
-            newHostData.setL3Address(remoteAddress);
-            newHostData.setPort(srcPort);
-
-            mehStateMap[joinNetworkRequest->getMecHostId()] = newHostData;
-
-            //send back a RAVENS_LINK_PACKET with type JOIN_NETWORK_ACK
-            sendJoinNetworkAck(socket, remoteAddress, srcPort);
+            auto dataFrame = packet->peekAtFront<RavensLinkDataFrameMessage>();
+            updateUserStateMap(dataFrame);
+            updateMehStateMap(dataFrame);
+            locationDataHandlerPolicy_->handleDataMessage(dataFrame);
         }
-        else if(received_packet->getType() == INFRAESTRUCTURE_DETAILS)
+        else if(received_packet->getType() == UE_EVENT)
         {
-            EV << "RavensControllerApp::socketDataArrived - infrastructure details received" << endl;
-
-            auto infrastructureDetails = packet->peekAtFront<RavensLinkInfrastructureDetailsMessage>();
-
-            // Get and log the AP list from the message
-            std::vector<AccessPointData> apList = infrastructureDetails->getAPList();
-            EV << "RavensControllerApp::socketDataArrived - Received APs for host " << infrastructureDetails->getMecHostId() << ":" << endl;
-            for(const auto& ap : apList) {
-                EV << "AP ID: " << ap.getAccessPointId() << endl;
-            }
-
-            // Find the MEC host in our state map
-            auto it = mehStateMap.find(infrastructureDetails->getMecHostId());
-            if(it == mehStateMap.end()) {
-                EV << "RavensControllerApp::socketDataArrived - host " << infrastructureDetails->getMecHostId() << " not found" << endl;
-                return;
-            }
-
-            // Update the host data
-            it->second.setAccessPoints(apList);
-            // Send acknowledgment
-            sendInfrastructureDetailsAck(socket, remoteAddress, srcPort);
-
-            EV << "RavensControllerApp::socketDataArrived - Updated infrastructure details for host " << it->first << ", now managing " << apList.size() << " access points" << endl;
-        }
-        else if(received_packet->getType() == USERS_INFO_SNAPSHOT)
-        {
-            update = locationDataHandlerPolicy_->handleDataMessage(packet->peekAtFront<RavensLinkUsersInfoSnapshotMessage>());
+            auto eventMsg = packet->peekAtFront<RavensLinkEventMessage>();
+            handleEventFrame(eventMsg, remoteAddress, srcPort);
         }
     	delete packet;
     }
@@ -234,8 +215,8 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
     }
 }
 
-void RavensControllerApp::sendJoinNetworkAck(inet::UdpSocket *socket, inet::L3Address remoteAddress, int port){
-    EV << "RavensControllerApp::sendJoinNetworkAck - sending join network ack" << endl;
+void RavensControllerApp::sendJoinNetworkAck(inet::TcpSocket *socket){
+    EV << "RavensControllerApp::sendJoinNetworkAck - sending join network ack over TCP" << endl;
     inet::Packet* packet = new inet::Packet("JoinNetworkAckMessage");
     auto request = inet::makeShared<RavensLinkPacket>();
     request->setChunkLength(inet::B(500));
@@ -243,11 +224,11 @@ void RavensControllerApp::sendJoinNetworkAck(inet::UdpSocket *socket, inet::L3Ad
     request->setRequestId(0);
     request->setTimeStamp(simTime().inUnit(SIMTIME_S));
     packet->insertAtBack(request);
-    socket->sendTo(packet, remoteAddress, port);
+    socket->send(packet);
 }
 
-void RavensControllerApp::sendInfrastructureDetailsAck(inet::UdpSocket *socket, inet::L3Address remoteAddress, int port){
-    EV << "RavensControllerApp::sendInfrastructureDetailsAck - sending infrastructure details ack" << endl;
+void RavensControllerApp::sendInfrastructureDetailsAck(inet::TcpSocket *socket){
+    EV << "RavensControllerApp::sendInfrastructureDetailsAck - sending infrastructure details ack over TCP" << endl;
     inet::Packet* packet = new inet::Packet("RavensLinkInfrastructureDetailsAckMessage");
     auto request = inet::makeShared<RavensLinkInfrastructureDetailsMessageAck>();
     request->setChunkLength(inet::B(500));
@@ -255,9 +236,85 @@ void RavensControllerApp::sendInfrastructureDetailsAck(inet::UdpSocket *socket, 
     request->setRequestId(0);
     request->setTimeStamp(simTime().inUnit(SIMTIME_S));
     request->setInfoType(100);
-    request->setRate(3000);
+    request->setRate((int)(frameInterval_ * 1000));
+    int mode = !strcmp(par("mode"), "NotifyOnDataChange") ? AGENT_MODE_EVENT_ONLY : AGENT_MODE_EVENT_AND_DATA;
+    request->setAgentMode(mode);
     packet->insertAtBack(request);
-    socket->sendTo(packet, remoteAddress, port);
+    socket->send(packet);
+}
+
+// --- TcpSocket::ICallback ---
+
+void RavensControllerApp::socketAvailable(inet::TcpSocket *socket, inet::TcpAvailableInfo *availableInfo){
+    auto *clientSocket = new inet::TcpSocket(availableInfo);
+    clientSocket->setOutputGate(gate("socketOut"));
+    clientSocket->setCallback(this);
+    socketMap.addSocket(clientSocket);
+    socket->accept(availableInfo->getNewSocketId());
+    EV << "RavensControllerApp::socketAvailable - accepted Agent connection" << endl;
+}
+
+void RavensControllerApp::socketEstablished(inet::TcpSocket *socket){
+    EV << "RavensControllerApp::socketEstablished - Agent TCP connection established" << endl;
+}
+
+void RavensControllerApp::socketDataArrived(inet::TcpSocket *socket, inet::Packet *packet, bool urgent){
+    EV << "RavensControllerApp::socketDataArrived(TCP) - packet received" << endl;
+    auto received_packet = packet->peekAtFront<RavensLinkPacket>();
+
+    if(received_packet->getType() == JOIN_NETWORK_REQUEST){
+        auto joinRequest = packet->peekAtFront<RavensLinkJoinNetworkRequestMessage>();
+        EV << "RavensControllerApp::socketDataArrived(TCP) - JOIN_NETWORK_REQUEST from " << joinRequest->getMecHostId() << endl;
+        MECHostData newHostData;
+        newHostData.setHostId(joinRequest->getMecHostId());
+        newHostData.setL3Address(socket->getRemoteAddress());
+        mehStateMap[joinRequest->getMecHostId()] = newHostData;
+        sendJoinNetworkAck(socket);
+    }
+    else if(received_packet->getType() == INFRAESTRUCTURE_DETAILS){
+        auto infraDetails = packet->peekAtFront<RavensLinkInfrastructureDetailsMessage>();
+        EV << "RavensControllerApp::socketDataArrived(TCP) - INFRAESTRUCTURE_DETAILS from " << infraDetails->getMecHostId() << endl;
+        auto it = mehStateMap.find(infraDetails->getMecHostId());
+        if(it == mehStateMap.end()){
+            EV << "RavensControllerApp::socketDataArrived(TCP) - host " << infraDetails->getMecHostId() << " not found, ignoring" << endl;
+            delete packet;
+            return;
+        }
+        it->second.setAccessPoints(infraDetails->getAPList());
+        sendInfrastructureDetailsAck(socket);
+    }
+    delete packet;
+}
+
+void RavensControllerApp::socketPeerClosed(inet::TcpSocket *socket){
+    EV << "RavensControllerApp::socketPeerClosed - Agent closed TCP connection" << endl;
+    socket->close();
+}
+
+void RavensControllerApp::socketClosed(inet::TcpSocket *socket){
+    EV << "RavensControllerApp::socketClosed(TCP)" << endl;
+    socketMap.removeSocket(socket);
+    delete socket;
+}
+
+void RavensControllerApp::socketFailure(inet::TcpSocket *socket, int code){
+    EV << "RavensControllerApp::socketFailure - code=" << code << endl;
+    socketMap.removeSocket(socket);
+    delete socket;
+}
+
+void RavensControllerApp::socketStatusArrived(inet::TcpSocket *socket, inet::TcpStatusInfo *status){}
+
+void RavensControllerApp::socketDeleted(inet::TcpSocket *socket){
+    socketMap.removeSocket(socket);
+}
+
+void RavensControllerApp::handleEventFrame(inet::Ptr<const RavensLinkEventMessage> event,
+                                            inet::L3Address remoteAddress, int srcPort)
+{
+    // TODO Piece 10: confirm/reject handover based on event.samplesSinceChange vs confirmationCount_/exitConfidenceThreshold_
+    EV << "RavensControllerApp::handleEventFrame - received " << event->getEvents().size() << " events from " << remoteAddress << endl;
+    locationDataHandlerPolicy_->handleEventMessage(event);
 }
 
 void RavensControllerApp::socketClosed(inet::UdpSocket *socket){
@@ -290,134 +347,27 @@ std::vector<UserState> RavensControllerApp::removeInactiveUsers(){
     return inactiveUsers;
 }
 
-/*
-    Helper method to determine if a handover should be accepted based on ping-pong prevention logic.
+void RavensControllerApp::updateUserStateMap(inet::Ptr<const RavensLinkDataFrameMessage> received_packet) {
+    std::string hostId = received_packet->getMecHostId();
 
-    Returns true if:
-    - User is new (not in map yet)
-    - User exists and newMEH is different AND lockout period has elapsed
-
-    Returns false if:
-    - Same MEH (not a handover)
-    - Handover lockout is still active
-*/
-bool RavensControllerApp::shouldAcceptHandover(const std::string& userId, const std::string& newMEH)
-{
-    const simtime_t HANDOVER_LOCKOUT = 10.0;  // Skip 3 snapshot cycles to prevent cell-edge oscillation
-
-    auto userIt = userStateMap.find(userId);
-
-    // User doesn't exist yet - always accept (will be an ENTRY, not handover)
-    if (userIt == userStateMap.end()) {
-        return true;
-    }
-
-    // Not a handover - same MEH
-    if (userIt->second.currentMEH == newMEH) {
-        return false;
-    }
-
-    // This is a handover attempt - check lockout
-    simtime_t timeSinceLastHandover = simTime() - userIt->second.lastHandoverTime;
-
-    if (timeSinceLastHandover >= HANDOVER_LOCKOUT) {
-        return true;  // Lockout expired, accept handover
-    }
-
-    EV << "RavensControllerApp::shouldAcceptHandover - Handover rejected for user " << userId
-       << " (lockout active: " << timeSinceLastHandover << "s < " << HANDOVER_LOCKOUT << "s)" << endl;
-
-    return false;  // Lockout still active, reject
-}
-
-/*
-    Method to update the state of the userStateMap. It receives a RavensLinkUsersInfoSnapshotMessage message,
-    checks if each user is already in the map and updates the data if it is.
-
-    PING-PONG PREVENTION:
-    - Applies handover lockout (10s) to prevent cell-edge oscillation
-    - Applies minimum update interval (1s) for same-MEH updates
-    - Filters stale packets based on timestamp
-*/
-void RavensControllerApp::updateUserStateMap(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet){
-    auto usersInfoSnapshot = received_packet;
-
-    // Ping-pong prevention parameters (hardcoded)
-    const simtime_t MIN_UPDATE_INTERVAL = 1.0;    // Minimum time between updates (same MEH)
-    const simtime_t HANDOVER_LOCKOUT = 10.0;      // Skip 3 snapshot cycles to prevent cell-edge oscillation
-
-    // check if the user is already in the map, if so, update the data, if not, add it
-    for(const auto& user : usersInfoSnapshot->getUsers()){
-        // Only update state for attached users (valid radio stats)
-        if(user.second.getDlNongbrDelayUe() == -1) {
-            continue;
-        }
-
-        auto userIt = userStateMap.find(user.first);
-        if(userIt == userStateMap.end()){
-            // user is not in the map, we need to add it
-            userStateMap[user.first].userId = user.second.getAddress();
-            userStateMap[user.first].currentMEH = usersInfoSnapshot->getMecHostId();
-            userStateMap[user.first].timestamp = usersInfoSnapshot->getTimeStamp();
-            userStateMap[user.first].userData = user.second;
-            userStateMap[user.first].lastHandoverTime = simTime();  // Initialize handover timer
-
-            EV << "RavensControllerApp::updateUserStateMap - New user " << user.first
-               << " added to " << usersInfoSnapshot->getMecHostId() << endl;
-        }else{
-            // user is in the map, we need to update the data in userStateMap
-            // RAVENS V3 - Using RNIS besides LS
-            // Check if the timestamp of the new user data is greater than or equal to the timestamp of the user in the map
-            // This prevents stale packets (out-of-order delivery) from overwriting newer data
-
-            // 1. Filter stale packets
-            if (usersInfoSnapshot->getTimeStamp() < userIt->second.timestamp)
-            {
-                EV << "RavensControllerApp::updateUserStateMap - Ignored stale update for user " << user.first << " (old timestamp)" << endl;
+    for (const auto& [address, userData] : received_packet->getUsers()) {
+        auto userIt = userStateMap.find(address);
+        if (userIt == userStateMap.end()) {
+            UserState state;
+            state.userId = address;
+            state.currentMEH = hostId;
+            state.timestamp = received_packet->getTimeStamp();
+            state.userData = userData;
+            userStateMap[address] = state;
+            EV << "RavensControllerApp::updateUserStateMap - New user " << address << " at " << hostId << endl;
+        } else {
+            if (received_packet->getTimeStamp() < userIt->second.timestamp) {
+                EV << "RavensControllerApp::updateUserStateMap - Ignored stale update for user " << address << endl;
                 continue;
             }
-
-            // 2. Check if this is a MEH change (handover)
-            bool isMEHChange = (userIt->second.currentMEH != usersInfoSnapshot->getMecHostId());
-
-            if (isMEHChange)
-            {
-                // Handover attempt - apply lockout to prevent ping-pong
-                simtime_t timeSinceLastHandover = simTime() - userIt->second.lastHandoverTime;
-
-                if (timeSinceLastHandover < HANDOVER_LOCKOUT)
-                {
-                    // Suppress handover - too soon after last handover
-                    EV << "RavensControllerApp::updateUserStateMap - Handover suppressed for user "
-                       << user.first << " (lockout active: " << timeSinceLastHandover << "s < " << HANDOVER_LOCKOUT << "s)" << endl;
-                    continue;  // Ignore this handover attempt
-                }
-
-                // Accept handover
-                EV << "RavensControllerApp::updateUserStateMap - Handover accepted for user "
-                   << user.first << " from " << userIt->second.currentMEH
-                   << " to " << usersInfoSnapshot->getMecHostId() << endl;
-
-                userIt->second.currentMEH = usersInfoSnapshot->getMecHostId();
-                userIt->second.timestamp = usersInfoSnapshot->getTimeStamp();
-                userIt->second.userData = user.second;
-                userIt->second.lastHandoverTime = simTime();  // Update lockout timer
-            }
-            else
-            {
-                // Same MEH update - apply minimum interval filter
-                if (usersInfoSnapshot->getTimeStamp() < userIt->second.timestamp + MIN_UPDATE_INTERVAL)
-                {
-                    EV << "RavensControllerApp::updateUserStateMap - Update too frequent for user "
-                       << user.first << " (interval < " << MIN_UPDATE_INTERVAL << "s)" << endl;
-                    continue;
-                }
-
-                // Accept update (same MEH, sufficient time elapsed)
-                userIt->second.timestamp = usersInfoSnapshot->getTimeStamp();
-                userIt->second.userData = user.second;
-                // Note: Don't update lastHandoverTime for same-MEH updates
-            }
+            // Refresh telemetry only — MEH transitions are driven by handleEventFrame()
+            userIt->second.timestamp = received_packet->getTimeStamp();
+            userIt->second.userData = userData;
         }
     }
 }
@@ -426,7 +376,7 @@ void RavensControllerApp::updateUserStateMap(inet::Ptr<const RavensLinkUsersInfo
     Method to update the state of the mehStateMap. It receives a RavensLinkUsersInfoSnapshotMessage message,
     and updates the radio information for the corresponding MEC Host.
 */
-void RavensControllerApp::updateMehStateMap(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet) {
+void RavensControllerApp::updateMehStateMap(inet::Ptr<const RavensLinkDataFrameMessage> received_packet) {
     auto usersInfoSnapshot = received_packet;
     std::string hostId = usersInfoSnapshot->getMecHostId();
 

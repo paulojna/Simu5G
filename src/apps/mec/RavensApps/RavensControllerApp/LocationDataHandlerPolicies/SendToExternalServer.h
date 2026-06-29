@@ -16,12 +16,12 @@ namespace simu5g {
 	private:
 		std::string flaskUrl_;
 
-		nlohmann::json formatSnapshot(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> snapshot);
+		nlohmann::json formatSnapshot(inet::Ptr<const RavensLinkDataFrameMessage> snapshot);
 		std::string postToFlask(const nlohmann::json& payload);
 		std::vector<MigrationPrediction> parseResponse(const std::string& response);
 
 	protected:
-		virtual inet::Packet* handleDataMessage(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet) override;
+		virtual inet::Packet* handleDataMessage(inet::Ptr<const RavensLinkDataFrameMessage> received_packet) override;
 
 	public:
 		SendToExternalServer(RavensControllerApp* controllerApp);

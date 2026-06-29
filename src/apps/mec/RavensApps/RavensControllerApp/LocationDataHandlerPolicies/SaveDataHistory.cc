@@ -24,9 +24,9 @@ SaveDataHistory::SaveDataHistory(RavensControllerApp* controllerApp, std::string
     userFile << "TimestampSent, LastUpdated, LsLast, RnisLast, UEId,MEHId,AccessPointId,x,y,z,Speed,Bearing,DistanceToAccessPoint,DlDelay,DlPDR,DlDataVolume,UlDelay,UlPDR,UlDataVolume" << endl;
     
     // 2. Lifecycle File (Events)
-    std::string lifecycleName = dirPath + "run_" + runNumber + "_lifecycle.csv"; 
-    //lifecycleFile.open(lifecycleName, std::ios::out | std::ios::trunc);
-    //lifecycleFile << "Timestamp,EventType,UEId,Details" << endl;
+    std::string lifecycleName = dirPath + "run_" + runNumber + "_lifecycle.csv";
+    lifecycleFile.open(lifecycleName, std::ios::out | std::ios::trunc);
+    lifecycleFile << "timestamp,eventType,userId,fromMEH,toMEH,samplesSinceChange,firstDetectedAt" << endl;
 
     // 3. Radio Stats File (DL/UL Usage and PDR)
     std::string radioStatsName = dirPath + "run_" + runNumber + "_radio_stats.csv";
@@ -36,22 +36,21 @@ SaveDataHistory::SaveDataHistory(RavensControllerApp* controllerApp, std::string
     EV << "SaveDataHistory initialized. Users: " << name << ", Lifecycle: " << lifecycleName << ", RadioStats: " << radioStatsName << endl;
 }
 
-inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet)
+inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkDataFrameMessage> received_packet)
 {
-    inet::Packet* pck = nullptr; // Initialize pck to nullptr as before
+    inet::Packet* pck = nullptr;
 
-	std::vector<UserState> removedUsers = controllerApp_->removeInactiveUsers();
-	for(const auto& user : removedUsers) {
-		// even though we are not testing any QoS performance, it is better to remove the user from the MEH
-		UserMEHUpdate update;
-		update.setLastMEHId(user.currentMEH);
-		update.setNewMEHId("");
-		update.setAddress(user.userId);
-		addUserUpdate(update);
-		//lifecycleFile << simTime() << ",EXIT," << user.userId << "," << user.currentMEH << endl;
-	}
+    // C1 safety net: purge users absent for longer than threshold_
+    std::vector<UserState> removedUsers = controllerApp_->removeInactiveUsers();
+    for (const auto& user : removedUsers) {
+        UserMEHUpdate update;
+        update.setLastMEHId(user.currentMEH);
+        update.setNewMEHId("");
+        update.setAddress(user.userId);
+        addUserUpdate(update);
+    }
 
-    // A.1 Log Radio Stats
+    // Log radio stats
     const AccessPointRadioInfoData& apRadioInfo = received_packet->getApRadioInfo();
     if (!apRadioInfo.getAccessPointId().empty()) {
         radioStatsFile << received_packet->getTimeStamp() << ","
@@ -63,84 +62,36 @@ inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkUsers
                        << apRadioInfo.getUlNongbrPdrCell() << endl;
     }
 
-    // B. Log User Data (Source of Truth for this timestamp)
-    for(const auto& userPair : received_packet->getUsers()){
-        const auto& userData = userPair.second;
+    // Log per-user telemetry
+    for (const auto& [address, userData] : received_packet->getUsers()) {
         userFile << received_packet->getTimeStamp() << ","
-    			<< userData.getLastUpdated() << ","
-    			<< userData.getLsUpdate() << ","
-    			<< userData.getRnisUpdate() << ","
-    	     << userPair.first << ","
-                << received_packet->getMecHostId() << ","
-                << userData.getAccessPointId() << ","
-                << userData.getCurrentLocation().getX() << ","
-                << userData.getCurrentLocation().getY() << ","
-                << userData.getCurrentLocation().getZ() << ","
-                << userData.getCurrentLocation().getHorizontalSpeed() << ","
-                << userData.getCurrentLocation().getBearing() << ","
-                << userData.getDistanceToAP() << ","
-                << userData.getDlNongbrDelayUe() << ","
-                << userData.getDlNongbrPdrUe() << ","
-                << userData.getDlNongbrDataVolumeUe() << ","
-                << userData.getUlNongbrDelayUe() << ","
-                << userData.getUlNongbrPdrUe() << ","
-                << userData.getUlNongbrDataVolumeUe() << endl;
+                 << userData.getLastUpdated() << ","
+                 << userData.getLsUpdate() << ","
+                 << userData.getRnisUpdate() << ","
+                 << address << ","
+                 << received_packet->getMecHostId() << ","
+                 << userData.getAccessPointId() << ","
+                 << userData.getCurrentLocation().getX() << ","
+                 << userData.getCurrentLocation().getY() << ","
+                 << userData.getCurrentLocation().getZ() << ","
+                 << userData.getCurrentLocation().getHorizontalSpeed() << ","
+                 << userData.getCurrentLocation().getBearing() << ","
+                 << userData.getDistanceToAP() << ","
+                 << userData.getDlNongbrDelayUe() << ","
+                 << userData.getDlNongbrPdrUe() << ","
+                 << userData.getDlNongbrDataVolumeUe() << ","
+                 << userData.getUlNongbrDelayUe() << ","
+                 << userData.getUlNongbrPdrUe() << ","
+                 << userData.getUlNongbrDataVolumeUe() << endl;
     }
-    // userFile.flush(); // Moved to periodic flush
 
-	auto updatedSnapshot = received_packet;
+    // Entry/exit detection moved to handleEventFrame() (eRAVENS R1)
+    // State map updates done in socketDataArrived() before policy is called
 
-	// run through the users in the snapshot and check if they are in the userStateMap
-	for (const auto &user : updatedSnapshot->getUsers())
-	{
-		// Only consider users with valid radio stats (attached to this MEC Host's cell)
-		// Assuming -1 indicates invalid/no connection
-		if(user.second.getDlNongbrDelayUe() == -1) {
-			continue;
-		}
-
-		auto userIt = controllerApp_->userStateMap.find(user.first);
-		if (userIt == controllerApp_->userStateMap.end())
-		{
-			// New user - ALWAYS log ENTRY (not a handover, no lockout check needed)
-			UserMEHUpdate update;
-			update.setLastMEHId("");
-			update.setNewMEHId(updatedSnapshot->getMecHostId());
-			update.setAddress(user.second.getAddress());
-			addUserUpdate(update);
-			//lifecycleFile << received_packet->getTimeStamp() << ",ENTRY," << user.second.getAddress() << "," << updatedSnapshot->getMecHostId() << endl;
-		}
-		else
-		{
-			EV << "NotifyOnDataChange::addUserUpdate - user " << user.first << " possible handover situation " << endl;
-			/*
-			// user is in the map, let's check if the user has changed MEH
-			if (userIt->second.currentMEH != updatedSnapshot->getMecHostId())
-			{
-				// This IS a handover - check if it will be accepted (ping-pong prevention)
-				if (controllerApp_->shouldAcceptHandover(user.first, updatedSnapshot->getMecHostId()))
-				{
-					//lifecycleFile << received_packet->getTimeStamp() << ",HANDOVER_MEH," << user.second.getAddress() << "," << userIt->second.currentMEH << "->" << updatedSnapshot->getMecHostId() << endl;
-				}
-				else
-				{
-					EV << "SaveDataHistory - Handover NOT logged (lockout active for " << user.first << ")" << endl;
-				}
-			}
-			*/
-		}
-	}
-
-	controllerApp_->updateMehStateMap(received_packet);
-
-    controllerApp_->updateUserStateMap(received_packet);
-
-    // Periodic Flush
     msgCount_++;
     if (msgCount_ >= FLUSH_INTERVAL_) {
         userFile.flush();
-        //lifecycleFile.flush();
-        radioStatsFile.flush(); // Flush new file
+        radioStatsFile.flush();
         msgCount_ = 0;
     }
 
@@ -173,10 +124,44 @@ void SaveDataHistory::addUserUpdate(UserMEHUpdate& update)
 	}
 }
 
+void SaveDataHistory::handleEventMessage(inet::Ptr<const RavensLinkEventMessage> event)
+{
+    std::string sourceMEH = event->getMecHostId();
+
+    for (const auto& e : event->getEvents()) {
+        std::string eventType;
+        std::string fromMEH;
+        std::string toMEH;
+
+        if (e.eventType == EVENT_ENTRY) {
+            toMEH = sourceMEH;
+            auto userIt = controllerApp_->userStateMap.find(e.ueAddress);
+            if (userIt != controllerApp_->userStateMap.end() && !userIt->second.currentMEH.empty()) {
+                fromMEH = userIt->second.currentMEH;
+                eventType = "HANDOVER";
+            } else {
+                eventType = "ENTRY";
+            }
+        } else {
+            eventType = "EXIT";
+            fromMEH = sourceMEH;
+        }
+
+        lifecycleFile << simTime() << ","
+                      << eventType << ","
+                      << e.ueAddress << ","
+                      << fromMEH << ","
+                      << toMEH << ","
+                      << e.samplesSinceChange << ","
+                      << e.firstDetectedAt << "\n";
+    }
+    lifecycleFile.flush();
+}
+
 SaveDataHistory::~SaveDataHistory()
 {
     userFile.close();
-    //lifecycleFile.close();
-    radioStatsFile.close(); // Close new file
+    lifecycleFile.close();
+    radioStatsFile.close();
 }
 }
