@@ -9,8 +9,8 @@
 #include "LocationDataHandlerPolicies/NotifyOnDataChange.h"
 #include "LocationDataHandlerPolicies/SendToExternalServer.h"
 
-#define USERS_UPDATE 7
-#define MIGRATION_PLAN 8
+#define USERS_UPDATE 20
+#define MIGRATION_PLAN 21
 #define MAX_MEH_STATE_MAP_SIZE 15
 
 namespace simu5g {
@@ -42,6 +42,9 @@ void RavensControllerApp::initialize(int stage){
     snapshot_frequency_ = par("snapshot_frequency");
     snapshot_starting_time_ = par("snapshot_starting_time");
     threshold_ = par("threshold");
+    confirmationCount_ = par("confirmationCount");
+    exitConfidenceThreshold_ = par("exitConfidenceThreshold");
+    frameInterval_ = par("frameInterval");
     update = nullptr;
 
     // start mehStateMap with a maximum size
@@ -223,9 +226,17 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
 
             EV << "RavensControllerApp::socketDataArrived - Updated infrastructure details for host " << it->first << ", now managing " << apList.size() << " access points" << endl;
         }
-        else if(received_packet->getType() == USERS_INFO_SNAPSHOT)
+        else if(received_packet->getType() == DATA_FRAME)
         {
-            update = locationDataHandlerPolicy_->handleDataMessage(packet->peekAtFront<RavensLinkUsersInfoSnapshotMessage>());
+            auto dataFrame = packet->peekAtFront<RavensLinkDataFrameMessage>();
+            updateUserStateMap(dataFrame);
+            updateMehStateMap(dataFrame);
+            // TODO Piece 11: update policy handler signature to accept RavensLinkDataFrameMessage
+        }
+        else if(received_packet->getType() == UE_EVENT)
+        {
+            auto eventMsg = packet->peekAtFront<RavensLinkEventMessage>();
+            handleEventFrame(eventMsg, remoteAddress, srcPort);
         }
     	delete packet;
     }
@@ -255,9 +266,18 @@ void RavensControllerApp::sendInfrastructureDetailsAck(inet::UdpSocket *socket, 
     request->setRequestId(0);
     request->setTimeStamp(simTime().inUnit(SIMTIME_S));
     request->setInfoType(100);
-    request->setRate(3000);
+    request->setRate((int)(frameInterval_ * 1000));
+    int mode = !strcmp(par("mode"), "NotifyOnDataChange") ? AGENT_MODE_EVENT_ONLY : AGENT_MODE_EVENT_AND_DATA;
+    request->setAgentMode(mode);
     packet->insertAtBack(request);
     socket->sendTo(packet, remoteAddress, port);
+}
+
+void RavensControllerApp::handleEventFrame(inet::Ptr<const RavensLinkEventMessage> event,
+                                            inet::L3Address remoteAddress, int srcPort)
+{
+    // TODO Piece 10: confirm/reject handover based on event.samplesSinceChange vs confirmationCount_/exitConfidenceThreshold_
+    EV << "RavensControllerApp::handleEventFrame - received " << event->getEvents().size() << " events from " << remoteAddress << endl;
 }
 
 void RavensControllerApp::socketClosed(inet::UdpSocket *socket){
@@ -290,134 +310,27 @@ std::vector<UserState> RavensControllerApp::removeInactiveUsers(){
     return inactiveUsers;
 }
 
-/*
-    Helper method to determine if a handover should be accepted based on ping-pong prevention logic.
+void RavensControllerApp::updateUserStateMap(inet::Ptr<const RavensLinkDataFrameMessage> received_packet) {
+    std::string hostId = received_packet->getMecHostId();
 
-    Returns true if:
-    - User is new (not in map yet)
-    - User exists and newMEH is different AND lockout period has elapsed
-
-    Returns false if:
-    - Same MEH (not a handover)
-    - Handover lockout is still active
-*/
-bool RavensControllerApp::shouldAcceptHandover(const std::string& userId, const std::string& newMEH)
-{
-    const simtime_t HANDOVER_LOCKOUT = 10.0;  // Skip 3 snapshot cycles to prevent cell-edge oscillation
-
-    auto userIt = userStateMap.find(userId);
-
-    // User doesn't exist yet - always accept (will be an ENTRY, not handover)
-    if (userIt == userStateMap.end()) {
-        return true;
-    }
-
-    // Not a handover - same MEH
-    if (userIt->second.currentMEH == newMEH) {
-        return false;
-    }
-
-    // This is a handover attempt - check lockout
-    simtime_t timeSinceLastHandover = simTime() - userIt->second.lastHandoverTime;
-
-    if (timeSinceLastHandover >= HANDOVER_LOCKOUT) {
-        return true;  // Lockout expired, accept handover
-    }
-
-    EV << "RavensControllerApp::shouldAcceptHandover - Handover rejected for user " << userId
-       << " (lockout active: " << timeSinceLastHandover << "s < " << HANDOVER_LOCKOUT << "s)" << endl;
-
-    return false;  // Lockout still active, reject
-}
-
-/*
-    Method to update the state of the userStateMap. It receives a RavensLinkUsersInfoSnapshotMessage message,
-    checks if each user is already in the map and updates the data if it is.
-
-    PING-PONG PREVENTION:
-    - Applies handover lockout (10s) to prevent cell-edge oscillation
-    - Applies minimum update interval (1s) for same-MEH updates
-    - Filters stale packets based on timestamp
-*/
-void RavensControllerApp::updateUserStateMap(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet){
-    auto usersInfoSnapshot = received_packet;
-
-    // Ping-pong prevention parameters (hardcoded)
-    const simtime_t MIN_UPDATE_INTERVAL = 1.0;    // Minimum time between updates (same MEH)
-    const simtime_t HANDOVER_LOCKOUT = 10.0;      // Skip 3 snapshot cycles to prevent cell-edge oscillation
-
-    // check if the user is already in the map, if so, update the data, if not, add it
-    for(const auto& user : usersInfoSnapshot->getUsers()){
-        // Only update state for attached users (valid radio stats)
-        if(user.second.getDlNongbrDelayUe() == -1) {
-            continue;
-        }
-
-        auto userIt = userStateMap.find(user.first);
-        if(userIt == userStateMap.end()){
-            // user is not in the map, we need to add it
-            userStateMap[user.first].userId = user.second.getAddress();
-            userStateMap[user.first].currentMEH = usersInfoSnapshot->getMecHostId();
-            userStateMap[user.first].timestamp = usersInfoSnapshot->getTimeStamp();
-            userStateMap[user.first].userData = user.second;
-            userStateMap[user.first].lastHandoverTime = simTime();  // Initialize handover timer
-
-            EV << "RavensControllerApp::updateUserStateMap - New user " << user.first
-               << " added to " << usersInfoSnapshot->getMecHostId() << endl;
-        }else{
-            // user is in the map, we need to update the data in userStateMap
-            // RAVENS V3 - Using RNIS besides LS
-            // Check if the timestamp of the new user data is greater than or equal to the timestamp of the user in the map
-            // This prevents stale packets (out-of-order delivery) from overwriting newer data
-
-            // 1. Filter stale packets
-            if (usersInfoSnapshot->getTimeStamp() < userIt->second.timestamp)
-            {
-                EV << "RavensControllerApp::updateUserStateMap - Ignored stale update for user " << user.first << " (old timestamp)" << endl;
+    for (const auto& [address, userData] : received_packet->getUsers()) {
+        auto userIt = userStateMap.find(address);
+        if (userIt == userStateMap.end()) {
+            UserState state;
+            state.userId = address;
+            state.currentMEH = hostId;
+            state.timestamp = received_packet->getTimeStamp();
+            state.userData = userData;
+            userStateMap[address] = state;
+            EV << "RavensControllerApp::updateUserStateMap - New user " << address << " at " << hostId << endl;
+        } else {
+            if (received_packet->getTimeStamp() < userIt->second.timestamp) {
+                EV << "RavensControllerApp::updateUserStateMap - Ignored stale update for user " << address << endl;
                 continue;
             }
-
-            // 2. Check if this is a MEH change (handover)
-            bool isMEHChange = (userIt->second.currentMEH != usersInfoSnapshot->getMecHostId());
-
-            if (isMEHChange)
-            {
-                // Handover attempt - apply lockout to prevent ping-pong
-                simtime_t timeSinceLastHandover = simTime() - userIt->second.lastHandoverTime;
-
-                if (timeSinceLastHandover < HANDOVER_LOCKOUT)
-                {
-                    // Suppress handover - too soon after last handover
-                    EV << "RavensControllerApp::updateUserStateMap - Handover suppressed for user "
-                       << user.first << " (lockout active: " << timeSinceLastHandover << "s < " << HANDOVER_LOCKOUT << "s)" << endl;
-                    continue;  // Ignore this handover attempt
-                }
-
-                // Accept handover
-                EV << "RavensControllerApp::updateUserStateMap - Handover accepted for user "
-                   << user.first << " from " << userIt->second.currentMEH
-                   << " to " << usersInfoSnapshot->getMecHostId() << endl;
-
-                userIt->second.currentMEH = usersInfoSnapshot->getMecHostId();
-                userIt->second.timestamp = usersInfoSnapshot->getTimeStamp();
-                userIt->second.userData = user.second;
-                userIt->second.lastHandoverTime = simTime();  // Update lockout timer
-            }
-            else
-            {
-                // Same MEH update - apply minimum interval filter
-                if (usersInfoSnapshot->getTimeStamp() < userIt->second.timestamp + MIN_UPDATE_INTERVAL)
-                {
-                    EV << "RavensControllerApp::updateUserStateMap - Update too frequent for user "
-                       << user.first << " (interval < " << MIN_UPDATE_INTERVAL << "s)" << endl;
-                    continue;
-                }
-
-                // Accept update (same MEH, sufficient time elapsed)
-                userIt->second.timestamp = usersInfoSnapshot->getTimeStamp();
-                userIt->second.userData = user.second;
-                // Note: Don't update lastHandoverTime for same-MEH updates
-            }
+            // Refresh telemetry only — MEH transitions are driven by handleEventFrame()
+            userIt->second.timestamp = received_packet->getTimeStamp();
+            userIt->second.userData = userData;
         }
     }
 }
@@ -426,7 +339,7 @@ void RavensControllerApp::updateUserStateMap(inet::Ptr<const RavensLinkUsersInfo
     Method to update the state of the mehStateMap. It receives a RavensLinkUsersInfoSnapshotMessage message,
     and updates the radio information for the corresponding MEC Host.
 */
-void RavensControllerApp::updateMehStateMap(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet) {
+void RavensControllerApp::updateMehStateMap(inet::Ptr<const RavensLinkDataFrameMessage> received_packet) {
     auto usersInfoSnapshot = received_packet;
     std::string hostId = usersInfoSnapshot->getMecHostId();
 

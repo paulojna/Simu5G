@@ -73,6 +73,10 @@ class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket:
 
         int threshold_;
 
+        int confirmationCount_;         // min samplesSinceChange on ENTRY to confirm handover
+        int exitConfidenceThreshold_;   // min samplesSinceChange on EXIT to act on it
+        double frameInterval_;          // pushed to Agents in INFRAESTRUCTURE_DETAILS_ACK
+
         // Data structures to be sent to the MEO depending on the mode we are in
         // PERFORMANCE IMPROVEMENT: Changed from vector to map for O(1) lookup in addUserUpdate()
         // Original: std::vector<UserMEHUpdate> userUpdates;
