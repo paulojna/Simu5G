@@ -638,6 +638,170 @@ On EVENT_EXIT (samplesSinceChange = N):
 
 ---
 
+### Piece 13 — Event→MEO update wiring (semantic policy hooks)
+
+> Added 2026-06-29. Closes the 🔴 gap flagged in the status snapshot: confirmed
+> ENTRY/HANDOVER/EXIT events currently produce **no** `UserMEHUpdate` for the MEO
+> (only `SaveDataHistory` overrides `handleEventMessage`, and only to log). This
+> Piece is **settled and ready for Sonnet to implement** — design decisions below
+> are final, do not re-litigate.
+>
+> **Settled product decisions (2026-06-29):**
+> - **SaveDataHistory logs only — it does NOT notify the MEO** (no `UserMEHUpdate`,
+>   not even for safety-net exits).
+> - **Lifecycle CSV uses *resolved transitions*** — exactly one row per final
+>   outcome, emitted at the F2 decision point (an A→B handover that arrives as
+>   EXIT-from-A then ENTRY-at-B produces a single `HANDOVER` row, never a separate
+>   `EXIT` row).
+
+#### Design: Controller classifies, policy decides
+
+`handleEventFrame` already holds the authoritative ENTRY/HANDOVER/EXIT
+classification (it owns `pendingExitTime`, `currentMEH`, the C5 guard, the F2
+hold). It must **not** be re-derived inside the policies. Instead the Controller
+calls three semantic hooks on the policy at each authoritative decision point, and
+each policy decides whether/how to act:
+
+- `NotifyOnDataChange` (reactive) → emit a `UserMEHUpdate` on every hook.
+- `SendToExternalServer` (reactive+proactive) → same as reactive for the event
+  path; ML migration predictions continue via the existing Flask path.
+- `SaveDataHistory` → write one lifecycle CSV row per hook; **no** `UserMEHUpdate`.
+
+The hooks live on the policy (not emitted unconditionally by the Controller)
+*specifically* so a future proactive-only config (C3) can suppress event-driven
+updates and exercise the ML path in isolation.
+
+#### 13.1 — `LocationDataHandlerPolicyBase.h` (+ new `.cc`)
+
+Remove the old single notifier:
+```cpp
+virtual void handleEventMessage(const RavensEventList& events, const std::string& sourceMEH) {}  // DELETE
+```
+
+Add three virtual hooks (default empty) — primitives only, so `RavensEvent` does
+not leak into the policy interface:
+```cpp
+virtual void onUserEntry   (const std::string& userId, const std::string& meh,
+                            int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) {}
+virtual void onUserHandover(const std::string& userId, const std::string& fromMeh,
+                            const std::string& toMeh,
+                            int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) {}
+virtual void onUserExit    (const std::string& userId, const std::string& fromMeh,
+                            int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) {}
+```
+
+Hoist the duplicated `addUserUpdate` (currently identical in all 3 policies, used
+only for safety-net exits) into a single protected non-virtual helper. Create
+`LocationDataHandlerPolicyBase.cc` for it (header-only today):
+```cpp
+protected:
+    void emitUserUpdate(const std::string& address,
+                        const std::string& lastMeh,
+                        const std::string& newMeh);  // insert_or_assign into controllerApp_->userUpdates
+```
+Add the new `.cc` to the build (it is picked up automatically by the Simu5G
+`opp_makemake` glob — no makefile edit, but confirm it compiles).
+
+#### 13.2 — `RavensControllerApp.h` — `UserState` exit-event stash
+
+The EXIT `UserMEHUpdate`/CSV row is emitted at hold-expiry (Step 1), where the
+original EXIT event is gone. Stash its confidence fields when the hold starts:
+```cpp
+struct UserState {
+    ...
+    simtime_t pendingExitTime;        // already present (F2)
+    int       pendingExitSamples = 0; // NEW: samplesSinceChange of the EXIT that opened the hold
+    simtime_t pendingExitFirstAt;     // NEW: firstDetectedAt of that EXIT
+};
+```
+
+#### 13.3 — `RavensControllerApp.cc` — call hooks at decision points
+
+Delete the Step 3 pre-update `handleEventMessage(allConfirmed, sourceMEH)` call
+(and the `allConfirmed` assembly that feeds it). Replace with hook calls at the
+authoritative points:
+
+- **Step 1 (hold expired → departure):** before `userStateMap.erase(it)`, call
+  `locationDataHandlerPolicy_->onUserExit(userId, currentMEH, pendingExitSamples, pendingExitFirstAt)`.
+- **Step 4 (start hold):** in addition to `pendingExitTime`, stash
+  `pendingExitSamples = e.samplesSinceChange; pendingExitFirstAt = e.firstDetectedAt;`.
+  **No hook here** — not resolved yet. (C5 guard unchanged: only the current MEH
+  may open a hold.)
+- **Step 5 (entries)** — refined branch logic:
+  ```
+  user NOT in map:
+      add (currentMEH = sourceMEH, pendingExitTime = 0); onUserEntry(...)
+  user in map, pendingExitTime != 0 (was in hold):
+      cancel hold (pendingExitTime = 0)
+      if sourceMEH != currentMEH:  onUserHandover(currentMEH→sourceMEH); currentMEH = sourceMEH
+      else:                        re-entry/flap at same MEH — no hook, just refresh
+  user in map, no hold:
+      if sourceMEH != currentMEH:  onUserHandover(currentMEH→sourceMEH); currentMEH = sourceMEH   // ENTRY-before-EXIT / C5 order
+      else:                        duplicate ENTRY — no hook, just refresh
+  (always refresh timestamp)
+  ```
+  This guarantees exactly one HANDOVER hook per transition in **both** arrival
+  orders (EXIT-first via the hold-cancel branch; ENTRY-first via the direct
+  branch), and never a spurious A→A handover on a flap.
+
+#### 13.4 — Policy implementations
+
+**`NotifyOnDataChange` (.h/.cc):** override all three hooks → `emitUserUpdate`:
+- `onUserEntry`    → `emitUserUpdate(userId, "",      meh)`
+- `onUserHandover` → `emitUserUpdate(userId, fromMeh, toMeh)`
+- `onUserExit`     → `emitUserUpdate(userId, fromMeh, "")`
+
+Replace the safety-net loop in `handleDataMessage` (`removeInactiveUsers()`) to
+call `this->onUserExit(user.userId, user.currentMEH, -1, SIMTIME_ZERO)` instead of
+building a `UserMEHUpdate` inline (`-1` samples = "inactivity purge, not a counted
+EXIT"). Delete the per-policy `addUserUpdate` (now `emitUserUpdate` in base).
+
+**`SendToExternalServer` (.h/.cc):** identical hook overrides to
+`NotifyOnDataChange` (→ `emitUserUpdate`). Same safety-net refactor. The Flask /
+`migrationPredictions` path in `handleDataMessage` is unchanged. Delete its
+`addUserUpdate`.
+
+**`SaveDataHistory` (.h/.cc):** replace `handleEventMessage` with the three hooks,
+each writing one lifecycle CSV row (`timestamp,eventType,userId,fromMEH,toMEH,
+samplesSinceChange,firstDetectedAt`) and flushing:
+- `onUserEntry`    → row `ENTRY,   userId, "",      meh,    samples, firstAt`
+- `onUserHandover` → row `HANDOVER,userId, fromMeh, toMeh,  samples, firstAt`
+- `onUserExit`     → row `EXIT,    userId, fromMeh, "",     samples, firstAt`
+
+**No `emitUserUpdate` calls in SaveDataHistory** (log-only decision). Its
+safety-net loop in `handleDataMessage` must **stop** calling `addUserUpdate` — it
+should call `this->onUserExit(...)` so the purge is logged to CSV but **not** sent
+to the MEO. (This also fixes a current inconsistency where SaveDataHistory pushes
+safety-net exits into `userUpdates`.)
+
+#### 13.5 — Correctness notes / invariants
+
+- All events in one `handleEventFrame` call share one `sourceMEH` (one UDP frame
+  from one Agent), so ENTRY and EXIT for the *same* user never co-occur in a call.
+- The per-address `userUpdates` map (`insert_or_assign`) already collapses multiple
+  transitions for one UE within a `snapshot_frequency_` window to the latest —
+  acceptable (MEO acts on net effect).
+- `firstDetectedAt` is now consumed (lifecycle CSV) → resolves critique **M2**.
+- Hooks are called *during* map mutation but take explicit args, so they never
+  depend on whether the map has been updated yet (removes the fragility of the old
+  pre-update `handleEventMessage`).
+
+#### 13.6 — Verification (add to the main list)
+
+14. **Reactive MEO update** — a confirmed ENTRY at a new MEH yields a
+    `UserMEHUpdate{last:"", new:MEH}` in the next MEO snapshot.
+15. **Handover MEO update, both orders** — A→B handover yields exactly one
+    `UserMEHUpdate{last:A, new:B}` whether EXIT-from-A or ENTRY-at-B arrives first,
+    and exactly one `HANDOVER` lifecycle row (no stray `EXIT` row).
+16. **Departure at hold-expiry** — a true EXIT (no follow-up ENTRY) yields
+    `UserMEHUpdate{last:MEH, new:""}` one frame later, plus one `EXIT` row.
+17. **SaveDataHistory is MEO-silent** — running `SaveDataHistory`, `userUpdates`
+    is never populated from events or from the safety-net purge.
+18. **No A→A handover on flap** — EXIT then quick re-ENTRY at the same MEH emits no
+    handover hook.
+
+---
+
 ## Revision R1 — Terminology fix + TCP control plane
 
 > Added 2026-06-29 after a design review. Two orthogonal changes that the rest of
@@ -861,17 +1025,17 @@ After all pieces are implemented:
 | `AccessPointRadioInfoData.h/.cc` | ✅ Piece 4 done |
 | `RavensAgentApp.ned` | ✅ Piece 5 done |
 | `RavensAgentApp.h` | ✅ Piece 6 done |
-| `RavensAgentApp.cc` | Piece 7 — in progress |
-| `RavensControllerApp.ned` | Piece 8 |
-| `RavensControllerApp.h` | Piece 9 |
-| `RavensControllerApp.cc` | Piece 10 |
-| `NotifyOnDataChange.cc/.h` | Piece 11 |
-| `SendToExternalServer.cc` | Piece 11 |
-| `SaveDataHistory.cc` | Piece 11 |
-| Dead code | Piece 12 |
-| **R1a — event-frame rename** | all of the above (mechanical) |
-| **R1b — Agent TCP control socket** | `RavensAgentApp.{ned,h,cc}` |
-| **R1c — Controller TCP server** | `RavensControllerApp.{ned,h,cc}` |
+| `RavensAgentApp.cc` | ✅ Piece 7 done |
+| `RavensControllerApp.ned` | ✅ Piece 8 done (ports: `dataPort`/`mgmtPort`) |
+| `RavensControllerApp.h` | ✅ Piece 9 done (+ `pendingExitTime`) |
+| `RavensControllerApp.cc` | ✅ Piece 10 done (`handleEventFrame` + C5 guard) |
+| `NotifyOnDataChange.cc/.h` | ⚠️ Piece 11 signature done; event→MEO wiring missing |
+| `SendToExternalServer.cc` | ⚠️ Piece 11 signature done; event→MEO wiring + JSON schema missing |
+| `SaveDataHistory.cc` | ✅ Piece 11 done (lifecycle CSV; logs only, no `addUserUpdate`) |
+| Dead code | Piece 12 — not started |
+| **R1a — event-frame rename** | ✅ done |
+| **R1b — Agent TCP mgmt socket** | ✅ `RavensAgentApp.{ned,h,cc}` (`controllerMgmtSocket_`) |
+| **R1c — Controller TCP server** | ✅ `RavensControllerApp.{ned,h,cc}` (`serverSocket_`) |
 
 ---
 
@@ -916,7 +1080,11 @@ inactivity-based purging as its primary mechanism.
   **not** the normal path. State this contract in Piece 10 so it is not silently
   re-tightened later.
 
-#### C2. Cross-frame confirmation counter is incompatible with "report entry once"
+#### C2. Cross-frame confirmation counter is incompatible with "report entry once" — ✅ RESOLVED (Piece 10)
+
+> Implemented as the proposed alternative: `handleEventFrame` confirms on
+> `samplesSinceChange >= confirmationCount_` from the single ENTRY event; no
+> cross-frame accumulation. EXIT uses `>= exitConfidenceThreshold_`.
 
 **Problem.** The Agent reports a user's ENTRY exactly once: after the entry is
 flushed in a control frame, `pendingEntries_` is cleared and the (now stable)
@@ -964,7 +1132,10 @@ This makes the experiment matrix explicit and removes the "always sent"
 exception. (If you prefer an enum, add `AGENT_MODE_DATA_ONLY` — but two flags
 compose better and avoid a 4th "neither" state needing validation.)
 
-#### C4. Frame timer can die on the empty-frame fast path
+#### C4. Frame timer can die on the empty-frame fast path — ✅ RESOLVED (Piece 7)
+
+> `handleSelfMessage("sendUserList")` reschedules unconditionally first, then
+> calls `sendEventFrame()` / `sendDataFrame()` (both may no-op). Timer cannot die.
 
 **Problem.** Piece 7 says `sendControlEvents()` should "return, no packet sent"
 when both pending maps are empty, and separately "send, clear, **reschedule at
@@ -978,7 +1149,11 @@ frame loop stops permanently after the first quiet interval.
 3. Then conditionally send the data frame (skip unless data enabled).
 Make this explicit in Piece 7 so the reschedule is unconditional.
 
-#### C5. A stale CONTROL_EXIT from the old MEH can delete a handed-over user
+#### C5. A stale CONTROL_EXIT from the old MEH can delete a handed-over user — ✅ RESOLVED (Piece 10)
+
+> `handleEventFrame` Step 4 skips any EXIT whose `sourceMEH != currentMEH` — only
+> the user's current MEH can start an exit-hold. (Was missing in the first cut of
+> Piece 10; added during the 2026-06-29 review.)
 
 **Problem.** On handover A→B the Controller receives ENTRY from B and EXIT from
 A, order not guaranteed (separate UDP sources). If the EXIT from A is processed
@@ -1093,10 +1268,17 @@ This is the intended "LS is the source of truth" behaviour, **but** it shifts
 gate. Every experiment's timing baseline moves. Make it a conscious decision and
 document it; do not let it happen silently inside Piece 11.
 
-### F2 — 🔴 Departure vs handover cannot be told apart without a hold window
+### F2 — Departure vs handover cannot be told apart without a hold window — ✅ RESOLVED (Piece 10)
 
-**This is the most important runtime fault and it is in direct tension with C1
-and C5 above — they must be reconciled together.**
+> Implemented via `UserState.pendingExitTime`. A confirmed EXIT (from the current
+> MEH, per C5) sets `pendingExitTime = simTime() + frameInterval_` instead of
+> removing the user. If an ENTRY for the same UE from a different MEH arrives
+> before the hold expires → reclassified as HANDOVER (hold cancelled). Otherwise
+> the next `handleEventFrame` purges the user (Step 1). One localized timer in one
+> place, exactly as proposed below.
+
+**This was the most important runtime fault and it is in direct tension with C1
+and C5 — they were reconciled together (see above).**
 
 On an A→B handover the Controller receives **EXIT from A** and **ENTRY from B**
 as two independent UDP packets, order not guaranteed.
@@ -1204,23 +1386,60 @@ this mapping breaks. Pre-existing, but newly relevant once aggregation lands.
 
 ## Status snapshot for resuming on another machine
 
-**Done (under pre-R1 names):** Pieces 1–6 (defines, message classes, `UserData`,
-`AccessPointRadioInfoData`, Agent `.ned`, Agent `.h`).
+> Updated 2026-06-29 after completing the Agent+Controller migration through
+> Piece 11 and Revision R1. Branch layout: `eRavens/agent` (Agent work),
+> `eRavens/controller` (Controller work), `eRavens/main` (integration — both
+> merged in).
 
-**In progress:** Piece 7 (`RavensAgentApp.cc`) — constructor, `initialize()`,
-`handleProcessedMessage` (ACK), and `handleLSMessage` are done and documented.
-**Remaining in Piece 7:** `handleRNISMessage` aggregation, `sendEventFrame()`,
-`sendDataFrame()`, `handleSelfMessage` dispatch, delete `sendUsersInfoSnapshot()`.
+**Done:**
+- **Pieces 1–6** — defines, message classes, `UserData`, `AccessPointRadioInfoData`,
+  Agent `.ned`, Agent `.h`.
+- **Piece 7** (`RavensAgentApp.cc`) — complete: `handleRNISMessage` aggregation,
+  `sendEventFrame()`, `sendDataFrame()`, `handleSelfMessage` dispatch (C4:
+  unconditional reschedule, then send), `sendUsersInfoSnapshot()` deleted.
+- **Piece 8** (`RavensControllerApp.ned`) — `confirmationCount`,
+  `exitConfidenceThreshold`, `frameInterval`, `threshold` params; ports renamed
+  `dataPort`(UDP 5001)/`mgmtPort`(TCP 5000). NOTE: final port param names are
+  `dataPort`/`mgmtPort` (Controller) and `controllerDataPort`/`controllerMgmtPort`
+  (Agent), **not** the `localPort`/`controlPort` names used in Pieces 8/R1c prose.
+- **Piece 9** (`RavensControllerApp.h`) — `UserState` gains `pendingExitTime`
+  (F2 exit-hold), `shouldAcceptHandover()` removed, new members + `handleEventFrame`
+  decl, TCP server members.
+- **Piece 10** (`RavensControllerApp.cc`) — `handleEventFrame()` fully implemented:
+  (1) expire elapsed exit-holds, (2) confidence-filter by `confirmationCount_` /
+  `exitConfidenceThreshold_` (C2), (3) notify policy before map update, (4) confirmed
+  EXIT starts F2 hold **only if source MEH == currentMEH** (C5 guard), (5) confirmed
+  ENTRY = new user / HANDOVER (cancels hold) / direct MEH update. `updateUserStateMap`
+  refreshes telemetry only; `shouldAcceptHandover` deleted.
+- **Piece 11** (signatures) — `handleEventMessage` signature is
+  `(const RavensEventList&, const std::string& sourceMEH)` across base +
+  `SaveDataHistory`. All three policies updated to `RavensLinkDataFrameMessage`,
+  old entry/exit detection stripped, `removeInactiveUsers()` kept as C1 safety net.
+- **R1a** event-frame rename, **R1b** Agent TCP mgmt socket (`controllerMgmtSocket_`,
+  close-after-INFRA_ACK), **R1c** Controller TCP server (`serverSocket_` + `socketMap`).
 
-**Not started:** Pieces 8–12 (entire Controller side + handler policies + cleanup)
-and **Revision R1** (R1a event-frame rename across all done+pending files; R1b
-Agent TCP control socket; R1c Controller TCP server).
+**Resolved critique/fault items:** C1 (EXIT authoritative, `removeInactiveUsers`
+demoted to safety net), C2 (single-event `samplesSinceChange ≥ confirmationCount_`),
+C4 (unconditional reschedule), C5 (stale-EXIT guard on source MEH), F2 (exit-hold
+window via `pendingExitTime`), F3 (`UE_EVENT=8`, MEO codes 20/21), M2
+(`firstDetectedAt` now logged in lifecycle CSV for detection→action latency).
 
-**Settle before / alongside Piece 10:**
-- **R1** is a settled decision set — apply R1a rename first, then R1b/R1c
-  transport. R1 does *not* resolve the items below.
-- **C1, C2, C3, F2** (departure authority, single-event confirmation model,
-  proactive-only config, exit-hold window) — still open; they determine whether
-  handover / departure / migration are correctly distinguished.
+**Still open / not done:**
+- **🔴 Event→MEO-update wiring incomplete — now fully specified in Piece 13**
+  (semantic policy hooks; ready for Sonnet to implement). Until done: confirmed
+  ENTRY/HANDOVER/EXIT events produce **no** `UserMEHUpdate` for the MEO; the MEO
+  only learns of departures via the `removeInactiveUsers()` safety net, which never
+  runs in `AGENT_MODE_EVENT_ONLY`. Must land before the reactive experiment is
+  meaningful.
+- **C3 — proactive-only config still not expressible.** `agentMode` remains a
+  2-value enum (`EVENT_ONLY` / `EVENT_AND_DATA`); there is no DATA-without-EVENT
+  mode. The two-boolean (`sendEvent`/`sendData`) redesign is not done.
+- **Piece 11 body work** — `SendToExternalServer::formatSnapshot` cell-aggregate
+  JSON schema and `SaveDataHistory` CSV column changes per Piece 11 spec not yet
+  verified against the new `AccessPointRadioInfoData` field set.
+- **Piece 12** — dead-code cleanup, `INFRAESTRUCTURE`→`INFRASTRUCTURE` rename,
+  `localSnapshotCounter`→`frameCounter_`, F4/F5 documentation.
 
-The current tree does **not** compile (expected) — see Loose Ends above.
+The tree does not compile until built once (stale `_m.h`: `RavensEvent*`,
+`RavensLinkDataFrameMessage`, `getAgentMode`/`setAgentMode` — all regenerate from
+`RavensLinkPacket.msg` via `opp_msgc` at build time).

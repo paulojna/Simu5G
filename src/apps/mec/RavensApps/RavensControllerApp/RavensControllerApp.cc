@@ -351,11 +351,19 @@ void RavensControllerApp::handleEventFrame(inet::Ptr<const RavensLinkEventMessag
     // Step 4: Apply confirmed exits — start F2 hold window (don't remove immediately)
     for (const auto& e : confirmedExits) {
         auto userIt = userStateMap.find(e.ueAddress);
-        if (userIt != userStateMap.end()) {
-            userIt->second.pendingExitTime = simTime() + frameInterval_;
-            EV << "RavensControllerApp::handleEventFrame - EXIT hold started for "
-               << e.ueAddress << ", expires at " << userIt->second.pendingExitTime << endl;
+        if (userIt == userStateMap.end())
+            continue;
+        // C5: ignore a stale EXIT from a MEH the user already left (handover already
+        // moved currentMEH elsewhere). Only the current MEH can report a departure.
+        if (userIt->second.currentMEH != sourceMEH) {
+            EV << "RavensControllerApp::handleEventFrame - stale EXIT for " << e.ueAddress
+               << " from " << sourceMEH << " (current MEH is " << userIt->second.currentMEH
+               << "), ignoring" << endl;
+            continue;
         }
+        userIt->second.pendingExitTime = simTime() + frameInterval_;
+        EV << "RavensControllerApp::handleEventFrame - EXIT hold started for "
+           << e.ueAddress << ", expires at " << userIt->second.pendingExitTime << endl;
     }
 
     // Step 5: Apply confirmed entries
