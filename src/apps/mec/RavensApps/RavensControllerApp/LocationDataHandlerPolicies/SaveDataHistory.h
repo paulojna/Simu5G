@@ -16,12 +16,13 @@ using namespace omnetpp;
 class SaveDataHistory : public LocationDataHandlerPolicyBase
 {
     protected:
-        std::ofstream userFile; // Renamed from csvFile
-        //std::ofstream lifecycleFile;
-        std::ofstream radioStatsFile; // Added for DL/UL usage history
+        std::ofstream userFile;
+        std::ofstream lifecycleFile;
+        std::ofstream radioStatsFile;
         int msgCount_;
-        static const int FLUSH_INTERVAL_ = 100; // Flush every 100 messages
-        virtual inet::Packet* handleDataMessage(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet) override;
+        static const int FLUSH_INTERVAL_ = 100;
+        virtual inet::Packet* handleDataMessage(inet::Ptr<const RavensLinkDataFrameMessage> received_packet) override;
+        virtual void handleEventMessage(inet::Ptr<const RavensLinkEventMessage> event) override;
     public:
         SaveDataHistory(RavensControllerApp* controllerApp, std::string path);
         void addUserUpdate(UserMEHUpdate &update);

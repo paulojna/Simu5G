@@ -231,7 +231,7 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
             auto dataFrame = packet->peekAtFront<RavensLinkDataFrameMessage>();
             updateUserStateMap(dataFrame);
             updateMehStateMap(dataFrame);
-            // TODO Piece 11: update policy handler signature to accept RavensLinkDataFrameMessage
+            locationDataHandlerPolicy_->handleDataMessage(dataFrame);
         }
         else if(received_packet->getType() == UE_EVENT)
         {
@@ -278,6 +278,7 @@ void RavensControllerApp::handleEventFrame(inet::Ptr<const RavensLinkEventMessag
 {
     // TODO Piece 10: confirm/reject handover based on event.samplesSinceChange vs confirmationCount_/exitConfidenceThreshold_
     EV << "RavensControllerApp::handleEventFrame - received " << event->getEvents().size() << " events from " << remoteAddress << endl;
+    locationDataHandlerPolicy_->handleEventMessage(event);
 }
 
 void RavensControllerApp::socketClosed(inet::UdpSocket *socket){

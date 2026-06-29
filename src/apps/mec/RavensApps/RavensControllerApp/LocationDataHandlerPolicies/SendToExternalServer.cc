@@ -41,12 +41,11 @@ namespace simu5g {
 	{
 	}
 
-	inet::Packet* SendToExternalServer::handleDataMessage(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet)
+	inet::Packet* SendToExternalServer::handleDataMessage(inet::Ptr<const RavensLinkDataFrameMessage> received_packet)
 	{
 		inet::Packet* pck = nullptr;
-		std::cout << "WE RECEIVED STUFF IN SEND TO EXTERNAL SERVER" << std::endl;
 
-		// 1. Detect exits (same as NotifyOnDataChange)
+		// C1 safety net: purge users absent for longer than threshold_
 		std::vector<UserState> removedUsers = controllerApp_->removeInactiveUsers();
 		for (auto& user : removedUsers)
 		{
@@ -57,47 +56,9 @@ namespace simu5g {
 			addUserUpdate(update);
 		}
 
-		// 2. Detect entries (same as NotifyOnDataChange, but NO handover detection)
-		auto updatedSnapshot = received_packet;
-		for (const auto& user : updatedSnapshot->getUsers())
-		{
-			if (user.second.getDlNongbrDelayUe() == -1) {
-				continue;
-			}
+		// Entry/exit detection and state map updates done in socketDataArrived() / handleEventFrame() (eRAVENS R1)
 
-			auto userIt = controllerApp_->userStateMap.find(user.first);
-			if (userIt == controllerApp_->userStateMap.end())
-			{
-				// New user — notify MEO to instantiate app
-				UserMEHUpdate update;
-				update.setLastMEHId("");
-				update.setNewMEHId(updatedSnapshot->getMecHostId());
-				update.setAddress(user.second.getAddress());
-				addUserUpdate(update);
-			}
-			else
-			{
-				// Reactive fallback: detect handovers that Flask hasn't predicted
-				// (e.g., during observation buffer warmup, or prediction gaps)
-				if (userIt->second.currentMEH != updatedSnapshot->getMecHostId())
-				{
-					if (controllerApp_->shouldAcceptHandover(user.first, updatedSnapshot->getMecHostId()))
-					{
-						UserMEHUpdate update;
-						update.setLastMEHId(userIt->second.currentMEH);
-						update.setNewMEHId(updatedSnapshot->getMecHostId());
-						update.setAddress(user.second.getAddress());
-						addUserUpdate(update);
-					}
-				}
-			}
-		}
-
-		// 3. Update state maps (needed for entry/exit detection)
-		controllerApp_->updateMehStateMap(received_packet);
-		controllerApp_->updateUserStateMap(received_packet);
-
-		// 4. Forward snapshot to Flask and collect migration predictions
+		// Forward data frame to Flask and collect migration predictions
 		nlohmann::json payload = formatSnapshot(received_packet);
 		std::cout << simTime() << " - SendToExternalServer - sending to Flask, users: " << payload["users"].size() << std::endl;
 		std::string response = postToFlask(payload);
@@ -124,7 +85,7 @@ namespace simu5g {
 		}
 	}
 
-	nlohmann::json SendToExternalServer::formatSnapshot(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> snapshot)
+	nlohmann::json SendToExternalServer::formatSnapshot(inet::Ptr<const RavensLinkDataFrameMessage> snapshot)
 	{
 	    nlohmann::json payload;
 

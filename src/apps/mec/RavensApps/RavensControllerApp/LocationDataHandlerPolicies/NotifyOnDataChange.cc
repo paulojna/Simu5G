@@ -3,8 +3,6 @@
 
 #include <unordered_map>
 
-#define USERS_UPDATE 7
-
 namespace simu5g {
 
 NotifyOnDataChange::NotifyOnDataChange(RavensControllerApp *controllerApp, int treshold) : LocationDataHandlerPolicyBase(controllerApp)
@@ -21,14 +19,12 @@ NotifyOnDataChange::NotifyOnDataChange(RavensControllerApp *controllerApp, int t
 * the message with the data in the userStateMap -> which users entered and which changed MEH?
 * 3) finnaly, we should update the userStateMap with the new data
 */
-inet::Packet *NotifyOnDataChange::handleDataMessage(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet)
+inet::Packet *NotifyOnDataChange::handleDataMessage(inet::Ptr<const RavensLinkDataFrameMessage> received_packet)
 {
-	inet::Packet* pck = nullptr; // Initialize pck to nullptr as before
+    inet::Packet* pck = nullptr;
 
-	// remove the inactive users
-	std::vector<UserState> removedUsers = controllerApp_->removeInactiveUsers();
-
-    // add the removed users to the userUpdates list
+    // C1 safety net: purge users absent for longer than threshold_ (inactivity, not normal EXIT)
+    std::vector<UserState> removedUsers = controllerApp_->removeInactiveUsers();
     for (auto &user : removedUsers)
     {
         UserMEHUpdate update;
@@ -38,56 +34,7 @@ inet::Packet *NotifyOnDataChange::handleDataMessage(inet::Ptr<const RavensLinkUs
         addUserUpdate(update);
     }
 
-    // compare the received data with the data in the userStateMap
-    auto updatedSnapshot = received_packet;
-
-    // run through the users in the snapshot and check if they are in the userStateMap
-    for (const auto &user : updatedSnapshot->getUsers())
-    {
-        // Only consider users with valid radio stats (attached to this MEC Host's cell)
-        // Assuming -1 indicates invalid/no connection
-        if(user.second.getDlNongbrDelayUe() == -1) {
-            continue; 
-        }
-
-        auto userIt = controllerApp_->userStateMap.find(user.first);
-        if (userIt == controllerApp_->userStateMap.end())
-        {
-            // New user - ALWAYS add to userUpdates (not a handover, no lockout check needed)
-            UserMEHUpdate update;
-            update.setLastMEHId("");
-            update.setNewMEHId(updatedSnapshot->getMecHostId());
-            update.setAddress(user.second.getAddress());
-            addUserUpdate(update);
-        }
-        else
-        {
-            // user is in the map, let's check if the user has changed MEH
-            if (userIt->second.currentMEH != updatedSnapshot->getMecHostId())
-            {
-                // This IS a handover - check if it will be accepted (ping-pong prevention)
-                if (controllerApp_->shouldAcceptHandover(user.first, updatedSnapshot->getMecHostId()))
-                {
-                    UserMEHUpdate update;
-                    update.setLastMEHId(userIt->second.currentMEH);
-                    update.setNewMEHId(updatedSnapshot->getMecHostId());
-                    update.setAddress(user.second.getAddress());
-                    addUserUpdate(update);
-                }
-                else
-                {
-                    EV << "NotifyOnDataChange - Handover NOT added to userUpdates (lockout active for " << user.first << ")" << endl;
-                }
-            }
-        }
-    }
-	// Update MEH State (Radio Info)
-	controllerApp_->updateMehStateMap(received_packet);
-
-    // update the userStateMap
-    controllerApp_->updateUserStateMap(received_packet);
-
-    // return nullptr since we don't need to send any packet
+    // Entry/exit detection and handover decisions moved to handleEventFrame() (eRAVENS R1)
     return pck;
 }
 
