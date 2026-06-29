@@ -1,19 +1,21 @@
 #ifndef _RAVENS_CONTROLLER_APP_H
 #define _RAVENS_CONTROLLER_APP_H
 
-#define JOIN_NETWORK_REQUEST 0
-#define JOIN_NETWORK_ACK 1
-#define INFRAESTRUCTURE_DETAILS 2
+// Message types (Agent <-> Controller)
+#define JOIN_NETWORK_REQUEST    0
+#define JOIN_NETWORK_ACK        1
+#define INFRAESTRUCTURE_DETAILS     2
 #define INFRAESTRUCTURE_DETAILS_ACK 3
-#define SET_RETRIEVAL_INTERVAL 4
-#define SET_RETRIEVAL_INTERVAL_ACK 5
-#define USERS_INFO_SNAPSHOT 6
+#define DATA_FRAME              6
+#define UE_EVENT                8  // fresh value — avoids the USERS_UPDATE=7 collision (F3)
 
-#define CHANGE_ENTRY 0
-#define CHANGE_MEH 1
-#define CHANGE_POSITION 2
-#define CHANGE_EXIT 3
-#define NO_CHANGE 4
+// Agent operating mode (sent in INFRAESTRUCTURE_DETAILS_ACK)
+#define AGENT_MODE_EVENT_ONLY       0
+#define AGENT_MODE_EVENT_AND_DATA   1
+
+// Event subtypes (payload of UE_EVENT)
+#define EVENT_ENTRY 0
+#define EVENT_EXIT  1
 
 #include <inet/networklayer/common/L3AddressResolver.h>
 #include <inet/transportlayer/contract/udp/UdpSocket.h>
@@ -42,7 +44,8 @@ struct UserState
     std::string currentMEH;
     simtime_t timestamp;
     UserData userData;
-    simtime_t lastHandoverTime;  // Track last handover time for ping-pong prevention
+    std::string pendingMEH;  // MEH attempting handover (empty if none)
+    // lastHandoverTime removed — confirmation uses samplesSinceChange (see C2/plan)
 };
 
 // structure that contains the type of change and the user data at the moment the change happens
@@ -113,12 +116,13 @@ class RavensControllerApp: public inet::ApplicationBase, public inet::UdpSocket:
         // std::vector<std::pair<std::string, std::string>> detectInactiveUsers();
 
         // methods to deal with userStateMap
-        void updateUserStateMap(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet);
-        void updateMehStateMap(inet::Ptr<const RavensLinkUsersInfoSnapshotMessage> received_packet); // Added new method
+        void updateUserStateMap(inet::Ptr<const RavensLinkDataFrameMessage> received_packet);
+        void updateMehStateMap(inet::Ptr<const RavensLinkDataFrameMessage> received_packet);
         std::vector<UserState> removeInactiveUsers();
 
-        // Ping-pong prevention helper - checks if handover should be accepted based on lockout
-        bool shouldAcceptHandover(const std::string& userId, const std::string& newMEH);
+        // Handles UE_EVENT packets (ENTRY/EXIT deltas from Agent)
+        void handleEventFrame(inet::Ptr<const RavensLinkEventMessage> event,
+                              inet::L3Address remoteAddress, int srcPort);
 
         std::string getMecHostIdFromAccessPointId(std::string accessPointId);
 

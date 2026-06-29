@@ -14,10 +14,13 @@ simple RavensControllerApp like IApp
         int snapshot_starting_time = default(2);
         string path = default("../tust_1to1/results/"); // path to save the data
         
-        int bufferTime = default(3); // timeout for the handler to know if the data is to be sent or not 
+        int confirmationCount = default(2);        // min samplesSinceChange on an ENTRY from a new MEH to confirm handover
+        double frameInterval = default(3);         // frame interval pushed to Agents via ACK (s)
+        int exitConfidenceThreshold = default(2);  // min samplesSinceChange on EXIT to act on it
 
         string localAddress = default(""); // local address; may be left empty ("")
-        int localPort = default(5001);     // localPort number to listen on    
+        int dataPort = default(5001);      // UDP — event + data frames
+        int mgmtPort = default(5000);      // TCP — config handshake (JOIN, INFRAESTRUCTURE_DETAILS)
 
         
     gates:

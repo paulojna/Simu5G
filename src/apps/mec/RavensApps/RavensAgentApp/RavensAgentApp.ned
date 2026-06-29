@@ -46,11 +46,12 @@ simple RavensAgentApp like IMECApp, IApp
 		bool logger = default(false);
 
         string controllerAddress = default("");
-        int controllerPort = default(5001); 
+        int controllerDataPort = default(5001); // UDP — event + data frames
+        int controllerMgmtPort = default(5000); // TCP — config handshake (JOIN, INFRAESTRUCTURE_DETAILS)
 
         int localPort = default(1993);
 
-        double ttl @unit(s) = default(5s);
+        double frameInterval @unit(s) = default(3s); // default, overridden by Controller ACK
 		
 	gates:
 	 	input mePlatformIn;

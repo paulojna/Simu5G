@@ -91,7 +91,7 @@ void RavensControllerApp::handleMessageWhenUp(cMessage *msg){
 
 void RavensControllerApp::handleStartOperation(inet::LifecycleOperation *operation){
     EV << "RavensControllerApp::handleStartOperation - start operation" << endl;
-    int port = par("localPort");
+    int port = par("dataPort");
     EV << "RavensControllerApp::initialize - binding to local port:" << port << endl;
     udpSocket.setOutputGate(gate("socketOut"));
     udpSocket.bind(port);
