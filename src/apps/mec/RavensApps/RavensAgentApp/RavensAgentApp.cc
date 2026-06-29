@@ -43,7 +43,7 @@ void RavensAgentApp::initialize(int stage)
     EV << "RavensAgentApp::initialize - Initializing MecAppBase variables such as the mp1Port -->" << mp1Port << endl;
     mp1Socket_ = addNewSocket();
 
-    controllerPort = par("controllerPort");
+    controllerPort = par("controllerDataPort");
     localPort_ = par("localPort");
 
     accessPoints = std::vector<AccessPointData>();
@@ -52,7 +52,7 @@ void RavensAgentApp::initialize(int stage)
     this->mecHostId = mecHost->getName();
 
     frameInterval_ = par("frameInterval");
-    agentMode_ = AGENT_MODE_CONTROL_AND_DATA; // default until ACK received
+    agentMode_ = AGENT_MODE_EVENT_AND_DATA; // default until ACK received
 
 	accessPointRadioInformation = new AccessPointRadioInfoData();
 
@@ -164,74 +164,76 @@ void RavensAgentApp::sendAPList()
  * Before sending, purges stale users whose data hasn't been updated within the TTL window.
  * Includes both per-user data (location + radio stats) and AP-level radio information in each snapshot.
  */
-void RavensAgentApp::sendUsersInfoSnapshot()
+void RavensAgentApp::sendEventFrame()
 {
-    // Check if force update interval has been reached
-    bool timeToForceUpdate = (simTime() - lastSentTimestamp_) >= forceUpdateInterval_;
-
-    // PERFORMANCE IMPROVEMENT TEST: Using dirty flag instead of full user scan
-    // Original code commented out for comparison:
-    // bool hasRecentUpdate = false;
-    // for (const auto& [address, user] : users) {
-    //     if (user.getLsUpdate() > lastSentTimestamp_ ||
-    //         user.getRnisUpdate() > lastSentTimestamp_) {
-    //         hasRecentUpdate = true;
-    //         break;
-    //     }
-    // }
-
-    // Send if we have fresh data (dirty flag) OR force interval reached
-    if (hasPendingUpdates_ || timeToForceUpdate)
+    if (pendingEntries_.empty() && pendingExits_.empty())
     {
-        // Purge stale users (TTL check)
-        auto it = users.begin();
-        while (it != users.end()) {
-            if (simTime() - it->second.getLastUpdated() > ttl_) {
-                EV << "RavensAgentApp::sendUsersInfoSnapshot - Purging stale user: " << it->first << endl;
-                it = users.erase(it);
-            } else {
-                ++it;
-            }
-        }
-
-        // Build and send the snapshot message
-        EV << "RavensAgentApp::sendUsersInfoSnapshot - Sending User Info Snapshot (reason: "<< (hasPendingUpdates_ ? "fresh data" : "force update") << ")" << endl;
-        inet::Packet* packet = new inet::Packet("RavensLinkUsersInfoSnapshotMessage");
-        auto request = inet::makeShared<RavensLinkUsersInfoSnapshotMessage>();
-        request->setChunkLength(B(500));
-        request->setType(USERS_INFO_SNAPSHOT);
-        request->setRequestId(localSnapshotCounter);
-        request->setTimeStamp(simTime());
-        request->setMecHostId(getMecHostId().c_str());
-        request->setUsers(users);
-
-        // Include AP-level radio information
-        if (accessPointRadioInformation != nullptr)
-        {
-            request->setApRadioInfo(*accessPointRadioInformation);
-        }
-        else
-        {
-            EV << "RavensAgentApp::sendUsersInfoSnapshot - WARNING: accessPointRadioInformation is null" << endl;
-        }
-
-        packet->insertAtBack(request);
-        controllerSocket_.send(packet);
-
-        // Update state
-        localSnapshotCounter++;
-        lastSentTimestamp_ = simTime();
-        hasPendingUpdates_ = false;  // Reset dirty flag after sending
-    }
-    else
-    {
-        EV << "RavensAgentApp::sendUsersInfoSnapshot - No fresh data and force interval not reached, skipping send" << endl;
+        EV << mecHostId << " - RavensAgentApp::sendEventFrame - no changes, skipping" << endl;
+        return;
     }
 
-    // Schedule next check
-    cMessage *msg = new cMessage("sendUserList");
-    EV << "RavensAgentApp::sendUsersInfoSnapshot - Next check scheduled in " << getRetrievalInterval() << " seconds" << endl;
-    scheduleAt(simTime() + getRetrievalInterval(), msg);
+    RavensEventList events;
+    for (const auto& [addr, ev] : pendingEntries_) {
+        RavensEvent e;
+        e.ueAddress = addr;
+        e.eventType = EVENT_ENTRY;
+        e.samplesSinceChange = ev.sampleCount;
+        e.firstDetectedAt = ev.firstDetectedAt;
+        events.push_back(e);
+    }
+    for (const auto& [addr, ev] : pendingExits_) {
+        RavensEvent e;
+        e.ueAddress = addr;
+        e.eventType = EVENT_EXIT;
+        e.samplesSinceChange = ev.sampleCount;
+        e.firstDetectedAt = ev.firstDetectedAt;
+        events.push_back(e);
+    }
+
+    inet::Packet* packet = new inet::Packet("RavensLinkEventMessage");
+    auto chunk = inet::makeShared<RavensLinkEventMessage>();
+    chunk->setChunkLength(inet::B(500));
+    chunk->setType(UE_EVENT);
+    chunk->setRequestId(localSnapshotCounter++);
+    chunk->setTimeStamp(simTime());
+    chunk->setMecHostId(getMecHostId().c_str());
+    chunk->setEvents(events);
+    packet->insertAtBack(chunk);
+    controllerSocket_.send(packet);
+
+    EV << mecHostId << " - RavensAgentApp::sendEventFrame - sent " << events.size() << " events" << endl;
+
+    pendingEntries_.clear();
+    pendingExits_.clear();
+}
+
+void RavensAgentApp::sendDataFrame()
+{
+    if (agentMode_ != AGENT_MODE_EVENT_AND_DATA)
+        return;
+
+    // Compute avg distance to AP from current LS user map
+    if (accessPointRadioInformation != nullptr && !users.empty()) {
+        double totalDist = 0.0;
+        for (const auto& [addr, ud] : users)
+            totalDist += ud.getDistanceToAP();
+        accessPointRadioInformation->setAvgDistanceToAp(totalDist / users.size());
+    }
+
+    inet::Packet* packet = new inet::Packet("RavensLinkDataFrameMessage");
+    auto chunk = inet::makeShared<RavensLinkDataFrameMessage>();
+    chunk->setChunkLength(inet::B(500));
+    chunk->setType(DATA_FRAME);
+    chunk->setRequestId(localSnapshotCounter++);
+    chunk->setTimeStamp(simTime());
+    chunk->setMecHostId(getMecHostId().c_str());
+    chunk->setUsers(users);
+    if (accessPointRadioInformation != nullptr)
+        chunk->setApRadioInfo(*accessPointRadioInformation);
+    packet->insertAtBack(chunk);
+    controllerSocket_.send(packet);
+
+    EV << mecHostId << " - RavensAgentApp::sendDataFrame - sent data frame with " << users.size() << " users" << endl;
 }
 
 
@@ -416,7 +418,12 @@ void RavensAgentApp::handleSelfMessage(cMessage *msg)
     else if(strcmp(msg->getName(), "sendUserList") == 0)
     {
         EV << "RavensAgentApp::handleMessage- " << msg->getName() << endl;
-        sendUsersInfoSnapshot();
+        // Reschedule first (unconditional — C4: timer must not die on a quiet interval)
+        cMessage *next = new cMessage("sendUserList");
+        scheduleAt(simTime() + frameInterval_, next);
+        // Then conditionally send frames
+        sendEventFrame();
+        sendDataFrame();
         delete msg;
     }
     else if(strcmp(msg->getName(), "sendL2MeasSub") == 0)
@@ -514,46 +521,35 @@ void RavensAgentApp::handleRNISMessage(int connId)
 				}
 			}
 
-			// Update per-user stats
-			if (notification.contains("cellUEInfo")) {
-			    // Handle both array (multiple UEs) and single object (one UE) formats
+			// Aggregate per-UE delay and data volume into cell-level stats.
+			// Per-user RNIS fields are not stored — cell aggregates go to accessPointRadioInformation.
+			if (notification.contains("cellUEInfo") && accessPointRadioInformation != nullptr) {
 			    std::vector<nlohmann::json> ueList;
 			    if (notification["cellUEInfo"].is_array()) {
-			        for (auto &ue : notification["cellUEInfo"]) {
+			        for (auto& ue : notification["cellUEInfo"])
 			            ueList.push_back(ue);
-			        }
 			    } else {
-			        // Single UE case - wrap in vector
 			        ueList.push_back(notification["cellUEInfo"]);
 			    }
 
-			    //std::cout << mecHostId << "RNIS response contains " << ueList.size() << " UEs" << endl;
-				for (auto &ue : ueList) {
-					if (ue.contains("associatedId") && ue["associatedId"].contains("value")) {
-						std::string address = "acr:" + ue["associatedId"]["value"].get<std::string>();
-					    //std::cout << mecHostId << "  RNIS UE address: " << address << std::endl;
-
-						auto it = users.find(address);
-						if (it != users.end()) {
-						    //std::cout << mecHostId << "    -> FOUND in users map, updating RNIS" << std::endl;
-							// Update radio stats for existing user
-							it->second.setDlNongbrDelayUe(ue.value("dl_nongbr_delay_ue", 0.0));
-							it->second.setDlNongbrPdrUe(ue.value("dl_nongbr_pdr_ue", 0.0));
-							it->second.setDlNongbrDataVolumeUe(ue.value("dl_nongbr_data_volume_ue", 0.0));
-							it->second.setUlNongbrDelayUe(ue.value("ul_nongbr_delay_ue", 0.0));
-							it->second.setUlNongbrPdrUe(ue.value("ul_nongbr_pdr_ue", 0.0));
-							it->second.setUlNongbrDataVolumeUe(ue.value("ul_nongbr_data_volume_ue", 0.0));
-							omnetpp::simtime_t dataTime = simTime();
-							it->second.setRnisUpdate(dataTime);
-							it->second.setLastUpdated(dataTime);
-							hasPendingUpdates_ = true;  // Mark dirty for snapshot
-						}
-					    else
-					    {
-					        //std::cout << mecHostId << "    -> NOT FOUND in users map" << std::endl;
-					    }
-					}
-				}
+			    double sumDlDelay = 0.0, sumUlDelay = 0.0;
+			    double sumDlVol = 0.0, sumUlVol = 0.0;
+			    int count = 0;
+			    for (auto& ue : ueList) {
+			        sumDlDelay += ue.value("dl_nongbr_delay_ue", 0.0);
+			        sumUlDelay += ue.value("ul_nongbr_delay_ue", 0.0);
+			        sumDlVol   += ue.value("dl_nongbr_data_volume_ue", 0.0);
+			        sumUlVol   += ue.value("ul_nongbr_data_volume_ue", 0.0);
+			        ++count;
+			    }
+			    if (count > 0) {
+			        accessPointRadioInformation->setAvgDlDelay(sumDlDelay / count);
+			        accessPointRadioInformation->setAvgUlDelay(sumUlDelay / count);
+			    }
+			    accessPointRadioInformation->setTotalDlDataVolume(sumDlVol);
+			    accessPointRadioInformation->setTotalUlDataVolume(sumUlVol);
+			    accessPointRadioInformation->setTimestamp(simTime());
+			    EV << mecHostId << " - RavensAgentApp::handleRNISMessage - aggregated " << count << " UEs into cell stats" << endl;
 			}
 		}
 	}
@@ -592,7 +588,7 @@ void RavensAgentApp::handleRNISMessage(int connId)
  *      notification is removed immediately and added to pendingExits_.
  *      pendingExits_ tracks firstDetectedAt and sampleCount so the Controller
  *      receives confidence context (e.g. absent for 3 samples = confident EXIT).
- *   Both pending maps are cleared by sendControlEvents() after each frame.
+ *   Both pending maps are cleared by sendEventFrame() after each frame.
  *
  * code 201:
  *   Subscription confirmed. Schedules the first frame timer.
@@ -744,12 +740,6 @@ void RavensAgentApp::handleLSMessage(int connId)
         EV << "RavensAgentApp::handleLSMessage - LS Message payload with code " << code << " received: " <<  serviceHttpMessage->getBody() << endl;
     }
 
-    // print users
-    for (auto& user : users)
-    {
-        EV << "LETS PRINT THE USERS" << endl;
-        EV << "RavensAgentApp::handleLSMessage - User: " << user.first << " AccessPoint: " << user.second.getAccessPointId() << endl;
-    }
 }
 
 /**
@@ -927,15 +917,6 @@ void RavensAgentApp::socketClosed(inet::TcpSocket* socket)
     MecAppBase::socketClosed(socket);
 }
 
-simtime_t RavensAgentApp::getRetrievalInterval()
-{
-    return sendInterval;
-}
-
-void RavensAgentApp::setRetrievalInterval(simtime_t interval)
-{
-    sendInterval = interval;
-}
 
 std::string RavensAgentApp::getMecHostId()
 {

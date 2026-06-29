@@ -11,15 +11,15 @@
 #define INFRAESTRUCTURE_DETAILS     2
 #define INFRAESTRUCTURE_DETAILS_ACK 3
 #define DATA_FRAME              6
-#define UE_CONTROL_EVENT        7
+#define UE_EVENT                8  // fresh value — avoids the USERS_UPDATE=7 collision (F3)
 
 // Agent operating mode (set by Controller via INFRAESTRUCTURE_DETAILS_ACK)
-#define AGENT_MODE_CONTROL_ONLY     0
-#define AGENT_MODE_CONTROL_AND_DATA 1
+#define AGENT_MODE_EVENT_ONLY       0
+#define AGENT_MODE_EVENT_AND_DATA   1
 
-// Control event subtypes (payload of UE_CONTROL_EVENT)
-#define CONTROL_ENTRY 0
-#define CONTROL_EXIT  1
+// Event subtypes (payload of UE_EVENT)
+#define EVENT_ENTRY 0
+#define EVENT_EXIT  1
 
 #include "omnetpp.h"
 
@@ -52,9 +52,9 @@ protected:
     int localSnapshotCounter;
 
     simtime_t frameInterval_;   // negotiated with Controller, used for both frame types
-    int agentMode_;             // AGENT_MODE_CONTROL_ONLY or AGENT_MODE_CONTROL_AND_DATA
+    int agentMode_;             // AGENT_MODE_EVENT_ONLY or AGENT_MODE_EVENT_AND_DATA
 
-    // Pending control events — accumulated between frame sends, cleared after each frame
+    // Pending events — accumulated between frame sends, cleared after each frame
     struct PendingEvent {
         simtime_t firstDetectedAt;
         int       sampleCount;
@@ -118,8 +118,8 @@ protected:
     void connectToRavensController();
     void sendJoinNetworkRequest();
     void sendAPList();
-    void sendControlEvents();  // sends control frame if pending entries/exits exist
-    void sendDataFrame();      // sends data frame (only if agentMode_ == AGENT_MODE_CONTROL_AND_DATA)
+    void sendEventFrame();     // sends event frame if pending entries/exits exist (UDP)
+    void sendDataFrame();      // sends data frame only if agentMode_ == AGENT_MODE_EVENT_AND_DATA (UDP)
 
     // udp socket callback methods
     virtual void socketDataArrived(inet::UdpSocket *socket, inet::Packet *packet) override;

@@ -47,11 +47,16 @@ problems:
 Split Agent→Controller traffic into **two frame types** and push intelligence to
 the MEC host (the "e" = *efficient*):
 
-- **Control frames** — *what changed*: UE ENTRY/EXIT events, derived by the Agent
+- **Event frames** — *what changed*: UE ENTRY/EXIT events, derived by the Agent
   diffing the LS user list at 1 s granularity, annotated with a confidence
   signal (`samplesSinceChange`). Sent only when something changes.
 - **Data frames** — *features*: LS-derived user state + **cell-level aggregated**
   RNIS (not per-user). Periodic, only in modes that need it.
+
+Both are **data-plane** traffic (telemetry the Agent reports). Distinct from these
+is the **control plane** — the config handshake (JOIN / INFRAESTRUCTURE_DETAILS /
+ACKs) that sets `agentMode` + `frameInterval`. See **Revision R1** for the
+terminology and the TCP-vs-UDP transport split.
 
 This (a) lets the Agent use MEC-host compute to do the diff/aggregation locally,
 reducing backhaul; (b) removes the hidden timing constraint by making departures
@@ -89,7 +94,7 @@ These are the principles that should govern every remaining decision:
    rethought, not ported. This is the root of critique items C1–C3.
 5. **Preserve the three-config experiment.** Reactive-only / proactive-only /
    both must all be *expressible and runnable* — the mode/flag design must allow
-   "data without control" (see C3). The comparison is the deliverable.
+   "data without events" (see C3). The comparison is the deliverable.
 6. **Implement piece by piece, review before applying.** The codebase is mid-
    migration and currently does not compile by design; follow the Pieces in
    order and keep the status snapshot at the end of this file current.
@@ -119,7 +124,8 @@ alongside reactive event-driven detection.
 | Rate negotiation broken | `rate=3000` hardcoded on Controller, integer division on Agent |
 | Handover lockout hardcoded in two separate methods | `HANDOVER_LOCKOUT = 10.0` appears as local const twice |
 | Agent sends full snapshots even when nothing changed | Dirty flag + force-heartbeat overlap creates non-obvious effective rate |
-| No distinction between data and control traffic | Single frame type serves all purposes |
+| No distinction between event and bulk-data traffic | Single frame type serves all purposes |
+| Config handshake unreliable | JOIN/DETAILS/ACKs sent over UDP — a dropped ACK leaves the Agent in default mode (fixed in R1: handshake moves to TCP) |
 
 ---
 
@@ -136,7 +142,7 @@ What the Agent does locally (MEH compute):
 1. **LS diff at 1s granularity** — tracks user entry, exit, and consecutive
    sample counts. Only state changes leave the MEH, not the full user list.
 2. **Temporal aggregation** — 3× 1s LS samples collapsed into one enriched
-   control frame at `frameInterval` (e.g. 3s), with confidence context.
+   event frame at `frameInterval` (e.g. 3s), with confidence context.
 3. **RNIS aggregation** — per-user radio stats (N users × 6 fields) aggregated
    to cell-level metrics (6 fields total) before transmission.
 
@@ -146,21 +152,21 @@ enabling quantitative comparison across experimental configurations.
 
 ---
 
-### Two frame types
+### Two frame types (both data plane, both over UDP)
 
-**Control frame** (`UE_CONTROL_EVENT`) — periodic, confidence-annotated:
+**Event frame** (`UE_EVENT`) — periodic, confidence-annotated:
 - Sent every `frameInterval` (e.g. 3s), always, regardless of agent mode
 - Carries a **batch** of user state changes since last frame, each annotated with:
   - `eventType`: ENTRY or EXIT
   - `samplesSinceChange`: how many consecutive 1s LS samples the user has been
     in this state (e.g. present for 3 samples = confident; absent for 1 = uncertain)
   - `firstDetectedAt`: simtime when the state change was first seen
-- Only changed users are reported — stable users are omitted from control frames
+- Only changed users are reported — stable users are omitted from event frames
 - The Controller uses `samplesSinceChange` to make handover/departure decisions
   without needing its own per-user history or a separate exitTTL timer
 
 **Data frame** (`DATA_FRAME`) — periodic, full state:
-- Sent every `frameInterval`, only when `agentMode = AGENT_MODE_CONTROL_AND_DATA`
+- Sent every `frameInterval`, only when `agentMode = AGENT_MODE_EVENT_AND_DATA`
 - LS-derived user map: address, AP, location, speed, bearing, distance
 - RNIS-derived cell aggregates: PRB usage, avg delay, PDR, data volume, avg distance
 - No per-user RNIS fields
@@ -169,56 +175,64 @@ enabling quantitative comparison across experimental configurations.
 
 | Mode | Agent sends | Used by |
 |---|---|---|
-| `AGENT_MODE_CONTROL_ONLY (0)` | Control frames only | NotifyOnDataChange |
-| `AGENT_MODE_CONTROL_AND_DATA (1)` | Control + Data frames | SaveDataHistory, SendToExternalServer |
+| `AGENT_MODE_EVENT_ONLY (0)` | Event frames only | NotifyOnDataChange |
+| `AGENT_MODE_EVENT_AND_DATA (1)` | Event + Data frames | SaveDataHistory, SendToExternalServer |
 
-### Registration flow (unchanged)
+### Registration flow (config handshake over TCP — see R1)
+
+The handshake (boxed below) is the **control plane** and runs over a **TCP**
+connection the Agent opens to the Controller's control port; the Agent closes it
+after the second ACK. The operational frames are **data plane** over **UDP**.
 
 ```
 Agent                          Controller
-  |                                |
+  |  ===== control plane: TCP =====|
   |--- JOIN_NETWORK_REQUEST ------>|
   |<-- JOIN_NETWORK_ACK -----------|
   |--- INFRAESTRUCTURE_DETAILS --->|  (AP list)
   |<-- INFRAESTRUCTURE_DETAILS_ACK-|  (agentMode + frameInterval in ms)
+  |  [Agent closes TCP control conn]
   |                                |
   |--- [subscribes to LS + RNIS] --|  (internal, no Controller involvement)
   |                                |
-  |=== operational phase ==========|
-  |--- UE_CONTROL_EVENT ---------->|  (every frameInterval, all modes)
-  |--- DATA_FRAME ---------------->|  (every frameInterval, mode=1 only)
+  |  ===== data plane: UDP ========|
+  |--- UE_EVENT ----------------->|  (every frameInterval, all modes)
+  |--- DATA_FRAME --------------->|  (every frameInterval, mode=1 only)
 ```
 
 ### Agent internal LS tracking (between frame sends)
 
-The Agent sees LS notifications every 1s. Between control frame sends it:
-- Tracks `presenceCount[ueAddr]` — consecutive samples user has been present
-- Tracks `pendingExits[ueAddr]` — users absent from LS, with absence count and
-  first-absent simtime
+The Agent sees LS notifications every 1s. Between event frame sends it maintains
+two maps of `PendingEvent{firstDetectedAt, sampleCount}` (see Piece 6):
+- `pendingEntries_` — users that appeared since the last frame, `sampleCount` =
+  consecutive samples present
+- `pendingExits_` — users absent from LS, `sampleCount` = consecutive samples absent
 - On each LS notification:
-  - Users present: increment `presenceCount`, remove from `pendingExits` if there
-  - Users absent (were in map before): move to `pendingExits`, increment absence count
-- At control frame time: report all entries with their `presenceCount` and all
-  pending exits with their absence count. Clear `pendingExits` after reporting.
+  - Users present: increment the entry's `sampleCount`; cancel any pending exit
+  - Users absent (were in map before): move to `pendingExits_`, increment its `sampleCount`
+- At event frame time: report all entries and all pending exits with their
+  `sampleCount` (→ `samplesSinceChange`). Clear both maps after reporting.
 
 ### Handover detection (Controller)
 
 ```
-Control frame from MEH-B: user ENTRY, samplesSinceChange=3
+Event frame from MEH-B: user ENTRY, samplesSinceChange=3
   → user has been at MEH-B for 3 confirmed samples → HANDOVER CONFIRMED immediately
 
-Control frame from MEH-B: user ENTRY, samplesSinceChange=1
-  → user just appeared at MEH-B → start confirmation (pendingMEH=B, pendingCount=1)
-  → on next control frame from MEH-B with same user → HANDOVER CONFIRMED
+Event frame from MEH-B: user ENTRY, samplesSinceChange=1
+  → user just appeared at MEH-B, low confidence
+  (NOTE: confirmation model is an open decision — see critique C2. The Agent
+   reports an entry only once, so confirm on samplesSinceChange ≥ confirmationCount_,
+   not across multiple frames.)
 
-Control frame from MEH-A: user EXIT, samplesSinceChange=1
+Event frame from MEH-A: user EXIT, samplesSinceChange=1
   → user absent only 1 sample → Controller may wait (low confidence)
 
-Control frame from MEH-A: user EXIT, samplesSinceChange=3
+Event frame from MEH-A: user EXIT, samplesSinceChange=3
   → user absent 3 samples → confident departure
 
 No agent reports user for threshold_ seconds:
-  → removeInactiveUsers() → EXIT
+  → removeInactiveUsers() → EXIT  (lost-UDP-packet safety net only — see C1)
 ```
 
 The `samplesSinceChange` field replaces the Controller's `exitTTL` timer.
@@ -228,17 +242,17 @@ The Agent already did the counting; the Controller just reads the result.
 
 eRAVENS supports three experimental configurations:
 
-1. **Reactive only** — `NotifyOnDataChange` mode, control frames only
+1. **Reactive only** — `NotifyOnDataChange` mode, event frames only
    - Handover detected within `frameInterval` (1–5s configurable)
    - Always correct, always after the fact
    - Minimum bandwidth
 
-2. **Proactive only** — `SendToExternalServer` mode, data frames only (no control)
+2. **Proactive only** — `SendToExternalServer` mode, data frames only (no events)
    - ML predicts handovers before they happen using cell-level aggregates + LS state
    - May miss handovers, no safety net
 
-3. **Reactive + Proactive** — `SendToExternalServer` mode, control + data frames
-   - ML predicts early, control frames catch what ML misses
+3. **Reactive + Proactive** — `SendToExternalServer` mode, event + data frames
+   - ML predicts early, event frames catch what ML misses
    - Best latency, zero missed handovers
 
 The bandwidth consumed by each configuration is measured via OMNeT++ signals
@@ -249,16 +263,23 @@ comparison.
 
 ## Implementation Plan
 
+> **Read "Revision R1" (below the Pieces) first.** It renames the "control frame"
+> → "event frame" and moves the config handshake to TCP. Every Piece below is
+> shown in **post-R1 (target) vocabulary**. Pieces 1–6 were already implemented
+> under the *old* names (`UE_CONTROL_EVENT`, `AGENT_MODE_CONTROL_*`, etc.); the
+> rename to the names shown here is the outstanding R1a work.
+
 ### ✅ Piece 1 — Defines (`RavensAgentApp.h`, `RavensControllerApp.h`)
 
-**Status: DONE**
+**Status: DONE (under old names; R1a rename outstanding)**
 
 Changed in both files:
 - Removed `SET_RETRIEVAL_INTERVAL (4)` and `SET_RETRIEVAL_INTERVAL_ACK (5)` (unused)
 - Renamed `USERS_INFO_SNAPSHOT (6)` → `DATA_FRAME (6)`
-- Added `UE_CONTROL_EVENT (7)`
-- Added `AGENT_MODE_CONTROL_ONLY (0)` and `AGENT_MODE_CONTROL_AND_DATA (1)`
-- Added `CONTROL_ENTRY (0)` and `CONTROL_EXIT (1)`
+- Added `UE_EVENT (7)` — *R1a: give it a fresh value to clear the `7` collision
+  with the MEO-facing `USERS_UPDATE`; renumber MEO codes to 20/21 (see F3)*
+- Added `AGENT_MODE_EVENT_ONLY (0)` and `AGENT_MODE_EVENT_AND_DATA (1)`
+- Added `EVENT_ENTRY (0)` and `EVENT_EXIT (1)`
 - Removed `CHANGE_ENTRY/MEH/POSITION/EXIT/NO_CHANGE` from Controller header
   (internal state labels, belong in handler logic not wire protocol)
 
@@ -266,34 +287,37 @@ Changed in both files:
 
 ### ✅ Piece 2 — Message classes (`RavensLinkPacket.msg`)
 
-**Status: DONE**
+**Status: DONE (under old names; R1a rename outstanding)**
 
 - Renamed `RavensLinkUsersInfoSnapshotMessage` → `RavensLinkDataFrameMessage`
   - Fields unchanged: `mecHostId`, `UsersMap users`, `AccessPointRNISData apRadioInfo`
 - Updated `RavensLinkInfrastructureDetailsMessageAck`:
-  - Kept `int rate` (frame interval in ms — same rate for control and data frames)
-  - Added `int agentMode` (AGENT_MODE_CONTROL_ONLY or AGENT_MODE_CONTROL_AND_DATA)
-- Added `RavensControlEvent` struct and `RavensControlEventList` typedef in
+  - Kept `int rate` (frame interval in ms — same rate for event and data frames)
+  - Added `int agentMode` (AGENT_MODE_EVENT_ONLY or AGENT_MODE_EVENT_AND_DATA)
+- Added `RavensEvent` struct and `RavensEventList` typedef in
   the `cplusplus {{ }}` block (consistent with `@existingClass` pattern):
   ```cpp
-  struct RavensControlEvent {
+  struct RavensEvent {
       std::string        ueAddress;
-      int                eventType;           // CONTROL_ENTRY=0 or CONTROL_EXIT=1
+      int                eventType;           // EVENT_ENTRY=0 or EVENT_EXIT=1
       int                samplesSinceChange;  // consecutive 1s LS samples in this state
       omnetpp::simtime_t firstDetectedAt;     // simtime when change was first observed
   };
-  typedef std::vector<RavensControlEvent> RavensControlEventList;
+  typedef std::vector<RavensEvent> RavensEventList;
   ```
-  Note: `RavensControlEvent` / `RavensControlEventList` are in the **global
+  Note: `RavensEvent` / `RavensEventList` are in the **global
   namespace** (not `simu5g::`) — reference without namespace prefix in C++ code.
-- Added `RavensLinkControlEventMessage extends RavensLinkPacket`:
+- Added `RavensLinkEventMessage extends RavensLinkPacket`:
   ```
   string mecHostId
-  RavensControlEventList events   // batch: all state changes this frame interval
+  RavensEventList events   // batch: all state changes this frame interval
   ```
   Sent at `frameInterval` **only when entries or exits exist**. No packet if
   no changes occurred. `exitTTL` is NOT in the message — the Controller uses
   `samplesSinceChange` instead of a local timer.
+
+  Transport note (R1): this message and `RavensLinkDataFrameMessage` go over
+  **UDP**; only the JOIN/INFRAESTRUCTURE handshake messages move to **TCP**.
 
 ---
 
@@ -357,7 +381,7 @@ Overridden at runtime by `rate` field in `INFRAESTRUCTURE_DETAILS_ACK`.
 
 ### ✅ Piece 6 — `RavensAgentApp.h`
 
-**Status: DONE**
+**Status: DONE (under old names; R1a rename outstanding)**
 
 Removed: `sendInterval`, `forceUpdateInterval_`, `lastSentTimestamp_`, `ttl_`,
 `hasPendingUpdates_`, `getRetrievalInterval()`, `setRetrievalInterval()`.
@@ -365,9 +389,9 @@ Removed: `sendInterval`, `forceUpdateInterval_`, `lastSentTimestamp_`, `ttl_`,
 Added:
 ```cpp
 simtime_t frameInterval_;   // negotiated with Controller, used for both frame types
-int agentMode_;             // AGENT_MODE_CONTROL_ONLY or AGENT_MODE_CONTROL_AND_DATA
+int agentMode_;             // AGENT_MODE_EVENT_ONLY or AGENT_MODE_EVENT_AND_DATA
 
-// Pending control events — accumulated between frame sends, cleared after each frame
+// Pending events — accumulated between frame sends, cleared after each frame
 struct PendingEvent {
     simtime_t firstDetectedAt;
     int       sampleCount;
@@ -376,7 +400,11 @@ std::unordered_map<std::string, PendingEvent> pendingEntries_; // appeared since
 std::unordered_map<std::string, PendingEvent> pendingExits_;   // absent since last frame
 ```
 
-Renamed `sendUsersInfoSnapshot()` → `sendDataFrame()`. Added `sendControlEvents()`.
+Renamed `sendUsersInfoSnapshot()` → `sendDataFrame()`. Added `sendEventFrame()`.
+
+R1b also adds here: `inet::TcpSocket controlSocket_;` (config handshake) and the
+`controllerControlPort` param wiring. The UDP `controllerSocket_` stays and now
+carries only event + data frames.
 
 ---
 
@@ -390,7 +418,7 @@ Renamed `sendUsersInfoSnapshot()` → `sendDataFrame()`. Added `sendControlEvent
 
 **`initialize()`**: Removed `ttl_`, `forceUpdateInterval_`, `lastSentTimestamp_`,
 `hasPendingUpdates_`. Reads `frameInterval_` from NED. Defaults `agentMode_` to
-`AGENT_MODE_CONTROL_AND_DATA` until ACK received.
+`AGENT_MODE_EVENT_AND_DATA` until ACK received.
 
 **`handleProcessedMessage()` — INFRAESTRUCTURE_DETAILS_ACK**:
 - `frameInterval_ = infrastructureDetailsAck->getRate() / 1000.0` (fixes integer division bug)
@@ -414,20 +442,22 @@ Renamed `sendUsersInfoSnapshot()` → `sendDataFrame()`. Added `sendControlEvent
   instead of writing to `UserData`
 - No user map access at all
 
-**`sendControlEvents()`** — new method:
+**`sendEventFrame()`** — new method (sends over UDP `controllerSocket_`):
 - If `pendingEntries_` and `pendingExits_` both empty → return, no packet sent
-- Otherwise build one `RavensLinkControlEventMessage` with all events as
-  `RavensControlEvent` structs (ENTRY and EXIT with `sampleCount` + `firstDetectedAt`)
-- Send, clear both maps, reschedule at `frameInterval_`
+- Otherwise build one `RavensLinkEventMessage` with all events as
+  `RavensEvent` structs (ENTRY and EXIT with `sampleCount` + `firstDetectedAt`)
+- Send, clear both maps. **Do not reschedule here** — see C4: the timer is
+  rescheduled unconditionally in `handleSelfMessage()`, not on the send path.
 
-**`sendDataFrame()`** — replaces `sendUsersInfoSnapshot()`:
-- Skip if `agentMode_ != AGENT_MODE_CONTROL_AND_DATA`
+**`sendDataFrame()`** — replaces `sendUsersInfoSnapshot()` (UDP `controllerSocket_`):
+- Skip if `agentMode_ != AGENT_MODE_EVENT_AND_DATA`
 - Compute `avg_distance_to_ap` from `users` map, call setter on `accessPointRadioInformation`
 - Build and send `RavensLinkDataFrameMessage`
-- Called from same timer handler as `sendControlEvents()`
+- Called from same timer handler as `sendEventFrame()`
 
 **`handleSelfMessage()`** — update timer dispatch:
-- `sendUserList` message → call `sendControlEvents()` then `sendDataFrame()`
+- `sendUserList` message → **first** reschedule at `frameInterval_` (always; C4),
+  **then** call `sendEventFrame()` then `sendDataFrame()`
 - Remove `sendUsersInfoSnapshot()` call
 
 ---
@@ -443,15 +473,16 @@ int bufferTime = default(3);
 
 Add:
 ```ned
-int confirmationCount = default(2);      // min consecutive control frames from new MEH
-                                          // before handover is accepted
-double frameInterval = default(3);       // data frame interval sent to Agents via ACK (s)
+int confirmationCount = default(2);       // min samplesSinceChange on an ENTRY from a
+                                          // new MEH before handover is accepted (see C2)
+double frameInterval = default(3);        // frame interval sent to Agents via ACK (s)
 int exitConfidenceThreshold = default(2); // min samplesSinceChange on EXIT to act on it
+int controlPort = default(5000);          // R1c: TCP listen port for the config handshake
 ```
 
 Note: `exitTTL` (a timer) is NOT added. The Agent's `samplesSinceChange` field
 on EXIT frames replaces it — the Controller reads confidence from the data,
-not from a local stopwatch.
+not from a local stopwatch. (`localPort = 5001` stays as the UDP data-plane port.)
 
 ---
 
@@ -467,8 +498,11 @@ struct UserState {
     simtime_t timestamp;
     UserData userData;
     std::string pendingMEH;           // MEH attempting handover (empty if none)
-    int pendingConfirmations;          // consecutive ENTRY frames from pendingMEH
-    // REMOVED: simtime_t lastHandoverTime  (replaced by confirmation counter)
+    // NOTE (C2): the cross-frame confirmation counter does not work with
+    // report-entry-once. Confirm on samplesSinceChange ≥ confirmationCount_ from
+    // a single ENTRY instead. Drop pendingConfirmations unless C2 is resolved
+    // otherwise.
+    // REMOVED: simtime_t lastHandoverTime
 };
 ```
 
@@ -486,9 +520,13 @@ double frameInterval_;
 
 Add method declaration:
 ```cpp
-void handleControlEvent(inet::Ptr<const RavensLinkControlEventMessage> event,
-                        inet::L3Address remoteAddress, int srcPort);
+void handleEventFrame(inet::Ptr<const RavensLinkEventMessage> event,
+                      inet::L3Address remoteAddress, int srcPort);
 ```
+
+R1c also adds here: a listening `inet::TcpSocket serverSocket;`, the
+`inet::TcpSocket::ICallback` overrides, and use of the already-declared
+`inet::SocketMap socketMap;` for accepted control-plane connections.
 
 ---
 
@@ -499,35 +537,49 @@ void handleControlEvent(inet::Ptr<const RavensLinkControlEventMessage> event,
 **`initialize()`**:
 - Read `confirmationCount_`, `exitConfidenceThreshold_`, `frameInterval_` from NED
 
+**Control plane → TCP (R1c):** the `JOIN_NETWORK_REQUEST` and
+`INFRAESTRUCTURE_DETAILS` branches move out of the UDP `socketDataArrived` into
+the TCP `socketDataArrived(TcpSocket*, ...)` path; `sendJoinNetworkAck` /
+`sendInfrastructureDetailsAck` write back on the accepting `TcpSocket` instead of
+`udpSocket->sendTo(...)`. See R1c for the listen/accept setup.
+
 **`sendInfrastructureDetailsAck()`**:
-- `setRate((int)(frameInterval_ * 1000))` — send interval in ms
+- `setRate((int)(frameInterval_ * 1000))` — send interval in ms (replaces the
+  hardcoded `setRate(3000)`)
 - `setAgentMode(...)` based on configured handler policy
 
-**`socketDataArrived()`**:
-- Add branch for `UE_CONTROL_EVENT` → call `handleControlEvent()`
+**`socketDataArrived(UdpSocket*)`** (data plane only after R1c):
+- Add branch for `UE_EVENT` → call `handleEventFrame()`
 - Rename `USERS_INFO_SNAPSHOT` references to `DATA_FRAME`
 
-**`handleControlEvent()`** — new method:
+**`handleEventFrame()`** — new method:
 
 ```
-On CONTROL_ENTRY (samplesSinceChange = N):
+On EVENT_ENTRY (samplesSinceChange = N):
   - If user not in map → new entry (signal handler policy)
-  - If user in map, same MEH → refresh timestamp, reset pending state
-  - If user in map, different MEH:
-      - if pendingMEH != srcMEH: reset pendingMEH = srcMEH, pendingConfirmations = N
-      - if pendingMEH == srcMEH: pendingConfirmations += N
-      - if pendingConfirmations >= confirmationCount_ → HANDOVER CONFIRMED
-        (signal handler policy, update currentMEH)
+  - If user in map, same MEH → refresh timestamp
+  - If user in map, different MEH (handover):
+      - if N >= confirmationCount_ → HANDOVER CONFIRMED (signal policy, set currentMEH = srcMEH)
+      - else → low confidence; record pendingMEH = srcMEH and wait for the
+        exit-hold / next signal (see C2/F2 — confirm on the single event's
+        confidence, NOT by accumulating across frames)
 
-On CONTROL_EXIT (samplesSinceChange = N):
-  - If N < exitConfidenceThreshold_: low confidence, Controller may log but not act
-  - If N >= exitConfidenceThreshold_: departure is likely, mark for removal
-    (removeInactiveUsers() will confirm via threshold_ timeout)
+On EVENT_EXIT (samplesSinceChange = N):
+  - Ignore if srcMEH != currentMEH (stale exit from the cell the user already left — C5)
+  - If N < exitConfidenceThreshold_: low confidence, log but do not act
+  - If N >= exitConfidenceThreshold_: hold briefly (≈1 frameInterval, F2); if an
+    ENTRY from a different MEH arrives within the window → reclassify as handover,
+    else → emit departure
 ```
+
+> The confirmation/exit-hold details above encode the still-open decisions
+> **C2, C5, F2**. Settle them before implementing this method (see the status
+> snapshot). `removeInactiveUsers()` remains only as a lost-UDP-packet safety net
+> with `threshold_ ≫ frameInterval` (C1/M1).
 
 **`updateUserStateMap()`**:
 - Now only updates `userData` content on DATA_FRAME (location, RNIS aggregates)
-- Handover/departure decisions are driven by `handleControlEvent()`, not this method
+- Handover/departure decisions are driven by `handleEventFrame()`, not this method
 - Remove `HANDOVER_LOCKOUT`, `MIN_UPDATE_INTERVAL` hardcoded constants
 - Remove `shouldAcceptHandover()` call
 
@@ -542,7 +594,7 @@ On CONTROL_EXIT (samplesSinceChange = N):
 - Remove `getDlNongbrDelayUe() == -1` filter
 - Remove unused members: `interval_`, `start`, `stanby_treshold_`,
   `max_iterations`, `standby`, `ueStanbyElement`
-- Entry/exit/handover now arrive via `handleControlEvent()` path
+- Entry/exit/handover now arrive via `handleEventFrame()` path
 
 **`SendToExternalServer.cc`**:
 - Remove `shouldAcceptHandover()` call
@@ -579,9 +631,183 @@ On CONTROL_EXIT (samplesSinceChange = N):
 
 - Remove `sendUserListRequest()`, `sendUserLocationRequest()`,
   `sendUsersDensitySubscription()` from Agent if unused
-- Remove `USERS_UPDATE` / `MIGRATION_PLAN` references that need updating
-  after message rename
-- Clean up any remaining `USERS_INFO_SNAPSHOT` string references in EV logs
+- Renumber `USERS_UPDATE` / `MIGRATION_PLAN` to a non-overlapping range (20/21)
+  to clear the `7` collision with `UE_EVENT` (folded into R1a / F3)
+- Clean up any remaining `USERS_INFO_SNAPSHOT` and "control frame" string
+  references in EV logs (→ `DATA_FRAME` / "event frame")
+
+---
+
+## Revision R1 — Terminology fix + TCP control plane
+
+> Added 2026-06-29 after a design review. Two orthogonal changes that the rest of
+> the plan (Pieces 1–12) predates. **Apply R1 first**, then read every earlier
+> Piece with the rename map below in effect. Decisions are settled — do not
+> re-litigate; just implement. Implementation target: Sonnet.
+
+### R1 background — why
+
+The plan called the ENTRY/EXIT delta frame a "**control frame**." That name is
+wrong on the control-plane / data-plane axis: ENTRY/EXIT events are *telemetry*
+(the Agent reporting what it observed) — they are **data plane**, exactly like
+the "data frame." The only genuine **control plane** in the system is the
+registration/config handshake (`JOIN_NETWORK_*`, `INFRAESTRUCTURE_DETAILS_*`,
+and the ACK that sets `agentMode` + `frameInterval`). R1 makes the vocabulary
+match reality and moves the config handshake onto a reliable transport.
+
+Three lanes, two planes:
+
+| Lane | Messages | Transport | Plane |
+|---|---|---|---|
+| **Control / signaling** | JOIN, INFRAESTRUCTURE_DETAILS, both ACKs | **TCP** | control |
+| **Event** (was "control frame") | `UE_EVENT` / `RavensLinkEventMessage` | UDP | data |
+| **Data** | `DATA_FRAME` / `RavensLinkDataFrameMessage` | UDP | data |
+
+Settled decisions:
+1. **Rename** the event-delta lane: "control frame" → "**event frame**".
+2. **TCP for the config handshake only.** Event + Data frames stay UDP (each Data
+   frame supersedes the last; the bandwidth comparison measures the UDP feed).
+3. **Close-after-handshake** TCP connection. No dynamic mid-run reconfig is
+   needed — the three experimental configs are separate runs with config fixed at
+   registration. (If push-reconfig is ever wanted, keep the Agent-initiated
+   connection *open* and have the Controller write down it — do **not** make the
+   Agent a TCP server. That asymmetry is why persistent beats new-connection.)
+
+### R1a — Rename map (event-frame terminology)
+
+Pure mechanical rename, applied everywhere (defines, `.msg`, `.h`, `.cc`, prose,
+EV logs). Apply before/with the earlier Pieces so they're written in the new
+vocabulary.
+
+| Old | New |
+|---|---|
+| `UE_CONTROL_EVENT` (define) | `UE_EVENT` |
+| `CONTROL_ENTRY` / `CONTROL_EXIT` | `EVENT_ENTRY` / `EVENT_EXIT` |
+| `AGENT_MODE_CONTROL_ONLY` | `AGENT_MODE_EVENT_ONLY` |
+| `AGENT_MODE_CONTROL_AND_DATA` | `AGENT_MODE_EVENT_AND_DATA` |
+| `RavensLinkControlEventMessage` | `RavensLinkEventMessage` |
+| `RavensControlEvent` / `RavensControlEventList` | `RavensEvent` / `RavensEventList` |
+| `sendControlEvents()` (Agent) | `sendEventFrame()` |
+| `handleControlEvent()` (Controller) | `handleEventFrame()` |
+| prose "control frame" / "control event" | "event frame" / "event" |
+
+Field names inside the struct (`ueAddress`, `eventType`, `samplesSinceChange`,
+`firstDetectedAt`) are unchanged. The `agentMode` enum is renamed, not
+restructured — the C3 critique (two booleans for the "proactive-only" config) is
+a **separate** open decision, not part of R1.
+
+**Fold in F3 while renaming.** `UE_CONTROL_EVENT = 7` collides by value with the
+MEO-facing `#define USERS_UPDATE 7` (`RavensControllerApp.cc:12`). Give `UE_EVENT`
+a fresh value and renumber the MEO codes to a non-overlapping range, e.g.:
+- Agent↔Controller data plane: `DATA_FRAME = 6`, `UE_EVENT = 7`
+- Controller→MEO: `USERS_UPDATE = 20`, `MIGRATION_PLAN = 21`
+
+Files touched by R1a: both app `.h` defines (`RavensAgentApp.h:9–22`,
+`RavensControllerApp.h:5–18`), `RavensLinkPacket.msg`, `RavensAgentApp.{h,cc}`,
+`RavensControllerApp.{h,cc}`, all three handler policies, and the prose in this
+plan (Pieces 1, 2, 6, 7, 9, 10, 11; Architecture §"Two frame types").
+
+### R1b — TCP control plane (Agent side)
+
+**Files:** `RavensAgentApp.ned`, `RavensAgentApp.h`, `RavensAgentApp.cc`
+
+Current state (grounded): the Agent already runs TCP sockets to the MEC platform
+services (`mp1Socket_`, `lsSocket_`, `rnisSocket_`) with the full lifecycle —
+`addNewSocket()`, `connect()`, `socketEstablished()`, `socketClosed(TcpSocket*)`
+— and one **UDP** socket `controllerSocket_` to the Controller
+(`RavensAgentApp.cc:455–464`). The handshake (JOIN/DETAILS) and the frames all go
+over that UDP socket today (`handleProcessedMessage` at `:761`, sends at
+`:135/154/219`).
+
+Changes:
+1. **NED:** add `int controllerControlPort = default(5000);` (TCP). Keep
+   `controllerPort = default(5001)` (UDP, now data plane only).
+2. **Add a TCP control socket.** New member `inet::TcpSocket controlSocket_;`.
+   `controllerSocket_` (UDP) stays and now carries **only** `UE_EVENT` +
+   `DATA_FRAME`. (Optionally rename it `dataSocket_` for clarity — low-churn,
+   your call.)
+3. **Connection bring-up** (`connectToRavensController`, `:455`): set up *both*
+   sockets — bind the UDP socket as today, and `setOutputGate`/`setCallback`/
+   `connect()` the TCP `controlSocket_` to `controllerControlPort`. The single
+   `socketOut` gate carries both (same dispatcher that already serves the UDP
+   socket + 3 TCP service sockets — no new NED gates).
+4. **Use object/message transfer mode** on `controlSocket_` so RavensLink message
+   boundaries are preserved across the TCP stream (avoids manual byte-stream
+   reassembly). This matches how the MEC-service TCP sockets deliver whole
+   messages. *Sonnet: confirm the INET `TcpSocket` transfer-mode setting used by
+   the service sockets and mirror it.*
+5. **Handshake over TCP:** send `JOIN_NETWORK_REQUEST` from the
+   `controlSocket_` branch of `socketEstablished()` (the method already switches
+   on `connId` at `:81–115` — add a `controlSocket_` case). Route incoming
+   `JOIN_NETWORK_ACK` / `INFRAESTRUCTURE_DETAILS_ACK` through the TCP path; the
+   existing logic in `handleProcessedMessage` (`:780–790`) moves from the
+   `controllerSocket_.belongsToSocket(msg)` (UDP) branch to a
+   `controlSocket_.belongsToSocket(msg)` (TCP) branch. Behaviour is identical;
+   only the socket changes.
+6. **Close after handshake:** in the `INFRAESTRUCTURE_DETAILS_ACK` handler, after
+   reading `frameInterval_`/`agentMode_` and scheduling the LS/RNIS subscription,
+   `controlSocket_.close()`. The data plane (UDP) is independent and already
+   identifies the Agent by `mecHostId` carried in every frame payload — the TCP
+   connection is not needed post-handshake.
+
+### R1c — TCP control plane (Controller side)
+
+**Files:** `RavensControllerApp.ned`, `RavensControllerApp.h`, `RavensControllerApp.cc`
+
+Current state (grounded): `ApplicationBase` + `UdpSocket::ICallback`, single
+`udpSocket` bound to `localPort` (`:95–98`), and an **already-declared but unused**
+`inet::SocketMap socketMap;` (`RavensControllerApp.h:82`) — the exact INET idiom
+for managing accepted TCP connections. Handshake handled in
+`socketDataArrived(UdpSocket*)` (`:181–225`); ACKs sent via `socket->sendTo(...)`
+(`:237–261`).
+
+Changes:
+1. **NED:** add `int controlPort = default(5000);` (TCP listen). Keep
+   `localPort = default(5001)` (UDP, data plane).
+2. **Become a TCP server.** Add a listening `inet::TcpSocket serverSocket;`
+   (`setOutputGate`, `bind(controlPort)`, `listen()`), and implement
+   `inet::TcpSocket::ICallback`. On `socketAvailable` → accept into a new
+   `TcpSocket`, set its callback, store in the existing `socketMap`. *Verify the
+   Controller's containing node has a `Tcp` module* — it is modeled on UALCMP
+   (TCP server), so it almost certainly does; Sonnet must confirm in the network
+   `.ned`/`.ini` before relying on it.
+3. **Move the handshake to TCP.** Relocate the `JOIN_NETWORK_REQUEST` and
+   `INFRAESTRUCTURE_DETAILS` branches (`:181–225`) out of the UDP
+   `socketDataArrived` and into the TCP `socketDataArrived(TcpSocket*, Packet*)`
+   path. `sendJoinNetworkAck` / `sendInfrastructureDetailsAck` change signature
+   from `(UdpSocket*, L3Address, port)` to writing back on the accepted
+   `TcpSocket` (`tcpSocket->send(packet)`).
+4. **The UDP `socketDataArrived` now handles only data plane:** `UE_EVENT`
+   (→ `handleEventFrame()`, new) and `DATA_FRAME` (→ handler policy). This is the
+   same branch work Piece 10 already specifies — just note the handshake no
+   longer arrives here.
+5. **Agent identity:** `MECHostData` is still keyed by `mecHostId` from the JOIN
+   payload; record the accepting connId if useful, but since the Agent closes
+   after handshake and all frames carry `mecHostId`, the Controller does not need
+   the TCP connection post-handshake. Handle `socketClosed`/`peerClosed` by
+   removing the connection from `socketMap` (the host registration in
+   `mehStateMap` persists).
+6. **Fix `sendInfrastructureDetailsAck` while here:** it currently hardcodes
+   `setRate(3000)` and never calls `setAgentMode(...)` (`:249–261`). Set
+   `setRate((int)(frameInterval_ * 1000))` and `setAgentMode(...)` per the
+   configured handler policy (this is the Piece 10 work, now on the TCP path).
+
+### R1 — what this does and does NOT buy
+
+- **Does:** the config handshake can no longer be silently lost — a dropped ACK
+  over UDP previously risked leaving an Agent in its default `agentMode` /
+  `frameInterval`. Now reliable + ordered.
+- **Does NOT:** fix the EXIT-before-ENTRY cross-Agent race (critique **F2/C5**).
+  TCP orders bytes *within one connection*; EXIT and ENTRY come from *two
+  different Agents* over UDP. The short Controller-side exit-hold window (F2) is
+  still required. Do not let R1 be mistaken for solving it.
+- **Methodology note for the thesis:** the handshake is one-time and tiny, so TCP
+  overhead does not affect the per-frame bandwidth comparison (which measures the
+  UDP event/data feed). No change to the measurement story.
+
+### R1 — added verification items
+
+Folded into the main Verification list below as items 11–13.
 
 ---
 
@@ -589,17 +815,18 @@ On CONTROL_EXIT (samplesSinceChange = N):
 
 | Aspect | RAVENS | eRAVENS |
 |---|---|---|
-| **Control frame timing** | No control frame — one snapshot type | Periodic at `frameInterval` (1–5s, configurable) |
+| **Event frame timing** | No event frame — one snapshot type | Periodic at `frameInterval` (1–5s, configurable) |
 | **Departure detection** | TTL purge at snapshot time (up to 10s late) | LS diff at 1s, reported at next frame |
 | **Confidence signal** | None — Controller uses time-based lockout | `samplesSinceChange` per event — Agent already did the counting |
-| **Handover logic** | `HANDOVER_LOCKOUT = 10s` hardcoded timer | Confirmation counter (N consecutive ENTRY frames from new MEH) |
-| **exitTTL** | Implicit in HANDOVER_LOCKOUT | Replaced by `exitConfidenceThreshold_` on `samplesSinceChange` field |
+| **Handover logic** | `HANDOVER_LOCKOUT = 10s` hardcoded timer | Confidence threshold: confirm on `samplesSinceChange ≥ confirmationCount_` (C2) |
+| **exitTTL** | Implicit in HANDOVER_LOCKOUT | Replaced by `exitConfidenceThreshold_` + short exit-hold window (F2) |
 | **Per-user RNIS** | 6 fields per user in every snapshot | None — dropped entirely |
 | **Cell-level metrics** | 4 fields (PRB, PDR) | 4 existing + 5 new aggregates |
 | **MEH compute** | Minimal (LS polling only) | LS diff, sample counting, RNIS aggregation |
 | **Rate negotiation** | Broken (hardcoded + integer division) | Fixed: NED param on Controller, correct float conversion |
-| **Agent mode** | Single mode | CONTROL_ONLY or CONTROL_AND_DATA |
-| **Hidden constraints** | `ttl_ + forceUpdate < HANDOVER_LOCKOUT` | None |
+| **Agent mode** | Single mode | EVENT_ONLY or EVENT_AND_DATA |
+| **Transport** | All traffic over UDP | Control plane (handshake) TCP; data plane (event + data frames) UDP |
+| **Hidden constraints** | `ttl_ + forceUpdate < HANDOVER_LOCKOUT` | One localized exit-hold window (F2); `threshold_ ≫ frameInterval` (M1) |
 
 ---
 
@@ -608,15 +835,18 @@ On CONTROL_EXIT (samplesSinceChange = N):
 After all pieces are implemented:
 
 1. **Compile** — project builds cleanly
-2. **Control frame content** — EV log shows `samplesSinceChange` increments correctly across LS cycles
-3. **Departure detection** — Agent removes departed user from map within 1s, reports EXIT in next control frame with correct `samplesSinceChange`
+2. **Event frame content** — EV log shows `samplesSinceChange` increments correctly across LS cycles
+3. **Departure detection** — Agent removes departed user from map within 1s, reports EXIT in next event frame with correct `samplesSinceChange`
 4. **No stale users** — Agent never sends a departed UE in a data frame
-5. **Mode enforcement** — CONTROL_ONLY Agent sends no data frames
+5. **Mode enforcement** — EVENT_ONLY Agent sends no data frames
 6. **Rate negotiation** — Agent adopts Controller's `frameInterval` correctly (no integer division)
-7. **Confirmation counter** — Controller accepts handover after N ENTRY frames with sufficient `samplesSinceChange`
+7. **Handover confidence** — Controller accepts handover when a single ENTRY from the new MEH has `samplesSinceChange ≥ confirmationCount_` (C2 model)
 8. **Low-confidence exit** — EXIT with `samplesSinceChange=1` does not immediately trigger departure in Controller
 9. **Cell aggregates** — `AccessPointRadioInfoData` carries correct avg/total values
 10. **Flask format** — `SendToExternalServer` JSON matches new schema
+11. **TCP handshake (R1)** — handshake completes over TCP; Agent closes `controlSocket_` after `INFRAESTRUCTURE_DETAILS_ACK`; Controller drops the connection from `socketMap` on close without losing the `mehStateMap` registration
+12. **Transport split (R1)** — Event + Data frames still flow over UDP after the TCP control connection closes
+13. **No define collision (R1/F3)** — `UE_EVENT` value is unique vs the MEO codes (`USERS_UPDATE`/`MIGRATION_PLAN` → 20/21)
 
 ---
 
@@ -639,6 +869,9 @@ After all pieces are implemented:
 | `SendToExternalServer.cc` | Piece 11 |
 | `SaveDataHistory.cc` | Piece 11 |
 | Dead code | Piece 12 |
+| **R1a — event-frame rename** | all of the above (mechanical) |
+| **R1b — Agent TCP control socket** | `RavensAgentApp.{ned,h,cc}` |
+| **R1c — Controller TCP server** | `RavensControllerApp.{ned,h,cc}` |
 
 ---
 
@@ -647,6 +880,13 @@ After all pieces are implemented:
 > Added as a review pass. Nothing below is implemented — these are issues found
 > while re-reading the plan against the current Controller code. Ordered by
 > severity. Each item has a proposed alternative.
+>
+> **Terminology note (R1):** this section predates R1 and still uses the old
+> "control frame" / `CONTROL_*` names. Read them as "event frame" / `EVENT_*` /
+> `UE_EVENT` / `handleEventFrame()` per the R1a rename map. The *substance* of
+> C1–C5 (departure authority, confirmation model, proactive-only config, frame
+> timer, stale-exit race) is unchanged by R1 and **remains open** — R1 only
+> renamed things and moved the handshake to TCP.
 
 ### 🔴 Critical — these break a stated goal if left as-is
 
@@ -822,6 +1062,11 @@ in Medium/Low can be folded into the relevant pieces as they are implemented.
 > `SaveDataHistory`), `RavensAgentApp.cc`, and the Simu5G `LocationService`.
 > These are about the *runtime behaviour* of the current code interacting with
 > the eRAVENS design — distinct from the planning critique above.
+>
+> **Terminology note (R1):** old `UE_CONTROL_EVENT` / "control frame" names below
+> map to `UE_EVENT` / "event frame" per R1a. **F3 (the `7` collision) is now
+> resolved by R1a** (fresh value for `UE_EVENT`, MEO codes → 20/21). F1, F2, F4,
+> F5 are runtime concerns unaffected by R1 and remain open.
 
 ### Context confirmed (not a fault, but load-bearing)
 
@@ -882,14 +1127,15 @@ events across two different MEHs.
   statement is: the Controller needs exactly one short hold window to merge
   EXIT+ENTRY into a handover; everything else is event-driven.
 
-### F3 — `type` code 7 is double-defined
+### F3 — `type` code 7 is double-defined — ✅ RESOLVED by R1a
 
-`UE_CONTROL_EVENT = 7` (header, Agent→Controller) collides by value with
+`UE_EVENT` (was `UE_CONTROL_EVENT = 7`, Agent→Controller) collided by value with
 `#define USERS_UPDATE 7` (`RavensControllerApp.cc:12`, Controller→MEO). Different
 gates/sockets so no wire collision *today*, but two names = `7` visible in the
 same translation unit is a latent trap, especially once `socketDataArrived`
-switches on type `7` for incoming control frames. Renumber the MEO-facing codes
-(`USERS_UPDATE`, `MIGRATION_PLAN`) to a non-overlapping range.
+switches on type `7` for incoming event frames. **R1a/Piece 12 fold in the fix:**
+`UE_EVENT` keeps a unique data-plane value and the MEO-facing codes
+(`USERS_UPDATE`, `MIGRATION_PLAN`) are renumbered to 20/21.
 
 ### F4 — Reactive detection latency is three-staged
 
@@ -911,13 +1157,15 @@ this mapping breaks. Pre-existing, but newly relevant once aggregation lands.
 ## Loose Ends — won't-compile / dead-code surface
 
 > Dangling threads from the half-finished Agent migration. Expected, but listed
-> so none slip through. Each maps to a remaining Piece.
+> so none slip through. Each maps to a remaining Piece. Identifiers shown are
+> what's **currently in the code** (old names); "replace with" targets use the
+> post-R1 names.
 
 **Agent (`RavensAgentApp.cc`) — Piece 7:**
 - `sendUsersInfoSnapshot()` (≈ lines 167–233) still references removed members:
   `ttl_`, `hasPendingUpdates_`, `lastSentTimestamp_`, `forceUpdateInterval_`,
   `getRetrievalInterval()`, `UserData::getLastUpdated()`. Dead + breaks build —
-  replace with `sendControlEvents()` + `sendDataFrame()`.
+  replace with `sendEventFrame()` + `sendDataFrame()`.
 - `handleRNISMessage()` (≈ 540–549) still calls `setDlNongbrDelayUe(...)` and
   siblings, `setRnisUpdate()`, `setLastUpdated()`, `hasPendingUpdates_` — all
   removed. Replace with cell-level aggregation into `AccessPointRadioInfoData`.
@@ -932,10 +1180,11 @@ this mapping breaks. Pre-existing, but newly relevant once aggregation lands.
   not link until updated.
 - `sendInfrastructureDetailsAck()` (≈ 249–261) hardcodes `setRate(3000)` and
   never calls `setAgentMode(...)`.
-- No `UE_CONTROL_EVENT` branch in `socketDataArrived` yet (needs
-  `handleControlEvent()`).
+- No `UE_EVENT` branch in `socketDataArrived` yet (needs `handleEventFrame()`).
 - `shouldAcceptHandover()` + `HANDOVER_LOCKOUT`/`MIN_UPDATE_INTERVAL` still
-  present; to be removed/replaced by the confirmation-count + exit-hold model.
+  present; to be removed/replaced by the confidence-threshold + exit-hold model.
+- No TCP control plane yet (R1c): no listening `serverSocket`, handshake still
+  handled on the UDP path.
 
 **Handler policies — Piece 11:**
 - `formatSnapshot()` (`SendToExternalServer.cc` ≈ 149–167) reads
@@ -955,16 +1204,23 @@ this mapping breaks. Pre-existing, but newly relevant once aggregation lands.
 
 ## Status snapshot for resuming on another machine
 
-**Done:** Pieces 1–6 (defines, message classes, `UserData`,
+**Done (under pre-R1 names):** Pieces 1–6 (defines, message classes, `UserData`,
 `AccessPointRadioInfoData`, Agent `.ned`, Agent `.h`).
 
 **In progress:** Piece 7 (`RavensAgentApp.cc`) — constructor, `initialize()`,
 `handleProcessedMessage` (ACK), and `handleLSMessage` are done and documented.
-**Remaining in Piece 7:** `handleRNISMessage` aggregation, `sendControlEvents()`,
+**Remaining in Piece 7:** `handleRNISMessage` aggregation, `sendEventFrame()`,
 `sendDataFrame()`, `handleSelfMessage` dispatch, delete `sendUsersInfoSnapshot()`.
 
-**Not started:** Pieces 8–12 (entire Controller side + handler policies + cleanup).
+**Not started:** Pieces 8–12 (entire Controller side + handler policies + cleanup)
+and **Revision R1** (R1a event-frame rename across all done+pending files; R1b
+Agent TCP control socket; R1c Controller TCP server).
 
-**Before writing Piece 10, settle the design questions C1, C2, C3 and F2** — they
-determine whether handover / departure / migration are correctly distinguished.
+**Settle before / alongside Piece 10:**
+- **R1** is a settled decision set — apply R1a rename first, then R1b/R1c
+  transport. R1 does *not* resolve the items below.
+- **C1, C2, C3, F2** (departure authority, single-event confirmation model,
+  proactive-only config, exit-hold window) — still open; they determine whether
+  handover / departure / migration are correctly distinguished.
+
 The current tree does **not** compile (expected) — see Loose Ends above.

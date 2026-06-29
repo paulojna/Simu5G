@@ -23,19 +23,19 @@ cplusplus {{
     typedef std::vector<::simu5g::AccessPointData> AccessPointList;
     typedef std::unordered_map<std::string, ::simu5g::UserData> UsersMap;
     typedef simu5g::AccessPointRadioInfoData AccessPointRNISData;
-    struct RavensControlEvent {
+    struct RavensEvent {
          std::string ueAddress;
-         int eventType;
-         int samplesSinceChange;
+         int eventType;           // EVENT_ENTRY=0 or EVENT_EXIT=1
+         int samplesSinceChange;  // consecutive 1s LS samples in this state
          omnetpp::simtime_t firstDetectedAt;
     };
-    typedef std::vector<RavensControlEvent> RavensControlEventList;
+    typedef std::vector<RavensEvent> RavensEventList;
 }};
 
 class AccessPointList { @existingClass; };
 class UsersMap { @existingClass; };
 class AccessPointRNISData { @existingClass; };
-class RavensControlEventList { @existingClass; };
+class RavensEventList { @existingClass; };
 
 namespace simu5g;
 
@@ -60,7 +60,7 @@ class RavensLinkInfrastructureDetailsMessageAck extends RavensLinkPacket
 {
     int infoType;
     int rate;       // data frame interval in ms
-    int agentMode;  // AGENT_MODE_CONTROL_ONLY=0 or AGENT_MODE_CONTROL_AND_DATA=1
+    int agentMode;  // AGENT_MODE_EVENT_ONLY=0 or AGENT_MODE_EVENT_AND_DATA=1
 }
 
 // Periodic data frame: LS-derived user map + RNIS-derived cell aggregates.
@@ -72,12 +72,12 @@ class RavensLinkDataFrameMessage extends RavensLinkPacket
     AccessPointRNISData apRadioInfo;
 }
 
-// Conditional control frame: sent at frameInterval only when user state changes
-// exist (entries or exits). If no changes occurred, no packet is sent.
-// Carries all state changes since the previous control frame as a batch.
-// Always sent regardless of agentMode.
-class RavensLinkControlEventMessage extends RavensLinkPacket
+// Event frame: sent at frameInterval only when UE state changes exist (entries or
+// exits). If no changes occurred, no packet is sent. Carries all state changes
+// since the previous event frame as a batch. Always sent regardless of agentMode.
+// Transport: UDP (data plane — distinct from the TCP config handshake).
+class RavensLinkEventMessage extends RavensLinkPacket
 {
     string mecHostId;
-    RavensControlEventList events;  // all state changes this frame interval
+    RavensEventList events;  // all state changes this frame interval
 }
