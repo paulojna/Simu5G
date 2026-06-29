@@ -30,9 +30,9 @@ RavensControllerApp::~RavensControllerApp(){
 
 void RavensControllerApp::finish(){
     ApplicationBase::finish();
-    if (udpSocket.isOpen()) {
+    if (udpSocket.isOpen())
         udpSocket.close();
-    }
+    socketMap.deleteSockets();
 }
 
 void RavensControllerApp::initialize(int stage){
@@ -87,18 +87,34 @@ void RavensControllerApp::handleMessageWhenUp(cMessage *msg){
     EV << "RavensControllerApp::handleMessage - new message received" << endl;
     if(msg->isSelfMessage()){
         handleSelfMessage(msg);
-    }else{
+    } else if (udpSocket.belongsToSocket(msg)) {
         udpSocket.processMessage(msg);
+    } else if (serverSocket_.belongsToSocket(msg)) {
+        serverSocket_.processMessage(msg);
+    } else if (auto *sock = socketMap.findSocketFor(msg)) {
+        sock->processMessage(msg);
+    } else {
+        EV << "RavensControllerApp::handleMessageWhenUp - unknown message, dropping" << endl;
+        delete msg;
     }
 }
 
 void RavensControllerApp::handleStartOperation(inet::LifecycleOperation *operation){
     EV << "RavensControllerApp::handleStartOperation - start operation" << endl;
-    int port = par("dataPort");
-    EV << "RavensControllerApp::initialize - binding to local port:" << port << endl;
+
+    // UDP data socket — receives event frames and data frames
+    int dataPort = par("dataPort");
     udpSocket.setOutputGate(gate("socketOut"));
-    udpSocket.bind(port);
+    udpSocket.bind(dataPort);
     udpSocket.setCallback(this);
+
+    // TCP mgmt server socket — accepts Agent config handshake connections
+    int mgmtPort = par("mgmtPort");
+    serverSocket_.setOutputGate(gate("socketOut"));
+    serverSocket_.setCallback(this);
+    serverSocket_.bind(mgmtPort);
+    serverSocket_.listen();
+    EV << "RavensControllerApp::handleStartOperation - TCP mgmt listening on port " << mgmtPort << endl;
 }
 
 void RavensControllerApp::handleStopOperation(inet::LifecycleOperation *operation){
@@ -178,55 +194,9 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
 
     if(ravensLinkPacketFilter.matches(packet))
     {
-        EV << "RavensControllerApp::socketDataArrived - ravens link packet received" << endl;
-        // get the type of the message received
+        EV << "RavensControllerApp::socketDataArrived(UDP) - packet received" << endl;
         auto received_packet = packet->peekAtFront<RavensLinkPacket>();
-        if(received_packet->getType() == JOIN_NETWORK_REQUEST)
-        {
-            //cast the packet from RavensLinkPacket to the specific type of packet
-            auto joinNetworkRequest = packet->peekAtFront<RavensLinkJoinNetworkRequestMessage>();
-
-            EV << "RavensControllerApp::socketDataArrived - join network request received" << endl;
-
-            // Create new MECHostState
-            MECHostData newHostData;
-            newHostData.setHostId(joinNetworkRequest->getMecHostId());
-            newHostData.setL3Address(remoteAddress);
-            newHostData.setPort(srcPort);
-
-            mehStateMap[joinNetworkRequest->getMecHostId()] = newHostData;
-
-            //send back a RAVENS_LINK_PACKET with type JOIN_NETWORK_ACK
-            sendJoinNetworkAck(socket, remoteAddress, srcPort);
-        }
-        else if(received_packet->getType() == INFRAESTRUCTURE_DETAILS)
-        {
-            EV << "RavensControllerApp::socketDataArrived - infrastructure details received" << endl;
-
-            auto infrastructureDetails = packet->peekAtFront<RavensLinkInfrastructureDetailsMessage>();
-
-            // Get and log the AP list from the message
-            std::vector<AccessPointData> apList = infrastructureDetails->getAPList();
-            EV << "RavensControllerApp::socketDataArrived - Received APs for host " << infrastructureDetails->getMecHostId() << ":" << endl;
-            for(const auto& ap : apList) {
-                EV << "AP ID: " << ap.getAccessPointId() << endl;
-            }
-
-            // Find the MEC host in our state map
-            auto it = mehStateMap.find(infrastructureDetails->getMecHostId());
-            if(it == mehStateMap.end()) {
-                EV << "RavensControllerApp::socketDataArrived - host " << infrastructureDetails->getMecHostId() << " not found" << endl;
-                return;
-            }
-
-            // Update the host data
-            it->second.setAccessPoints(apList);
-            // Send acknowledgment
-            sendInfrastructureDetailsAck(socket, remoteAddress, srcPort);
-
-            EV << "RavensControllerApp::socketDataArrived - Updated infrastructure details for host " << it->first << ", now managing " << apList.size() << " access points" << endl;
-        }
-        else if(received_packet->getType() == DATA_FRAME)
+        if(received_packet->getType() == DATA_FRAME)
         {
             auto dataFrame = packet->peekAtFront<RavensLinkDataFrameMessage>();
             updateUserStateMap(dataFrame);
@@ -245,8 +215,8 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
     }
 }
 
-void RavensControllerApp::sendJoinNetworkAck(inet::UdpSocket *socket, inet::L3Address remoteAddress, int port){
-    EV << "RavensControllerApp::sendJoinNetworkAck - sending join network ack" << endl;
+void RavensControllerApp::sendJoinNetworkAck(inet::TcpSocket *socket){
+    EV << "RavensControllerApp::sendJoinNetworkAck - sending join network ack over TCP" << endl;
     inet::Packet* packet = new inet::Packet("JoinNetworkAckMessage");
     auto request = inet::makeShared<RavensLinkPacket>();
     request->setChunkLength(inet::B(500));
@@ -254,11 +224,11 @@ void RavensControllerApp::sendJoinNetworkAck(inet::UdpSocket *socket, inet::L3Ad
     request->setRequestId(0);
     request->setTimeStamp(simTime().inUnit(SIMTIME_S));
     packet->insertAtBack(request);
-    socket->sendTo(packet, remoteAddress, port);
+    socket->send(packet);
 }
 
-void RavensControllerApp::sendInfrastructureDetailsAck(inet::UdpSocket *socket, inet::L3Address remoteAddress, int port){
-    EV << "RavensControllerApp::sendInfrastructureDetailsAck - sending infrastructure details ack" << endl;
+void RavensControllerApp::sendInfrastructureDetailsAck(inet::TcpSocket *socket){
+    EV << "RavensControllerApp::sendInfrastructureDetailsAck - sending infrastructure details ack over TCP" << endl;
     inet::Packet* packet = new inet::Packet("RavensLinkInfrastructureDetailsAckMessage");
     auto request = inet::makeShared<RavensLinkInfrastructureDetailsMessageAck>();
     request->setChunkLength(inet::B(500));
@@ -270,7 +240,73 @@ void RavensControllerApp::sendInfrastructureDetailsAck(inet::UdpSocket *socket, 
     int mode = !strcmp(par("mode"), "NotifyOnDataChange") ? AGENT_MODE_EVENT_ONLY : AGENT_MODE_EVENT_AND_DATA;
     request->setAgentMode(mode);
     packet->insertAtBack(request);
-    socket->sendTo(packet, remoteAddress, port);
+    socket->send(packet);
+}
+
+// --- TcpSocket::ICallback ---
+
+void RavensControllerApp::socketAvailable(inet::TcpSocket *socket, inet::TcpAvailableInfo *availableInfo){
+    auto *clientSocket = new inet::TcpSocket(availableInfo);
+    clientSocket->setOutputGate(gate("socketOut"));
+    clientSocket->setCallback(this);
+    socketMap.addSocket(clientSocket);
+    socket->accept(availableInfo->getNewSocketId());
+    EV << "RavensControllerApp::socketAvailable - accepted Agent connection" << endl;
+}
+
+void RavensControllerApp::socketEstablished(inet::TcpSocket *socket){
+    EV << "RavensControllerApp::socketEstablished - Agent TCP connection established" << endl;
+}
+
+void RavensControllerApp::socketDataArrived(inet::TcpSocket *socket, inet::Packet *packet, bool urgent){
+    EV << "RavensControllerApp::socketDataArrived(TCP) - packet received" << endl;
+    auto received_packet = packet->peekAtFront<RavensLinkPacket>();
+
+    if(received_packet->getType() == JOIN_NETWORK_REQUEST){
+        auto joinRequest = packet->peekAtFront<RavensLinkJoinNetworkRequestMessage>();
+        EV << "RavensControllerApp::socketDataArrived(TCP) - JOIN_NETWORK_REQUEST from " << joinRequest->getMecHostId() << endl;
+        MECHostData newHostData;
+        newHostData.setHostId(joinRequest->getMecHostId());
+        newHostData.setL3Address(socket->getRemoteAddress());
+        mehStateMap[joinRequest->getMecHostId()] = newHostData;
+        sendJoinNetworkAck(socket);
+    }
+    else if(received_packet->getType() == INFRAESTRUCTURE_DETAILS){
+        auto infraDetails = packet->peekAtFront<RavensLinkInfrastructureDetailsMessage>();
+        EV << "RavensControllerApp::socketDataArrived(TCP) - INFRAESTRUCTURE_DETAILS from " << infraDetails->getMecHostId() << endl;
+        auto it = mehStateMap.find(infraDetails->getMecHostId());
+        if(it == mehStateMap.end()){
+            EV << "RavensControllerApp::socketDataArrived(TCP) - host " << infraDetails->getMecHostId() << " not found, ignoring" << endl;
+            delete packet;
+            return;
+        }
+        it->second.setAccessPoints(infraDetails->getAPList());
+        sendInfrastructureDetailsAck(socket);
+    }
+    delete packet;
+}
+
+void RavensControllerApp::socketPeerClosed(inet::TcpSocket *socket){
+    EV << "RavensControllerApp::socketPeerClosed - Agent closed TCP connection" << endl;
+    socket->close();
+}
+
+void RavensControllerApp::socketClosed(inet::TcpSocket *socket){
+    EV << "RavensControllerApp::socketClosed(TCP)" << endl;
+    socketMap.removeSocket(socket);
+    delete socket;
+}
+
+void RavensControllerApp::socketFailure(inet::TcpSocket *socket, int code){
+    EV << "RavensControllerApp::socketFailure - code=" << code << endl;
+    socketMap.removeSocket(socket);
+    delete socket;
+}
+
+void RavensControllerApp::socketStatusArrived(inet::TcpSocket *socket, inet::TcpStatusInfo *status){}
+
+void RavensControllerApp::socketDeleted(inet::TcpSocket *socket){
+    socketMap.removeSocket(socket);
 }
 
 void RavensControllerApp::handleEventFrame(inet::Ptr<const RavensLinkEventMessage> event,
