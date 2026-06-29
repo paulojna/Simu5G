@@ -78,9 +78,8 @@ class RavensControllerApp: public inet::ApplicationBase,
 
         int threshold_;
 
-        int confirmationCount_;         // min samplesSinceChange on ENTRY to confirm handover
-        int exitConfidenceThreshold_;   // min samplesSinceChange on EXIT to act on it
-        double frameInterval_;          // pushed to Agents in INFRAESTRUCTURE_DETAILS_ACK
+        double frameInterval_;          // pushed to Agents in INFRAESTRUCTURE_DETAILS_ACK;
+                                        // also the F2 exit-hold window length
 
         // Data structures to be sent to the MEO depending on the mode we are in
         // PERFORMANCE IMPROVEMENT: Changed from vector to map for O(1) lookup in addUserUpdate()
@@ -104,6 +103,7 @@ class RavensControllerApp: public inet::ApplicationBase,
         inet::PacketFilter uePacketFilter;
 
         cMessage *calculateAvg_;
+        cMessage *expireHoldsMsg_;   // periodic F2 hold-expiry sweep (frame-independent liveness)
 
     protected:
         virtual void initialize(int stage) override;
@@ -143,6 +143,11 @@ class RavensControllerApp: public inet::ApplicationBase,
         // Handles UE_EVENT packets (ENTRY/EXIT deltas from Agent)
         void handleEventFrame(inet::Ptr<const RavensLinkEventMessage> event,
                               inet::L3Address remoteAddress, int srcPort);
+
+        // Sweeps userStateMap for elapsed F2 exit-holds, emits onUserExit, and removes
+        // the user. Called both inline from handleEventFrame (prompt path) and from a
+        // periodic self-message (liveness when no event frames are arriving).
+        void expirePendingExits();
 
         std::string getMecHostIdFromAccessPointId(std::string accessPointId);
 

@@ -31,7 +31,8 @@ SaveDataHistory::SaveDataHistory(RavensControllerApp* controllerApp, std::string
     // 3. Radio Stats File (DL/UL Usage and PDR)
     std::string radioStatsName = dirPath + "run_" + runNumber + "_radio_stats.csv";
     radioStatsFile.open(radioStatsName, std::ios::out | std::ios::trunc);
-    radioStatsFile << "Timestamp,MEHId,CellId,DlPrbUsageCell,UlPrbUsageCell,DlNongbrPdrCell,UlNongbrPdrCell" << endl;
+    radioStatsFile << "Timestamp,MEHId,CellId,DlPrbUsageCell,UlPrbUsageCell,DlNongbrPdrCell,UlNongbrPdrCell,"
+                   << "AvgDlDelay,AvgUlDelay,TotalDlDataVolume,TotalUlDataVolume,NumActiveUeDlNongbr,AvgDistanceToAp" << endl;
     
     EV << "SaveDataHistory initialized. Users: " << name << ", Lifecycle: " << lifecycleName << ", RadioStats: " << radioStatsName << endl;
 }
@@ -52,7 +53,13 @@ inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkDataF
                        << apRadioInfo.getDlTotalPrbUsageCell() << ","
                        << apRadioInfo.getUlTotalPrbUsageCell() << ","
                        << apRadioInfo.getDlNongbrPdrCell() << ","
-                       << apRadioInfo.getUlNongbrPdrCell() << endl;
+                       << apRadioInfo.getUlNongbrPdrCell() << ","
+                       << apRadioInfo.getAvgDlDelay() << ","
+                       << apRadioInfo.getAvgUlDelay() << ","
+                       << apRadioInfo.getTotalDlDataVolume() << ","
+                       << apRadioInfo.getTotalUlDataVolume() << ","
+                       << apRadioInfo.getNumberOfActiveUeDlNongbrCell() << ","
+                       << apRadioInfo.getAvgDistanceToAp() << endl;
     }
 
     // Log per-user telemetry
