@@ -554,6 +554,7 @@ void RavensAgentApp::handleRNISMessage(int connId)
 			    }
 			    accessPointRadioInformation->setTotalDlDataVolume(sumDlVol);
 			    accessPointRadioInformation->setTotalUlDataVolume(sumUlVol);
+			    accessPointRadioInformation->setNumberOfActiveUeDlNongbrCell(count);
 			    accessPointRadioInformation->setTimestamp(simTime());
 			    EV << mecHostId << " - RavensAgentApp::handleRNISMessage - aggregated " << count << " UEs into cell stats" << endl;
 			}
@@ -680,6 +681,12 @@ void RavensAgentApp::handleLSMessage(int connId)
                         );
                         it->second.setDistanceToAP(newDistance);
                         it->second.setTimestamp(simTime());
+
+                        // If an ENTRY is still pending (frame not yet sent), accumulate
+                        // confidence: one more consecutive 1s sample present at this MEH.
+                        auto entryIt = pendingEntries_.find(address);
+                        if (entryIt != pendingEntries_.end())
+                            entryIt->second.sampleCount++;
                     }
                     else
                     {
@@ -690,33 +697,36 @@ void RavensAgentApp::handleLSMessage(int connId)
                         users[address] = userData;
 
                         // If user reappeared after a pending EXIT, cancel the exit.
-                        // sampleCount accumulates across LS intervals until frame fires.
                         pendingExits_.erase(address);
-                        auto entryIt = pendingEntries_.find(address);
-                        if (entryIt == pendingEntries_.end())
-                            pendingEntries_[address] = {simTime(), 1};
-                        else
-                            entryIt->second.sampleCount++;
+                        pendingEntries_[address] = {simTime(), 1};
 
                         EV << "RavensAgentApp::handleLSMessage - New user detected: " << address << endl;
                     }
                 }
 
+                // Accumulate confidence for users already pending EXIT that remain
+                // absent this sample. The departure loop below only catches the
+                // *first* absent sample (it iterates `users`, from which a departed
+                // user is erased immediately); subsequent absent samples are counted
+                // here. New departures this round are not yet in pendingExits_, so
+                // they are not double-counted.
+                for (auto& [addr, ev] : pendingExits_)
+                {
+                    if (currentLSAddrs.find(addr) == currentLSAddrs.end())
+                        ev.sampleCount++;
+                }
+
                 // Departure detection — LS has replacement semantics: any user
                 // absent from this notification has left this cell. Remove from
-                // users map immediately and accumulate in pendingExits_ so the
-                // Controller receives sampleCount confidence on next control frame.
+                // users map immediately and seed pendingExits_ (sampleCount=1) so the
+                // Controller receives confidence accumulated by the pass above.
                 for (auto it = users.begin(); it != users.end(); )
                 {
                     if (currentLSAddrs.find(it->first) == currentLSAddrs.end())
                     {
                         // Cancel any pending ENTRY for this user (left before frame fired)
                         pendingEntries_.erase(it->first);
-                        auto exitIt = pendingExits_.find(it->first);
-                        if (exitIt == pendingExits_.end())
-                            pendingExits_[it->first] = {simTime(), 1};
-                        else
-                            exitIt->second.sampleCount++;
+                        pendingExits_[it->first] = {simTime(), 1};
 
                         EV << "RavensAgentApp::handleLSMessage - User departed: " << it->first
                            << " (absent for " << pendingExits_[it->first].sampleCount << " sample(s))" << endl;

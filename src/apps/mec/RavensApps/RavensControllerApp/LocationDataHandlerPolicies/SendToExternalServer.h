@@ -22,10 +22,16 @@ namespace simu5g {
 
 	protected:
 		virtual inet::Packet* handleDataMessage(inet::Ptr<const RavensLinkDataFrameMessage> received_packet) override;
+		virtual void onUserEntry   (const std::string& userId, const std::string& meh,
+		                            int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) override;
+		virtual void onUserHandover(const std::string& userId, const std::string& fromMeh,
+		                            const std::string& toMeh,
+		                            int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) override;
+		virtual void onUserExit    (const std::string& userId, const std::string& fromMeh,
+		                            int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) override;
 
 	public:
 		SendToExternalServer(RavensControllerApp* controllerApp);
-		void addUserUpdate(UserMEHUpdate& update);
 		virtual ~SendToExternalServer();
 	};
 

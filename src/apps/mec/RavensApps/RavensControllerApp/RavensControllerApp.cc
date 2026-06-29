@@ -21,10 +21,12 @@ Define_Module(RavensControllerApp);
 RavensControllerApp::RavensControllerApp(){
     locationDataHandlerPolicy_ = nullptr;
     calculateAvg_ = nullptr;
+    expireHoldsMsg_ = nullptr;
 }
 
 RavensControllerApp::~RavensControllerApp(){
     cancelAndDelete(calculateAvg_);
+    cancelAndDelete(expireHoldsMsg_);
     delete locationDataHandlerPolicy_;
 }
 
@@ -42,8 +44,6 @@ void RavensControllerApp::initialize(int stage){
     snapshot_frequency_ = par("snapshot_frequency");
     snapshot_starting_time_ = par("snapshot_starting_time");
     threshold_ = par("threshold");
-    confirmationCount_ = par("confirmationCount");
-    exitConfidenceThreshold_ = par("exitConfidenceThreshold");
     frameInterval_ = par("frameInterval");
     update = nullptr;
 
@@ -80,6 +80,13 @@ void RavensControllerApp::initialize(int stage){
     uePacketFilter.setPattern("User*");
 
     scheduleAt(simTime() + snapshot_starting_time_, new cMessage("sendSnapshot"));
+
+    // Periodic F2 hold-expiry sweep. Decouples departure reporting from incoming
+    // event frames: in quiet regions (and in EVENT_ONLY mode, which has no data
+    // frames) a hold would otherwise never be revisited until some unrelated frame
+    // arrived. Sweeps at frameInterval_ granularity (same scale as the hold itself).
+    expireHoldsMsg_ = new cMessage("expireHolds");
+    scheduleAt(simTime() + frameInterval_, expireHoldsMsg_);
     // scheduleAt(simTime() + 10, calculateAvg_);
 }
 
@@ -180,6 +187,13 @@ void RavensControllerApp::handleSelfMessage(cMessage *msg){
         }
         scheduleAt(simTime() + snapshot_frequency_, msg);
         EV << "RavensControllerApp::handleSelfMessage::sendSnapshot - next snapshot scheduled" << endl;
+    }
+    else if(strcmp(msg->getName(), "expireHolds") == 0)
+    {
+        // Frame-independent liveness: flush any F2 holds whose window has elapsed
+        // even if no event frame has arrived to drive handleEventFrame().
+        expirePendingExits();
+        scheduleAt(simTime() + frameInterval_, msg);
     }
     else
     {
@@ -309,6 +323,22 @@ void RavensControllerApp::socketDeleted(inet::TcpSocket *socket){
     socketMap.removeSocket(socket);
 }
 
+void RavensControllerApp::expirePendingExits()
+{
+    for (auto it = userStateMap.begin(); it != userStateMap.end(); ) {
+        if (it->second.pendingExitTime != 0 && simTime() >= it->second.pendingExitTime) {
+            EV << "RavensControllerApp::expirePendingExits - exit hold expired for "
+               << it->first << ", removing" << endl;
+            locationDataHandlerPolicy_->onUserExit(it->first, it->second.currentMEH,
+                                                   it->second.pendingExitSamples,
+                                                   it->second.pendingExitFirstAt);
+            it = userStateMap.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
 void RavensControllerApp::handleEventFrame(inet::Ptr<const RavensLinkEventMessage> event,
                                             inet::L3Address remoteAddress, int srcPort)
 {
@@ -316,78 +346,83 @@ void RavensControllerApp::handleEventFrame(inet::Ptr<const RavensLinkEventMessag
     EV << "RavensControllerApp::handleEventFrame - " << event->getEvents().size()
        << " events from " << sourceMEH << endl;
 
-    // Step 1: Expire pending exits whose F2 hold window has elapsed
-    for (auto it = userStateMap.begin(); it != userStateMap.end(); ) {
-        if (it->second.pendingExitTime != 0 && simTime() >= it->second.pendingExitTime) {
-            EV << "RavensControllerApp::handleEventFrame - exit hold expired for "
-               << it->first << ", removing" << endl;
-            it = userStateMap.erase(it);
-        } else {
-            ++it;
-        }
-    }
+    // Step 1: Expire any elapsed F2 holds promptly (the periodic timer is the
+    // backstop for quiet periods; this catches them as soon as a frame arrives).
+    expirePendingExits();
 
-    // Step 2: Filter events by confidence threshold
-    RavensEventList confirmedEntries, confirmedExits;
+    // Step 2: Split events by type. No confidence gate — LS is the single source of
+    // truth for presence, so every detected ENTRY/EXIT is acted on. Debounce
+    // (handover vs. departure) is handled entirely by the F2 hold below, not by a
+    // per-event sample threshold. samplesSinceChange / firstDetectedAt are carried
+    // through to the policy hooks as metadata only.
+    RavensEventList entries, exits;
     for (const auto& e : event->getEvents()) {
-        if (e.eventType == EVENT_ENTRY && e.samplesSinceChange >= confirmationCount_) {
-            confirmedEntries.push_back(e);
-        } else if (e.eventType == EVENT_EXIT && e.samplesSinceChange >= exitConfidenceThreshold_) {
-            confirmedExits.push_back(e);
-        } else {
-            EV << "RavensControllerApp::handleEventFrame - below threshold for "
-               << e.ueAddress << " (samples=" << e.samplesSinceChange << "), skipping" << endl;
-        }
+        if (e.eventType == EVENT_ENTRY) entries.push_back(e);
+        else                            exits.push_back(e);
     }
 
-    // Step 3: Notify policy BEFORE updating map so it can classify ENTRY vs HANDOVER
-    RavensEventList allConfirmed;
-    allConfirmed.insert(allConfirmed.end(), confirmedExits.begin(), confirmedExits.end());
-    allConfirmed.insert(allConfirmed.end(), confirmedEntries.begin(), confirmedEntries.end());
-    if (!allConfirmed.empty()) {
-        locationDataHandlerPolicy_->handleEventMessage(allConfirmed, sourceMEH);
-    }
-
-    // Step 4: Apply confirmed exits — start F2 hold window (don't remove immediately)
-    for (const auto& e : confirmedExits) {
+    // Step 3: Apply exits — start F2 hold window and stash metadata fields
+    for (const auto& e : exits) {
         auto userIt = userStateMap.find(e.ueAddress);
         if (userIt == userStateMap.end())
             continue;
-        // C5: ignore a stale EXIT from a MEH the user already left (handover already
-        // moved currentMEH elsewhere). Only the current MEH can report a departure.
+        // C5: ignore a stale EXIT from a MEH the user already left
         if (userIt->second.currentMEH != sourceMEH) {
             EV << "RavensControllerApp::handleEventFrame - stale EXIT for " << e.ueAddress
                << " from " << sourceMEH << " (current MEH is " << userIt->second.currentMEH
                << "), ignoring" << endl;
             continue;
         }
-        userIt->second.pendingExitTime = simTime() + frameInterval_;
+        userIt->second.pendingExitTime    = simTime() + frameInterval_;
+        userIt->second.pendingExitSamples = e.samplesSinceChange;
+        userIt->second.pendingExitFirstAt = e.firstDetectedAt;
         EV << "RavensControllerApp::handleEventFrame - EXIT hold started for "
            << e.ueAddress << ", expires at " << userIt->second.pendingExitTime << endl;
     }
 
-    // Step 5: Apply confirmed entries
-    for (const auto& e : confirmedEntries) {
+    // Step 4: Apply entries — call hooks at each authoritative decision point
+    for (const auto& e : entries) {
         auto userIt = userStateMap.find(e.ueAddress);
         if (userIt == userStateMap.end()) {
+            // Brand-new user
             UserState state;
-            state.userId = e.ueAddress;
-            state.currentMEH = sourceMEH;
-            state.timestamp = simTime();
-            state.pendingExitTime = 0;
+            state.userId              = e.ueAddress;
+            state.currentMEH          = sourceMEH;
+            state.timestamp           = simTime();
+            state.pendingExitTime     = 0;
+            state.pendingExitSamples  = 0;
             userStateMap[e.ueAddress] = state;
+            locationDataHandlerPolicy_->onUserEntry(e.ueAddress, sourceMEH,
+                                                    e.samplesSinceChange, e.firstDetectedAt);
             EV << "RavensControllerApp::handleEventFrame - ENTRY new user "
                << e.ueAddress << " at " << sourceMEH << endl;
         } else if (userIt->second.pendingExitTime != 0) {
-            // HANDOVER: user was in exit hold, now confirmed at new MEH — cancel hold
-            EV << "RavensControllerApp::handleEventFrame - HANDOVER "
-               << e.ueAddress << " from " << userIt->second.currentMEH << " to " << sourceMEH << endl;
-            userIt->second.currentMEH = sourceMEH;
-            userIt->second.pendingExitTime = 0;
-            userIt->second.timestamp = simTime();
+            // User was in exit hold — cancel it
+            std::string fromMeh = userIt->second.currentMEH;
+            userIt->second.pendingExitTime    = 0;
+            userIt->second.pendingExitSamples = 0;
+            userIt->second.timestamp          = simTime();
+            if (sourceMEH != fromMeh) {
+                // True handover: EXIT-from-A then ENTRY-at-B order
+                userIt->second.currentMEH = sourceMEH;
+                locationDataHandlerPolicy_->onUserHandover(e.ueAddress, fromMeh, sourceMEH,
+                                                           e.samplesSinceChange, e.firstDetectedAt);
+                EV << "RavensControllerApp::handleEventFrame - HANDOVER "
+                   << e.ueAddress << " from " << fromMeh << " to " << sourceMEH << endl;
+            }
+            // else: re-entry at same MEH (flap) — cancel hold, no hook
         } else {
-            // User already active — direct MEH update (no prior EXIT observed)
-            userIt->second.currentMEH = sourceMEH;
+            // No active hold
+            if (sourceMEH != userIt->second.currentMEH) {
+                // ENTRY from a different MEH without a prior EXIT (ENTRY-before-EXIT order)
+                std::string fromMeh = userIt->second.currentMEH;
+                userIt->second.currentMEH = sourceMEH;
+                locationDataHandlerPolicy_->onUserHandover(e.ueAddress, fromMeh, sourceMEH,
+                                                           e.samplesSinceChange, e.firstDetectedAt);
+                EV << "RavensControllerApp::handleEventFrame - HANDOVER (ENTRY-first) "
+                   << e.ueAddress << " from " << fromMeh << " to " << sourceMEH << endl;
+            }
+            // else: duplicate ENTRY at same MEH — no hook
             userIt->second.timestamp = simTime();
         }
     }
@@ -429,23 +464,20 @@ void RavensControllerApp::updateUserStateMap(inet::Ptr<const RavensLinkDataFrame
     for (const auto& [address, userData] : received_packet->getUsers()) {
         auto userIt = userStateMap.find(address);
         if (userIt == userStateMap.end()) {
-            UserState state;
-            state.userId = address;
-            state.currentMEH = hostId;
-            state.timestamp = received_packet->getTimeStamp();
-            state.userData = userData;
-            state.pendingExitTime = 0;
-            userStateMap[address] = state;
-            EV << "RavensControllerApp::updateUserStateMap - New user " << address << " at " << hostId << endl;
-        } else {
-            if (received_packet->getTimeStamp() < userIt->second.timestamp) {
-                EV << "RavensControllerApp::updateUserStateMap - Ignored stale update for user " << address << endl;
-                continue;
-            }
-            // Refresh telemetry only — MEH transitions are driven by handleEventFrame()
-            userIt->second.timestamp = received_packet->getTimeStamp();
-            userIt->second.userData = userData;
+            // User not yet confirmed by an ENTRY event — skip.
+            // Presence is authoritative only from handleEventFrame(); DATA_FRAME
+            // must not pre-empt the ENTRY or onUserEntry will never fire.
+            EV << "RavensControllerApp::updateUserStateMap - DATA_FRAME for unknown user "
+               << address << ", skipping (waiting for ENTRY event)" << endl;
+            continue;
         }
+        if (received_packet->getTimeStamp() < userIt->second.timestamp) {
+            EV << "RavensControllerApp::updateUserStateMap - Ignored stale update for user " << address << endl;
+            continue;
+        }
+        // Refresh telemetry only — MEH transitions are driven by handleEventFrame()
+        userIt->second.timestamp = received_packet->getTimeStamp();
+        userIt->second.userData = userData;
     }
 }
 

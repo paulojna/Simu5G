@@ -215,28 +215,27 @@ two maps of `PendingEvent{firstDetectedAt, sampleCount}` (see Piece 6):
 
 ### Handover detection (Controller)
 
+> **Updated per D1.** The Controller does **not** threshold `samplesSinceChange`.
+> Presence is unconditional (LS is truth); the only debounce is the F2 exit-hold.
+
 ```
-Event frame from MEH-B: user ENTRY, samplesSinceChange=3
-  → user has been at MEH-B for 3 confirmed samples → HANDOVER CONFIRMED immediately
+Event frame from MEH-B: user ENTRY (any samplesSinceChange)
+  → user already known at MEH-A → HANDOVER (handled via the hold; both arrival
+    orders converge to one handover hook). Brand-new user → ENTRY, created at once.
 
-Event frame from MEH-B: user ENTRY, samplesSinceChange=1
-  → user just appeared at MEH-B, low confidence
-  (NOTE: confirmation model is an open decision — see critique C2. The Agent
-   reports an entry only once, so confirm on samplesSinceChange ≥ confirmationCount_,
-   not across multiple frames.)
+Event frame from MEH-A: user EXIT (any samplesSinceChange)
+  → if source == user's current MEH, open an F2 hold (≈1 frameInterval):
+      ENTRY elsewhere within the window → reclassify as handover (hold cancelled)
+      re-ENTRY at same MEH within the window → flap (hold cancelled, no-op)
+      window elapses with no re-entry → DEPARTURE (onUserExit)
+  → if source != current MEH → stale EXIT, ignored (C5)
 
-Event frame from MEH-A: user EXIT, samplesSinceChange=1
-  → user absent only 1 sample → Controller may wait (low confidence)
-
-Event frame from MEH-A: user EXIT, samplesSinceChange=3
-  → user absent 3 samples → confident departure
-
-No agent reports user for threshold_ seconds:
-  → removeInactiveUsers() → EXIT  (lost-UDP-packet safety net only — see C1)
+No agent reports user for threshold_ seconds (EVENT_AND_DATA only):
+  → removeInactiveUsers() → EXIT  (lost-packet safety net; see C1/L7)
 ```
 
-The `samplesSinceChange` field replaces the Controller's `exitTTL` timer.
-The Agent already did the counting; the Controller just reads the result.
+`samplesSinceChange` replaces the old `exitTTL` *concept* but is now logged
+metadata, not a control input — the F2 hold (length `frameInterval`) is the timer.
 
 ### Research comparison
 
@@ -802,6 +801,62 @@ safety-net exits into `userUpdates`.)
 
 ---
 
+## Design Revision D1 — Remove the confidence gate (presence is unconditional)
+
+> Added 2026-06-29 (second pass), after empirically hitting the failure during
+> testing. **Implemented.** Supersedes the C2 "threshold the single event"
+> resolution. Decision is settled.
+
+### Why
+
+The Controller filtered ENTRY on `samplesSinceChange ≥ confirmationCount_` and EXIT
+on `≥ exitConfidenceThreshold_`. Two problems, one fatal:
+
+1. **There is nothing to filter.** LS is the single source of truth for presence
+   (Development Consideration #1), and the radio layer guarantees a UE is attached
+   to exactly one cell. Every LS appearance is a *real* attachment, not noise. A
+   "confidence gate" on presence is filtering a signal that has no false positives.
+2. **Report-once makes a dropped event permanent.** The Agent reports each ENTRY
+   exactly once, then omits the (now stable) user from all future frames — that is
+   the whole bandwidth win. So an ENTRY whose first 1s sample lands in the last
+   sub-frame window before a frame fires carries `samplesSinceChange = 1` purely by
+   frame phase (≈1/3 of entries with `frameInterval=3`). With the gate at 2 it was
+   dropped and **never re-sent** → the user was invisible to the Controller forever
+   (the inactivity safety net can't help: it only removes users already in the map).
+
+`samplesSinceChange` conflates "low-confidence flicker" with "legitimate but late in
+the window" — a single threshold cannot separate them, and guessing wrong = data loss.
+
+> Note: this only became visible after fixing bug **B1** (the Agent counter was
+> stuck at 1 for *every* event, so the gate had been dropping everything; DATA_FRAME
+> seeding the map masked it for EXIT-only). B1 fix + D1 together are what make the
+> lifecycle correct.
+
+### What changed
+
+- **`handleEventFrame` Step 2** no longer gates — it splits events by type and acts
+  on all of them. A cold ENTRY (unknown user) always creates the user + fires
+  `onUserEntry`. Boundary-phase entries are no longer lost.
+- **The F2 hold is the sole debounce.** Handover-vs-departure is decided purely by
+  the time-based hold (which is also the only mechanism that can reason across the
+  two independent Agents). A single-sample EXIT opens a hold immediately; reappear
+  at same MEH → flap (no-op), elsewhere → handover, nowhere → departure.
+- **`samplesSinceChange` / `firstDetectedAt` are metadata** — logged in the
+  lifecycle CSV (detection confidence, detection→action latency), not gates.
+- **Deleted:** `confirmationCount_` / `exitConfidenceThreshold_` (members, `par()`
+  reads, NED params, ini lines). One Controller timing knob remains: the hold =
+  `frameInterval`.
+
+### Rejected alternative
+
+Keep confidence-gating *correctly* by breaking report-once (Agent re-sends an
+unconfirmed entry each frame until it clears the threshold or the user leaves).
+Rejected: it adds Agent state, multiplies entry latency by several frames, and
+re-spends the bandwidth the delta model was built to save — all to "confirm"
+something LS already reported authoritatively.
+
+---
+
 ## Revision R1 — Terminology fix + TCP control plane
 
 > Added 2026-06-29 after a design review. Two orthogonal changes that the rest of
@@ -982,7 +1037,7 @@ Folded into the main Verification list below as items 11–13.
 | **Event frame timing** | No event frame — one snapshot type | Periodic at `frameInterval` (1–5s, configurable) |
 | **Departure detection** | TTL purge at snapshot time (up to 10s late) | LS diff at 1s, reported at next frame |
 | **Confidence signal** | None — Controller uses time-based lockout | `samplesSinceChange` per event — Agent already did the counting |
-| **Handover logic** | `HANDOVER_LOCKOUT = 10s` hardcoded timer | Confidence threshold: confirm on `samplesSinceChange ≥ confirmationCount_` (C2) |
+| **Handover logic** | `HANDOVER_LOCKOUT = 10s` hardcoded timer | F2 exit-hold (≈1 `frameInterval`); no confidence gate (D1) |
 | **exitTTL** | Implicit in HANDOVER_LOCKOUT | Replaced by `exitConfidenceThreshold_` + short exit-hold window (F2) |
 | **Per-user RNIS** | 6 fields per user in every snapshot | None — dropped entirely |
 | **Cell-level metrics** | 4 fields (PRB, PDR) | 4 existing + 5 new aggregates |
@@ -1004,8 +1059,8 @@ After all pieces are implemented:
 4. **No stale users** — Agent never sends a departed UE in a data frame
 5. **Mode enforcement** — EVENT_ONLY Agent sends no data frames
 6. **Rate negotiation** — Agent adopts Controller's `frameInterval` correctly (no integer division)
-7. **Handover confidence** — Controller accepts handover when a single ENTRY from the new MEH has `samplesSinceChange ≥ confirmationCount_` (C2 model)
-8. **Low-confidence exit** — EXIT with `samplesSinceChange=1` does not immediately trigger departure in Controller
+7. **Handover (D1)** — an ENTRY at a new MEH for a known user produces exactly one handover (no threshold); both EXIT-first and ENTRY-first arrival orders converge to one `onUserHandover`
+8. **Departure via hold (D1/F2)** — a single-sample EXIT opens an F2 hold; with no re-entry it becomes a departure ~1 `frameInterval` later (driven by the `expireHolds` timer even with no further frames)
 9. **Cell aggregates** — `AccessPointRadioInfoData` carries correct avg/total values
 10. **Flask format** — `SendToExternalServer` JSON matches new schema
 11. **TCP handshake (R1)** — handshake completes over TCP; Agent closes `controlSocket_` after `INFRAESTRUCTURE_DETAILS_ACK`; Controller drops the connection from `socketMap` on close without losing the `mehStateMap` registration
@@ -1025,13 +1080,14 @@ After all pieces are implemented:
 | `AccessPointRadioInfoData.h/.cc` | ✅ Piece 4 done |
 | `RavensAgentApp.ned` | ✅ Piece 5 done |
 | `RavensAgentApp.h` | ✅ Piece 6 done |
-| `RavensAgentApp.cc` | ✅ Piece 7 done |
-| `RavensControllerApp.ned` | ✅ Piece 8 done (ports: `dataPort`/`mgmtPort`) |
-| `RavensControllerApp.h` | ✅ Piece 9 done (+ `pendingExitTime`) |
-| `RavensControllerApp.cc` | ✅ Piece 10 done (`handleEventFrame` + C5 guard) |
-| `NotifyOnDataChange.cc/.h` | ⚠️ Piece 11 signature done; event→MEO wiring missing |
-| `SendToExternalServer.cc` | ⚠️ Piece 11 signature done; event→MEO wiring + JSON schema missing |
-| `SaveDataHistory.cc` | ✅ Piece 11 done (lifecycle CSV; logs only, no `addUserUpdate`) |
+| `RavensAgentApp.cc` | ✅ Piece 7 done; + sampleCount accumulation fixes (ENTRY & EXIT); `numberOfActiveUeDlNongbrCell` populated |
+| `RavensControllerApp.ned` | ✅ Piece 8 done (ports: `dataPort`/`mgmtPort`); confidence params removed (D1) |
+| `RavensControllerApp.h` | ✅ Piece 9 done (+ `pendingExitTime`, `pendingExitSamples/FirstAt`, `expireHoldsMsg_`) |
+| `RavensControllerApp.cc` | ✅ Piece 10 + 13 + D1: `handleEventFrame` no-gate, C5 guard, timer-driven `expirePendingExits()`, `updateUserStateMap` no longer seeds map |
+| `LocationDataHandlerPolicyBase.h/.cc` | ✅ Piece 13: 3 semantic hooks + `emitUserUpdate` helper (new `.cc`) |
+| `NotifyOnDataChange.cc/.h` | ✅ Piece 13: hooks → `emitUserUpdate`; safety net → `onUserExit`; dead standby state removed |
+| `SendToExternalServer.cc` | ✅ Piece 13 + 11: hooks → `emitUserUpdate`; `formatSnapshot` cell-aggregate JSON schema |
+| `SaveDataHistory.cc` | ✅ Piece 13 + 11: 3 hooks → lifecycle CSV (log-only); user CSV + radio_stats full cell-metric columns |
 | Dead code | Piece 12 — not started |
 | **R1a — event-frame rename** | ✅ done |
 | **R1b — Agent TCP mgmt socket** | ✅ `RavensAgentApp.{ned,h,cc}` (`controllerMgmtSocket_`) |
@@ -1080,11 +1136,16 @@ inactivity-based purging as its primary mechanism.
   **not** the normal path. State this contract in Piece 10 so it is not silently
   re-tightened later.
 
-#### C2. Cross-frame confirmation counter is incompatible with "report entry once" — ✅ RESOLVED (Piece 10)
+#### C2. Cross-frame confirmation counter is incompatible with "report entry once" — ✅ SUPERSEDED by D1
 
-> Implemented as the proposed alternative: `handleEventFrame` confirms on
-> `samplesSinceChange >= confirmationCount_` from the single ENTRY event; no
-> cross-frame accumulation. EXIT uses `>= exitConfidenceThreshold_`.
+> First resolved (Piece 10) by thresholding the single ENTRY's `samplesSinceChange`
+> against `confirmationCount_`. **That resolution was itself flawed** and is now
+> withdrawn — see **D1** (Design Revisions). The threshold > 1 still permanently
+> dropped any entry whose first sample landed in the last sub-frame window (~1/3 of
+> entries), because report-once gives no second chance. **D1 removes the confidence
+> gate entirely:** presence is unconditional (LS is truth), and the F2 hold is the
+> sole debounce. `samplesSinceChange`/`firstDetectedAt` are now logged metadata.
+> `confirmationCount_` / `exitConfidenceThreshold_` deleted.
 
 **Problem.** The Agent reports a user's ENTRY exactly once: after the entry is
 flushed in a control frame, `pendingEntries_` is cleared and the (now stable)
@@ -1386,60 +1447,80 @@ this mapping breaks. Pre-existing, but newly relevant once aggregation lands.
 
 ## Status snapshot for resuming on another machine
 
-> Updated 2026-06-29 after completing the Agent+Controller migration through
-> Piece 11 and Revision R1. Branch layout: `eRavens/agent` (Agent work),
-> `eRavens/controller` (Controller work), `eRavens/main` (integration — both
-> merged in).
+> Updated 2026-06-29 (second pass) after Piece 13, the **D1 confidence-gate
+> removal**, the Agent sampleCount accumulation fixes, and timer-driven hold
+> expiry. Branch layout: `eRavens/agent`, `eRavens/controller`, `eRavens/main`.
 
 **Done:**
 - **Pieces 1–6** — defines, message classes, `UserData`, `AccessPointRadioInfoData`,
   Agent `.ned`, Agent `.h`.
-- **Piece 7** (`RavensAgentApp.cc`) — complete: `handleRNISMessage` aggregation,
-  `sendEventFrame()`, `sendDataFrame()`, `handleSelfMessage` dispatch (C4:
-  unconditional reschedule, then send), `sendUsersInfoSnapshot()` deleted.
-- **Piece 8** (`RavensControllerApp.ned`) — `confirmationCount`,
-  `exitConfidenceThreshold`, `frameInterval`, `threshold` params; ports renamed
-  `dataPort`(UDP 5001)/`mgmtPort`(TCP 5000). NOTE: final port param names are
-  `dataPort`/`mgmtPort` (Controller) and `controllerDataPort`/`controllerMgmtPort`
-  (Agent), **not** the `localPort`/`controlPort` names used in Pieces 8/R1c prose.
-- **Piece 9** (`RavensControllerApp.h`) — `UserState` gains `pendingExitTime`
-  (F2 exit-hold), `shouldAcceptHandover()` removed, new members + `handleEventFrame`
-  decl, TCP server members.
-- **Piece 10** (`RavensControllerApp.cc`) — `handleEventFrame()` fully implemented:
-  (1) expire elapsed exit-holds, (2) confidence-filter by `confirmationCount_` /
-  `exitConfidenceThreshold_` (C2), (3) notify policy before map update, (4) confirmed
-  EXIT starts F2 hold **only if source MEH == currentMEH** (C5 guard), (5) confirmed
-  ENTRY = new user / HANDOVER (cancels hold) / direct MEH update. `updateUserStateMap`
-  refreshes telemetry only; `shouldAcceptHandover` deleted.
-- **Piece 11** (signatures) — `handleEventMessage` signature is
-  `(const RavensEventList&, const std::string& sourceMEH)` across base +
-  `SaveDataHistory`. All three policies updated to `RavensLinkDataFrameMessage`,
-  old entry/exit detection stripped, `removeInactiveUsers()` kept as C1 safety net.
-- **R1a** event-frame rename, **R1b** Agent TCP mgmt socket (`controllerMgmtSocket_`,
-  close-after-INFRA_ACK), **R1c** Controller TCP server (`serverSocket_` + `socketMap`).
+- **Piece 7** (`RavensAgentApp.cc`) — `handleRNISMessage` aggregation,
+  `sendEventFrame()`, `sendDataFrame()`, `handleSelfMessage` dispatch (C4).
+  **+ two sampleCount accumulation fixes** (see B1 below): ENTRY count now bumps in
+  the existing-user branch; EXIT count accumulated by a pass over `pendingExits_`
+  before the departure loop. **+ `numberOfActiveUeDlNongbrCell` now populated**
+  (was silently 0).
+- **Piece 8** (`RavensControllerApp.ned`) — `frameInterval`, `threshold` params;
+  ports `dataPort`(UDP 5001)/`mgmtPort`(TCP 5000). Agent side:
+  `controllerDataPort`/`controllerMgmtPort`. **`confirmationCount` /
+  `exitConfidenceThreshold` removed (D1).**
+- **Piece 9** (`RavensControllerApp.h`) — `UserState`: `pendingExitTime`,
+  `pendingExitSamples`, `pendingExitFirstAt`. `expireHoldsMsg_` timer member.
+- **Piece 10 + D1** (`RavensControllerApp.cc`) — `handleEventFrame()`:
+  (1) `expirePendingExits()`, (2) **split events by type — no confidence gate**,
+  (3) EXIT starts F2 hold only if source==currentMEH (C5) + stashes metadata,
+  (4) ENTRY = new user / handover (both arrival orders) / flap-noop.
+  `updateUserStateMap` **only refreshes known users — does NOT seed the map** (so a
+  DATA_FRAME can't pre-empt the ENTRY hook). `shouldAcceptHandover` deleted.
+- **Piece 13** — event→MEO via 3 semantic hooks (`onUserEntry/Handover/Exit`) on
+  `LocationDataHandlerPolicyBase` (+ new `.cc` with `emitUserUpdate`). All three
+  policies override them; SaveDataHistory writes lifecycle CSV only (MEO-silent).
+- **Piece 11 bodies** — `SendToExternalServer::formatSnapshot` rewritten to
+  cell-aggregate JSON (`cellMetrics` + LS-only `users`); `SaveDataHistory`
+  `radio_stats.csv` extended to full cell-metric set; user CSV stripped to LS fields.
+- **Timer-driven hold expiry** — `expirePendingExits()` called both inline from
+  `handleEventFrame` (prompt) and from a periodic `expireHolds` self-message at
+  `frameInterval_` (liveness in quiet regions / EVENT_ONLY).
+- **R1a/R1b/R1c** — rename, Agent TCP mgmt socket, Controller TCP server.
 
-**Resolved critique/fault items:** C1 (EXIT authoritative, `removeInactiveUsers`
-demoted to safety net), C2 (single-event `samplesSinceChange ≥ confirmationCount_`),
-C4 (unconditional reschedule), C5 (stale-EXIT guard on source MEH), F2 (exit-hold
-window via `pendingExitTime`), F3 (`UE_EVENT=8`, MEO codes 20/21), M2
-(`firstDetectedAt` now logged in lifecycle CSV for detection→action latency).
+**Resolved critique/fault items:** C1 (EXIT authoritative; `removeInactiveUsers`
+is a safety net, valid only in EVENT_AND_DATA — see L7), **C2 → superseded by D1
+(confidence gate removed entirely; presence is unconditional, debounce is the F2
+hold alone)**, C4, C5 (stale-EXIT guard), F2 (`pendingExitTime` hold), F3, M2
+(`firstDetectedAt` logged).
+
+**New this session:**
+- **B1 (bug, fixed).** Agent `samplesSinceChange` was stuck at 1 forever (ENTRY
+  increment unreachable after first sample; EXIT loop never revisited removed
+  users). Every event carried count 1 → with the old gate at 2, everything was
+  filtered. Fixed both accumulation paths. The count is now accurate **metadata**
+  (it no longer gates anything after D1).
+- **D1 (design, done).** Removed the ENTRY/EXIT confidence threshold. Rationale:
+  LS is the single source of truth for presence, so a "confidence gate" has nothing
+  to filter — every LS appearance is a real attachment. Under the delta /
+  report-once model, gating with a threshold > 1 *permanently lost* any entry whose
+  first sample happened to land in the last sub-frame window (~1/3 of entries). The
+  F2 hold already provides the only debounce that matters (handover vs departure,
+  across two Agents). So: accept all presence; hold disambiguates; counts are
+  metadata. One timing knob left (hold = `frameInterval`).
 
 **Still open / not done:**
-- **🔴 Event→MEO-update wiring incomplete — now fully specified in Piece 13**
-  (semantic policy hooks; ready for Sonnet to implement). Until done: confirmed
-  ENTRY/HANDOVER/EXIT events produce **no** `UserMEHUpdate` for the MEO; the MEO
-  only learns of departures via the `removeInactiveUsers()` safety net, which never
-  runs in `AGENT_MODE_EVENT_ONLY`. Must land before the reactive experiment is
-  meaningful.
-- **C3 — proactive-only config still not expressible.** `agentMode` remains a
-  2-value enum (`EVENT_ONLY` / `EVENT_AND_DATA`); there is no DATA-without-EVENT
-  mode. The two-boolean (`sendEvent`/`sendData`) redesign is not done.
-- **Piece 11 body work** — `SendToExternalServer::formatSnapshot` cell-aggregate
-  JSON schema and `SaveDataHistory` CSV column changes per Piece 11 spec not yet
-  verified against the new `AccessPointRadioInfoData` field set.
+- **C3 — proactive-only config still not expressible.** `agentMode` is a 2-value
+  enum (`EVENT_ONLY` / `EVENT_AND_DATA`); no DATA-without-EVENT mode. The
+  two-boolean (`sendEvent`/`sendData`) redesign is not done.
+- **L7 (new) — EVENT_ONLY has no lost-packet safety net, by construction.**
+  `removeInactiveUsers()` keys on `timestamp` staleness, which only refreshes via
+  data frames; in EVENT_ONLY a stable present user never refreshes, so the safety
+  net cannot run there without wrongly purging present users (C1). Reactive-mode
+  departure correctness therefore rests entirely on the EXIT frame being delivered
+  (lossless wired backhaul in sim → safe). **State this assumption explicitly in
+  the thesis when describing the reactive config.**
+- **L8 (new) — `numberOfActiveUeDlNongbrCell` is a derived proxy.** RNIS does not
+  expose it directly; it is set to the per-UE aggregation `count` (UEs with
+  non-GBR activity this notification). Document the exact definition with the
+  metric schema; it is not necessarily identical to "active UEs" as the name implies.
 - **Piece 12** — dead-code cleanup, `INFRAESTRUCTURE`→`INFRASTRUCTURE` rename,
   `localSnapshotCounter`→`frameCounter_`, F4/F5 documentation.
 
-The tree does not compile until built once (stale `_m.h`: `RavensEvent*`,
-`RavensLinkDataFrameMessage`, `getAgentMode`/`setAgentMode` — all regenerate from
+The tree does not compile until built once (stale `_m.h` regenerate from
 `RavensLinkPacket.msg` via `opp_msgc` at build time).

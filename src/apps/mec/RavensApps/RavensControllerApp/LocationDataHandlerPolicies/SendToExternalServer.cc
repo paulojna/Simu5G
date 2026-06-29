@@ -1,5 +1,4 @@
 #include "SendToExternalServer.h"
-#include "../DataUpdates/UserMEHUpdate.h"
 
 namespace simu5g {
 
@@ -43,20 +42,10 @@ namespace simu5g {
 
 	inet::Packet* SendToExternalServer::handleDataMessage(inet::Ptr<const RavensLinkDataFrameMessage> received_packet)
 	{
-		inet::Packet* pck = nullptr;
-
-		// C1 safety net: purge users absent for longer than threshold_
+		// C1 safety net: purge users absent longer than threshold_
 		std::vector<UserState> removedUsers = controllerApp_->removeInactiveUsers();
-		for (auto& user : removedUsers)
-		{
-			UserMEHUpdate update;
-			update.setLastMEHId(user.currentMEH);
-			update.setNewMEHId("");
-			update.setAddress(user.userId);
-			addUserUpdate(update);
-		}
-
-		// Entry/exit detection and state map updates done in socketDataArrived() / handleEventFrame() (eRAVENS R1)
+		for (const auto& user : removedUsers)
+			onUserExit(user.userId, user.currentMEH, -1, SIMTIME_ZERO);
 
 		// Forward data frame to Flask and collect migration predictions
 		nlohmann::json payload = formatSnapshot(received_packet);
@@ -66,70 +55,72 @@ namespace simu5g {
 		std::vector<MigrationPrediction> predictions = parseResponse(response);
 
 		for (auto& pred : predictions)
-		{
 			controllerApp_->migrationPredictions.insert_or_assign(pred.getUeAddress(), pred);
-		}
 
-		return pck;
+		return nullptr;
 	}
 
-	void SendToExternalServer::addUserUpdate(UserMEHUpdate& update)
+	void SendToExternalServer::onUserEntry(const std::string& userId, const std::string& meh,
+	                                       int /*samplesSinceChange*/, omnetpp::simtime_t /*firstDetectedAt*/)
 	{
-		const std::string& address = update.getAddress();
-		auto [it, inserted] = controllerApp_->userUpdates.insert_or_assign(address, update);
+		EV << "SendToExternalServer::onUserEntry - " << userId << " at " << meh << endl;
+		emitUserUpdate(userId, "", meh);
+	}
 
-		if (inserted) {
-			EV << "SendToExternalServer::addUserUpdate - user " << address << " added" << endl;
-		} else {
-			EV << "SendToExternalServer::addUserUpdate - user " << address << " updated" << endl;
-		}
+	void SendToExternalServer::onUserHandover(const std::string& userId,
+	                                          const std::string& fromMeh, const std::string& toMeh,
+	                                          int /*samplesSinceChange*/, omnetpp::simtime_t /*firstDetectedAt*/)
+	{
+		EV << "SendToExternalServer::onUserHandover - " << userId << " " << fromMeh << " -> " << toMeh << endl;
+		emitUserUpdate(userId, fromMeh, toMeh);
+	}
+
+	void SendToExternalServer::onUserExit(const std::string& userId, const std::string& fromMeh,
+	                                      int /*samplesSinceChange*/, omnetpp::simtime_t /*firstDetectedAt*/)
+	{
+		EV << "SendToExternalServer::onUserExit - " << userId << " left " << fromMeh << endl;
+		emitUserUpdate(userId, fromMeh, "");
 	}
 
 	nlohmann::json SendToExternalServer::formatSnapshot(inet::Ptr<const RavensLinkDataFrameMessage> snapshot)
 	{
 	    nlohmann::json payload;
 
-	    // Snapshot-level metadata
 	    payload["mecHostId"] = snapshot->getMecHostId();
 	    payload["timestamp"] = snapshot->getTimeStamp().str();
 
-	    // Per-user data
+	    // Cell-level radio aggregates (replaces removed per-user RNIS fields)
+	    const AccessPointRadioInfoData& ap = snapshot->getApRadioInfo();
+	    nlohmann::json cellJson;
+	    cellJson["accessPointId"]                  = ap.getAccessPointId();
+	    cellJson["dlTotalPrbUsageCell"]             = ap.getDlTotalPrbUsageCell();
+	    cellJson["ulTotalPrbUsageCell"]             = ap.getUlTotalPrbUsageCell();
+	    cellJson["dlNongbrPdrCell"]                 = ap.getDlNongbrPdrCell();
+	    cellJson["ulNongbrPdrCell"]                 = ap.getUlNongbrPdrCell();
+	    cellJson["numberOfActiveUeDlNongbrCell"]    = ap.getNumberOfActiveUeDlNongbrCell();
+	    cellJson["avgDlDelay"]                      = ap.getAvgDlDelay();
+	    cellJson["avgUlDelay"]                      = ap.getAvgUlDelay();
+	    cellJson["totalDlDataVolume"]               = ap.getTotalDlDataVolume();
+	    cellJson["totalUlDataVolume"]               = ap.getTotalUlDataVolume();
+	    cellJson["avgDistanceToAp"]                 = ap.getAvgDistanceToAp();
+	    payload["cellMetrics"] = cellJson;
+
+	    // Per-user LS state (no RNIS fields — dropped in Piece 3)
 	    nlohmann::json usersJson = nlohmann::json::array();
 	    for (const auto& [ueId, userData] : snapshot->getUsers())
 	    {
-	        if (userData.getDlNongbrDelayUe() == -1) continue;
-
 	        nlohmann::json userJson;
-
-	        // Identity
-	        userJson["ueId"] = ueId;
-	        userJson["address"] = userData.getAddress();
+	        userJson["ueId"]          = ueId;
+	        userJson["address"]       = userData.getAddress();
 	        userJson["accessPointId"] = userData.getAccessPointId();
-
-	        // Timestamps
-	        userJson["lastUpdated"] = userData.getLastUpdated().str();
-	        userJson["lsUpdate"] = userData.getLsUpdate().str();
-	        userJson["rnisUpdate"] = userData.getRnisUpdate().str();
-
-	        // Location & mobility
-	        userJson["x"] = userData.getCurrentLocation().getX();
-	        userJson["y"] = userData.getCurrentLocation().getY();
-	        userJson["z"] = userData.getCurrentLocation().getZ();
-	        userJson["speed"] = userData.getCurrentLocation().getHorizontalSpeed();
-	        userJson["bearing"] = userData.getCurrentLocation().getBearing();
-	        userJson["distanceToAp"] = userData.getDistanceToAP();
-
-	        // Per-UE radio stats (RNIS)
-	        userJson["dlNongbrDelayUe"] = userData.getDlNongbrDelayUe();
-	        userJson["dlNongbrPdrUe"] = userData.getDlNongbrPdrUe();
-	        userJson["dlNongbrDataVolumeUe"] = userData.getDlNongbrDataVolumeUe();
-	        userJson["ulNongbrDelayUe"] = userData.getUlNongbrDelayUe();
-	        userJson["ulNongbrPdrUe"] = userData.getUlNongbrPdrUe();
-	        userJson["ulNongbrDataVolumeUe"] = userData.getUlNongbrDataVolumeUe();
-
+	        userJson["x"]             = userData.getCurrentLocation().getX();
+	        userJson["y"]             = userData.getCurrentLocation().getY();
+	        userJson["z"]             = userData.getCurrentLocation().getZ();
+	        userJson["speed"]         = userData.getCurrentLocation().getHorizontalSpeed();
+	        userJson["bearing"]       = userData.getCurrentLocation().getBearing();
+	        userJson["distanceToAp"]  = userData.getDistanceToAP();
 	        usersJson.push_back(userJson);
 	    }
-
 	    payload["users"] = usersJson;
 
 	    return payload;

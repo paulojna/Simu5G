@@ -8,15 +8,14 @@ simple RavensControllerApp like IApp
 {
     parameters:
         @class("RavensControllerApp");
-        string mode = default("SendToExternalServer"); // available modes: "SaveDataHistory", "NotifyOnDataChange" and "SendToExternalServer"
+        string mode = default("SaveDataHistory"); // available modes: "SaveDataHistory", "NotifyOnDataChange" and "SendToExternalServer"
         int threshold = default(10);
         int snapshot_frequency = default(2);  
         int snapshot_starting_time = default(2);
         string path = default("../tust_1to1/results/"); // path to save the data
-        
-        int confirmationCount = default(2);        // min samplesSinceChange on an ENTRY from a new MEH to confirm handover
-        double frameInterval = default(3);         // frame interval pushed to Agents via ACK (s)
-        int exitConfidenceThreshold = default(2);  // min samplesSinceChange on EXIT to act on it
+
+        double frameInterval = default(3);         // frame interval pushed to Agents via ACK (s);
+                                                   // also the Controller's F2 exit-hold window
 
         string localAddress = default(""); // local address; may be left empty ("")
         int dataPort = default(5001);      // UDP — event + data frames
