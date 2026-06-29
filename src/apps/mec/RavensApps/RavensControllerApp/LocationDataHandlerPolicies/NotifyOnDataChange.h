@@ -9,29 +9,19 @@
 
 namespace simu5g {
 
-struct ueStanbyElement
-{
-    const std::string ue_reference;
-    simtime_t time_limit;
-    std::string meh; 
-
-    ueStanbyElement(const std::string& ue_ref, const simtime_t& time_lim, const std::string& meh_val)
-        : ue_reference(ue_ref), time_limit(time_lim), meh(meh_val) {}
-};
-
-
 class NotifyOnDataChange : public LocationDataHandlerPolicyBase
 {
     protected:
-        simtime_t interval_;
-        simtime_t start;
-        int stanby_treshold_;
-        int max_iterations;
-        std::map<std::string, ueStanbyElement> standby;
         virtual inet::Packet* handleDataMessage(inet::Ptr<const RavensLinkDataFrameMessage> received_packet) override;
+        virtual void onUserEntry   (const std::string& userId, const std::string& meh,
+                                    int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) override;
+        virtual void onUserHandover(const std::string& userId, const std::string& fromMeh,
+                                    const std::string& toMeh,
+                                    int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) override;
+        virtual void onUserExit    (const std::string& userId, const std::string& fromMeh,
+                                    int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) override;
     public:
         NotifyOnDataChange(RavensControllerApp* controllerApp, int treshold);
-        void addUserUpdate(UserMEHUpdate &update);
         virtual ~NotifyOnDataChange(){}
 };
 

@@ -22,10 +22,15 @@ class SaveDataHistory : public LocationDataHandlerPolicyBase
         int msgCount_;
         static const int FLUSH_INTERVAL_ = 100;
         virtual inet::Packet* handleDataMessage(inet::Ptr<const RavensLinkDataFrameMessage> received_packet) override;
-        virtual void handleEventMessage(const RavensEventList& events, const std::string& sourceMEH) override;
+        virtual void onUserEntry   (const std::string& userId, const std::string& meh,
+                                    int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) override;
+        virtual void onUserHandover(const std::string& userId, const std::string& fromMeh,
+                                    const std::string& toMeh,
+                                    int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) override;
+        virtual void onUserExit    (const std::string& userId, const std::string& fromMeh,
+                                    int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) override;
     public:
         SaveDataHistory(RavensControllerApp* controllerApp, std::string path);
-        void addUserUpdate(UserMEHUpdate &update);
         virtual ~SaveDataHistory();
 };
 

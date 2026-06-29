@@ -21,7 +21,7 @@ SaveDataHistory::SaveDataHistory(RavensControllerApp* controllerApp, std::string
     // 1. User File (Standard Vectors + Radio Stats)
     std::string name = dirPath + "run_" + runNumber + "_users.csv";
     userFile.open(name, std::ios::out | std::ios::trunc);
-    userFile << "TimestampSent, LastUpdated, LsLast, RnisLast, UEId,MEHId,AccessPointId,x,y,z,Speed,Bearing,DistanceToAccessPoint,DlDelay,DlPDR,DlDataVolume,UlDelay,UlPDR,UlDataVolume" << endl;
+    userFile << "TimestampSent,UEId,MEHId,AccessPointId,x,y,z,Speed,Bearing,DistanceToAccessPoint" << endl;
     
     // 2. Lifecycle File (Events)
     std::string lifecycleName = dirPath + "run_" + runNumber + "_lifecycle.csv";
@@ -38,17 +38,10 @@ SaveDataHistory::SaveDataHistory(RavensControllerApp* controllerApp, std::string
 
 inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkDataFrameMessage> received_packet)
 {
-    inet::Packet* pck = nullptr;
-
-    // C1 safety net: purge users absent for longer than threshold_
+    // C1 safety net: purge users absent longer than threshold_ — log as EXIT, MEO-silent
     std::vector<UserState> removedUsers = controllerApp_->removeInactiveUsers();
-    for (const auto& user : removedUsers) {
-        UserMEHUpdate update;
-        update.setLastMEHId(user.currentMEH);
-        update.setNewMEHId("");
-        update.setAddress(user.userId);
-        addUserUpdate(update);
-    }
+    for (const auto& user : removedUsers)
+        onUserExit(user.userId, user.currentMEH, -1, SIMTIME_ZERO);
 
     // Log radio stats
     const AccessPointRadioInfoData& apRadioInfo = received_packet->getApRadioInfo();
@@ -65,9 +58,6 @@ inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkDataF
     // Log per-user telemetry
     for (const auto& [address, userData] : received_packet->getUsers()) {
         userFile << received_packet->getTimeStamp() << ","
-                 << userData.getLastUpdated() << ","
-                 << userData.getLsUpdate() << ","
-                 << userData.getRnisUpdate() << ","
                  << address << ","
                  << received_packet->getMecHostId() << ","
                  << userData.getAccessPointId() << ","
@@ -76,17 +66,8 @@ inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkDataF
                  << userData.getCurrentLocation().getZ() << ","
                  << userData.getCurrentLocation().getHorizontalSpeed() << ","
                  << userData.getCurrentLocation().getBearing() << ","
-                 << userData.getDistanceToAP() << ","
-                 << userData.getDlNongbrDelayUe() << ","
-                 << userData.getDlNongbrPdrUe() << ","
-                 << userData.getDlNongbrDataVolumeUe() << ","
-                 << userData.getUlNongbrDelayUe() << ","
-                 << userData.getUlNongbrPdrUe() << ","
-                 << userData.getUlNongbrDataVolumeUe() << endl;
+                 << userData.getDistanceToAP() << "\n";
     }
-
-    // Entry/exit detection moved to handleEventFrame() (eRAVENS R1)
-    // State map updates done in socketDataArrived() before policy is called
 
     msgCount_++;
     if (msgCount_ >= FLUSH_INTERVAL_) {
@@ -95,65 +76,31 @@ inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkDataF
         msgCount_ = 0;
     }
 
-    return pck;
+    return nullptr;
 }
 
-void SaveDataHistory::addUserUpdate(UserMEHUpdate& update)
+void SaveDataHistory::onUserEntry(const std::string& userId, const std::string& meh,
+                                  int samplesSinceChange, omnetpp::simtime_t firstDetectedAt)
 {
-	EV << "SaveDataHistory::addUserUpdate - user " << update.getAddress() <<
-		" was sent to be added to the userUpdates map" << endl;
-
-	// PERFORMANCE IMPROVEMENT: O(1) insert/update using map instead of O(n) linear search
-	// Original linear search code commented out for reference:
-	// for (auto& userUpdate : controllerApp_->userUpdates) {
-	//     if (userUpdate.getAddress() == update.getAddress()) {
-	//         userUpdate.setLastMEHId(update.getLastMEHId());
-	//         userUpdate.setNewMEHId(update.getNewMEHId());
-	//         return;
-	//     }
-	// }
-	// controllerApp_->userUpdates.push_back(update);
-
-	const std::string& address = update.getAddress();
-	auto [it, inserted] = controllerApp_->userUpdates.insert_or_assign(address, update);
-
-	if (inserted) {
-		EV << "SaveDataHistory::addUserUpdate - user " << address << " added to the userUpdates map" << endl;
-	} else {
-		EV << "SaveDataHistory::addUserUpdate - user " << address << " was updated in the userUpdates map" << endl;
-	}
+    lifecycleFile << simTime() << ",ENTRY," << userId << ",," << meh << ","
+                  << samplesSinceChange << "," << firstDetectedAt << "\n";
+    lifecycleFile.flush();
 }
 
-void SaveDataHistory::handleEventMessage(const RavensEventList& events, const std::string& sourceMEH)
+void SaveDataHistory::onUserHandover(const std::string& userId,
+                                     const std::string& fromMeh, const std::string& toMeh,
+                                     int samplesSinceChange, omnetpp::simtime_t firstDetectedAt)
 {
-    for (const auto& e : events) {
-        std::string eventType;
-        std::string fromMEH;
-        std::string toMEH;
+    lifecycleFile << simTime() << ",HANDOVER," << userId << "," << fromMeh << "," << toMeh << ","
+                  << samplesSinceChange << "," << firstDetectedAt << "\n";
+    lifecycleFile.flush();
+}
 
-        if (e.eventType == EVENT_ENTRY) {
-            toMEH = sourceMEH;
-            auto userIt = controllerApp_->userStateMap.find(e.ueAddress);
-            if (userIt != controllerApp_->userStateMap.end() && !userIt->second.currentMEH.empty()) {
-                fromMEH = userIt->second.currentMEH;
-                // pendingExitTime != 0 means user was in exit hold — this is a HANDOVER
-                eventType = (userIt->second.pendingExitTime != 0) ? "HANDOVER" : "ENTRY";
-            } else {
-                eventType = "ENTRY";
-            }
-        } else {
-            eventType = "EXIT";
-            fromMEH = sourceMEH;
-        }
-
-        lifecycleFile << simTime() << ","
-                      << eventType << ","
-                      << e.ueAddress << ","
-                      << fromMEH << ","
-                      << toMEH << ","
-                      << e.samplesSinceChange << ","
-                      << e.firstDetectedAt << "\n";
-    }
+void SaveDataHistory::onUserExit(const std::string& userId, const std::string& fromMeh,
+                                 int samplesSinceChange, omnetpp::simtime_t firstDetectedAt)
+{
+    lifecycleFile << simTime() << ",EXIT," << userId << "," << fromMeh << ",,"
+                  << samplesSinceChange << "," << firstDetectedAt << "\n";
     lifecycleFile.flush();
 }
 

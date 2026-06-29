@@ -316,11 +316,14 @@ void RavensControllerApp::handleEventFrame(inet::Ptr<const RavensLinkEventMessag
     EV << "RavensControllerApp::handleEventFrame - " << event->getEvents().size()
        << " events from " << sourceMEH << endl;
 
-    // Step 1: Expire pending exits whose F2 hold window has elapsed
+    // Step 1: Expire pending exits whose F2 hold window has elapsed → emit onUserExit
     for (auto it = userStateMap.begin(); it != userStateMap.end(); ) {
         if (it->second.pendingExitTime != 0 && simTime() >= it->second.pendingExitTime) {
             EV << "RavensControllerApp::handleEventFrame - exit hold expired for "
                << it->first << ", removing" << endl;
+            locationDataHandlerPolicy_->onUserExit(it->first, it->second.currentMEH,
+                                                   it->second.pendingExitSamples,
+                                                   it->second.pendingExitFirstAt);
             it = userStateMap.erase(it);
         } else {
             ++it;
@@ -340,54 +343,68 @@ void RavensControllerApp::handleEventFrame(inet::Ptr<const RavensLinkEventMessag
         }
     }
 
-    // Step 3: Notify policy BEFORE updating map so it can classify ENTRY vs HANDOVER
-    RavensEventList allConfirmed;
-    allConfirmed.insert(allConfirmed.end(), confirmedExits.begin(), confirmedExits.end());
-    allConfirmed.insert(allConfirmed.end(), confirmedEntries.begin(), confirmedEntries.end());
-    if (!allConfirmed.empty()) {
-        locationDataHandlerPolicy_->handleEventMessage(allConfirmed, sourceMEH);
-    }
-
-    // Step 4: Apply confirmed exits — start F2 hold window (don't remove immediately)
+    // Step 3: Apply confirmed exits — start F2 hold window and stash confidence fields
     for (const auto& e : confirmedExits) {
         auto userIt = userStateMap.find(e.ueAddress);
         if (userIt == userStateMap.end())
             continue;
-        // C5: ignore a stale EXIT from a MEH the user already left (handover already
-        // moved currentMEH elsewhere). Only the current MEH can report a departure.
+        // C5: ignore a stale EXIT from a MEH the user already left
         if (userIt->second.currentMEH != sourceMEH) {
             EV << "RavensControllerApp::handleEventFrame - stale EXIT for " << e.ueAddress
                << " from " << sourceMEH << " (current MEH is " << userIt->second.currentMEH
                << "), ignoring" << endl;
             continue;
         }
-        userIt->second.pendingExitTime = simTime() + frameInterval_;
+        userIt->second.pendingExitTime    = simTime() + frameInterval_;
+        userIt->second.pendingExitSamples = e.samplesSinceChange;
+        userIt->second.pendingExitFirstAt = e.firstDetectedAt;
         EV << "RavensControllerApp::handleEventFrame - EXIT hold started for "
            << e.ueAddress << ", expires at " << userIt->second.pendingExitTime << endl;
     }
 
-    // Step 5: Apply confirmed entries
+    // Step 4: Apply confirmed entries — call hooks at each authoritative decision point
     for (const auto& e : confirmedEntries) {
         auto userIt = userStateMap.find(e.ueAddress);
         if (userIt == userStateMap.end()) {
+            // Brand-new user
             UserState state;
-            state.userId = e.ueAddress;
-            state.currentMEH = sourceMEH;
-            state.timestamp = simTime();
-            state.pendingExitTime = 0;
+            state.userId              = e.ueAddress;
+            state.currentMEH          = sourceMEH;
+            state.timestamp           = simTime();
+            state.pendingExitTime     = 0;
+            state.pendingExitSamples  = 0;
             userStateMap[e.ueAddress] = state;
+            locationDataHandlerPolicy_->onUserEntry(e.ueAddress, sourceMEH,
+                                                    e.samplesSinceChange, e.firstDetectedAt);
             EV << "RavensControllerApp::handleEventFrame - ENTRY new user "
                << e.ueAddress << " at " << sourceMEH << endl;
         } else if (userIt->second.pendingExitTime != 0) {
-            // HANDOVER: user was in exit hold, now confirmed at new MEH — cancel hold
-            EV << "RavensControllerApp::handleEventFrame - HANDOVER "
-               << e.ueAddress << " from " << userIt->second.currentMEH << " to " << sourceMEH << endl;
-            userIt->second.currentMEH = sourceMEH;
-            userIt->second.pendingExitTime = 0;
-            userIt->second.timestamp = simTime();
+            // User was in exit hold — cancel it
+            std::string fromMeh = userIt->second.currentMEH;
+            userIt->second.pendingExitTime    = 0;
+            userIt->second.pendingExitSamples = 0;
+            userIt->second.timestamp          = simTime();
+            if (sourceMEH != fromMeh) {
+                // True handover: EXIT-from-A then ENTRY-at-B order
+                userIt->second.currentMEH = sourceMEH;
+                locationDataHandlerPolicy_->onUserHandover(e.ueAddress, fromMeh, sourceMEH,
+                                                           e.samplesSinceChange, e.firstDetectedAt);
+                EV << "RavensControllerApp::handleEventFrame - HANDOVER "
+                   << e.ueAddress << " from " << fromMeh << " to " << sourceMEH << endl;
+            }
+            // else: re-entry at same MEH (flap) — cancel hold, no hook
         } else {
-            // User already active — direct MEH update (no prior EXIT observed)
-            userIt->second.currentMEH = sourceMEH;
+            // No active hold
+            if (sourceMEH != userIt->second.currentMEH) {
+                // ENTRY from a different MEH without a prior EXIT (ENTRY-before-EXIT order)
+                std::string fromMeh = userIt->second.currentMEH;
+                userIt->second.currentMEH = sourceMEH;
+                locationDataHandlerPolicy_->onUserHandover(e.ueAddress, fromMeh, sourceMEH,
+                                                           e.samplesSinceChange, e.firstDetectedAt);
+                EV << "RavensControllerApp::handleEventFrame - HANDOVER (ENTRY-first) "
+                   << e.ueAddress << " from " << fromMeh << " to " << sourceMEH << endl;
+            }
+            // else: duplicate ENTRY at same MEH — no hook
             userIt->second.timestamp = simTime();
         }
     }

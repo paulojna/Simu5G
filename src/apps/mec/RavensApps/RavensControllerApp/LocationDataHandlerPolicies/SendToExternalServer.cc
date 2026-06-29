@@ -1,5 +1,4 @@
 #include "SendToExternalServer.h"
-#include "../DataUpdates/UserMEHUpdate.h"
 
 namespace simu5g {
 
@@ -43,20 +42,10 @@ namespace simu5g {
 
 	inet::Packet* SendToExternalServer::handleDataMessage(inet::Ptr<const RavensLinkDataFrameMessage> received_packet)
 	{
-		inet::Packet* pck = nullptr;
-
-		// C1 safety net: purge users absent for longer than threshold_
+		// C1 safety net: purge users absent longer than threshold_
 		std::vector<UserState> removedUsers = controllerApp_->removeInactiveUsers();
-		for (auto& user : removedUsers)
-		{
-			UserMEHUpdate update;
-			update.setLastMEHId(user.currentMEH);
-			update.setNewMEHId("");
-			update.setAddress(user.userId);
-			addUserUpdate(update);
-		}
-
-		// Entry/exit detection and state map updates done in socketDataArrived() / handleEventFrame() (eRAVENS R1)
+		for (const auto& user : removedUsers)
+			onUserExit(user.userId, user.currentMEH, -1, SIMTIME_ZERO);
 
 		// Forward data frame to Flask and collect migration predictions
 		nlohmann::json payload = formatSnapshot(received_packet);
@@ -66,23 +55,31 @@ namespace simu5g {
 		std::vector<MigrationPrediction> predictions = parseResponse(response);
 
 		for (auto& pred : predictions)
-		{
 			controllerApp_->migrationPredictions.insert_or_assign(pred.getUeAddress(), pred);
-		}
 
-		return pck;
+		return nullptr;
 	}
 
-	void SendToExternalServer::addUserUpdate(UserMEHUpdate& update)
+	void SendToExternalServer::onUserEntry(const std::string& userId, const std::string& meh,
+	                                       int /*samplesSinceChange*/, omnetpp::simtime_t /*firstDetectedAt*/)
 	{
-		const std::string& address = update.getAddress();
-		auto [it, inserted] = controllerApp_->userUpdates.insert_or_assign(address, update);
+		EV << "SendToExternalServer::onUserEntry - " << userId << " at " << meh << endl;
+		emitUserUpdate(userId, "", meh);
+	}
 
-		if (inserted) {
-			EV << "SendToExternalServer::addUserUpdate - user " << address << " added" << endl;
-		} else {
-			EV << "SendToExternalServer::addUserUpdate - user " << address << " updated" << endl;
-		}
+	void SendToExternalServer::onUserHandover(const std::string& userId,
+	                                          const std::string& fromMeh, const std::string& toMeh,
+	                                          int /*samplesSinceChange*/, omnetpp::simtime_t /*firstDetectedAt*/)
+	{
+		EV << "SendToExternalServer::onUserHandover - " << userId << " " << fromMeh << " -> " << toMeh << endl;
+		emitUserUpdate(userId, fromMeh, toMeh);
+	}
+
+	void SendToExternalServer::onUserExit(const std::string& userId, const std::string& fromMeh,
+	                                      int /*samplesSinceChange*/, omnetpp::simtime_t /*firstDetectedAt*/)
+	{
+		EV << "SendToExternalServer::onUserExit - " << userId << " left " << fromMeh << endl;
+		emitUserUpdate(userId, fromMeh, "");
 	}
 
 	nlohmann::json SendToExternalServer::formatSnapshot(inet::Ptr<const RavensLinkDataFrameMessage> snapshot)

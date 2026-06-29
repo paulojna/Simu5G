@@ -45,9 +45,10 @@ struct UserState
     std::string currentMEH;
     simtime_t timestamp;
     UserData userData;
-    std::string pendingMEH;  // MEH attempting handover (empty if none)
-    simtime_t pendingExitTime;  // non-zero when F2 exit-hold window is active
-    // lastHandoverTime removed — confirmation uses samplesSinceChange (see C2/plan)
+    std::string pendingMEH;       // MEH attempting handover (empty if none)
+    simtime_t pendingExitTime;    // non-zero when F2 exit-hold window is active
+    int pendingExitSamples = 0;   // samplesSinceChange of the EXIT that opened the hold
+    simtime_t pendingExitFirstAt; // firstDetectedAt of that EXIT
 };
 
 // structure that contains the type of change and the user data at the moment the change happens
