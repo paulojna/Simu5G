@@ -46,6 +46,7 @@ struct UserState
     simtime_t timestamp;
     UserData userData;
     std::string pendingMEH;  // MEH attempting handover (empty if none)
+    simtime_t pendingExitTime;  // non-zero when F2 exit-hold window is active
     // lastHandoverTime removed — confirmation uses samplesSinceChange (see C2/plan)
 };
 

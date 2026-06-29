@@ -18,7 +18,7 @@ class LocationDataHandlerPolicyBase
         RavensControllerApp* controllerApp_;
         // = 0 indicates pure virtual function with no implementation in the base class
         virtual inet::Packet* handleDataMessage(inet::Ptr<const RavensLinkDataFrameMessage> received_packet) = 0;
-        virtual void handleEventMessage(inet::Ptr<const RavensLinkEventMessage> event) {}
+        virtual void handleEventMessage(const RavensEventList& events, const std::string& sourceMEH) {}
 
     public:
         LocationDataHandlerPolicyBase(RavensControllerApp* controllerApp) { controllerApp_ = controllerApp; }
