@@ -44,6 +44,7 @@ void RavensAgentApp::initialize(int stage)
     mp1Socket_ = addNewSocket();
 
     controllerPort = par("controllerDataPort");
+    controllerMgmtPort_ = par("controllerMgmtPort");
     localPort_ = par("localPort");
 
     accessPoints = std::vector<AccessPointData>();
@@ -132,7 +133,7 @@ void RavensAgentApp::sendJoinNetworkRequest()
     // send mechostid from the mecHost of the MecAppBase
     request->setMecHostId(getMecHostId().c_str());
     packet->insertAtBack(request);
-    controllerSocket_.send(packet);
+    controllerMgmtSocket_.send(packet);
 }
 
 /**
@@ -151,7 +152,7 @@ void RavensAgentApp::sendAPList()
     request->setMecHostId(getMecHostId().c_str());
     request->setAPList(accessPoints);
     packet->insertAtBack(request);
-    controllerSocket_.send(packet);
+    controllerMgmtSocket_.send(packet);
 }
 
 /**
@@ -399,7 +400,7 @@ void RavensAgentApp::handleSelfMessage(cMessage *msg)
     {
         EV << "RavensAgentApp::handleMessage- " << msg->getName() << endl;
         connectToRavensController();
-        sendJoinNetworkRequest();
+        // sendJoinNetworkRequest() is called from socketEstablished(TcpSocket*) once TCP is up
         delete msg;
     }
     else if(strcmp(msg->getName(), "sendAPDetails") == 0)
@@ -460,15 +461,20 @@ void RavensAgentApp::connectToRavensController()
     }
     else {
         delete msg;
+        controllerAddress_ = L3AddressResolver().resolve(par("controllerAddress"));
+
+        // UDP data socket — sends event frames and data frames
         controllerSocket_.setOutputGate(gate("socketOut"));
         controllerSocket_.bind(localPort_);
         controllerSocket_.setCallback(this);
-
-        controllerAddress_ = L3AddressResolver().resolve(par("controllerAddress")); // ravensController
-
-        EV << "Connecting to " << controllerAddress_ << " port=" << controllerPort << endl;
-
         controllerSocket_.connect(controllerAddress_, controllerPort);
+        EV << "RavensAgentApp::connectToRavensController - UDP data socket connected to " << controllerAddress_ << ":" << controllerPort << endl;
+
+        // TCP mgmt socket — config handshake (JOIN / INFRAESTRUCTURE_DETAILS), close-after-ACK
+        controllerMgmtSocket_.setOutputGate(gate("socketOut"));
+        controllerMgmtSocket_.setCallback(this);
+        controllerMgmtSocket_.connect(controllerAddress_, controllerMgmtPort_);
+        EV << "RavensAgentApp::connectToRavensController - TCP mgmt socket connecting to " << controllerAddress_ << ":" << controllerMgmtPort_ << endl;
     }
 }
 
@@ -750,40 +756,10 @@ void RavensAgentApp::handleLSMessage(int connId)
 */
 void RavensAgentApp::handleProcessedMessage(cMessage *msg)
 {
-    EV << "RavensAgentApp::handleProcessedMessage - Message Received" <<  msg->getName() << endl;
-    // check if the message is from the RavensController
-    if(controllerSocket_.belongsToSocket(msg))
-    {
-        inet::Packet* packet = nullptr;
-        try {
-            packet = check_and_cast<inet::Packet*>(msg);
-            auto received_packet = packet->peekAtFront<RavensLinkPacket>();
-            EV << "RavensAgentApp::handleProcessedMessage: received message from Ravens Controller" << endl;
-            if(received_packet->getType() == JOIN_NETWORK_ACK)
-            {
-                EV << "RavensAgentApp::handleProcessedMessage - JOIN_NETWORK_ACK received" << endl;
-                cMessage *msg = new cMessage("connectMp1");
-                scheduleAt(simTime() + 0, msg);
-            }
-            else if(received_packet->getType() == INFRAESTRUCTURE_DETAILS_ACK)
-            {
-                EV << "RavensAgentApp::handleProcessedMessage - INFRAESTRUCTURE_DETAILS_ACK received" << endl;
-                auto infrastructureDetailsAck = packet->peekAtFront<RavensLinkInfrastructureDetailsMessageAck>();
-                frameInterval_ = infrastructureDetailsAck->getRate() / 1000.0;
-                agentMode_ = infrastructureDetailsAck->getAgentMode();
-                EV << "RavensAgentApp::handleProcessedMessage - frameInterval=" << frameInterval_ << "s, agentMode=" << agentMode_ << endl;
-                cMessage *msg = new cMessage("sendUserListSub");
-                scheduleAt(simTime() + 0, msg);
-            }
-            delete packet;
-        } catch (const cRuntimeError& err)
-        {
-            std::cerr << "received uncastable msg with name " << msg->getName() << " of class " << msg->getClassName() << std::endl;
-            delete msg;
-            return;
-        }
-    }
-    else{
+    EV << "RavensAgentApp::handleProcessedMessage - Message Received " << msg->getName() << endl;
+    if (controllerMgmtSocket_.belongsToSocket(msg)) {
+        controllerMgmtSocket_.processMessage(msg);
+    } else {
         MecAppBase::handleProcessedMessage(msg);
     }
 }
@@ -900,8 +876,62 @@ void RavensAgentApp::socketClosed(UdpSocket *socket){
     EV << "RavensAgentApp::socketClosed - socketClosed" << endl;
 }
 
+// --- TcpSocket::ICallback for controllerMgmtSocket_ ---
+
+void RavensAgentApp::socketAvailable(inet::TcpSocket *socket, inet::TcpAvailableInfo *availableInfo){
+    MecAppBase::socketAvailable(socket, availableInfo);
+}
+
+void RavensAgentApp::socketEstablished(inet::TcpSocket *socket){
+    if (socket == &controllerMgmtSocket_) {
+        EV << "RavensAgentApp::socketEstablished - controller mgmt TCP connected, sending JOIN" << endl;
+        sendJoinNetworkRequest();
+        return;
+    }
+    MecAppBase::socketEstablished(socket);
+}
+
+void RavensAgentApp::socketDataArrived(inet::TcpSocket *socket, inet::Packet *packet, bool urgent){
+    if (socket == &controllerMgmtSocket_) {
+        auto received = packet->peekAtFront<RavensLinkPacket>();
+        if (received->getType() == JOIN_NETWORK_ACK) {
+            EV << "RavensAgentApp::socketDataArrived(TCP) - JOIN_NETWORK_ACK received" << endl;
+            delete packet;
+            scheduleAt(simTime(), new cMessage("connectMp1"));
+        } else if (received->getType() == INFRAESTRUCTURE_DETAILS_ACK) {
+            auto ack = packet->peekAtFront<RavensLinkInfrastructureDetailsMessageAck>();
+            frameInterval_ = ack->getRate() / 1000.0;
+            agentMode_ = ack->getAgentMode();
+            EV << "RavensAgentApp::socketDataArrived(TCP) - INFRAESTRUCTURE_DETAILS_ACK: frameInterval="
+               << frameInterval_ << "s, agentMode=" << agentMode_ << endl;
+            delete packet;
+            controllerMgmtSocket_.close(); // handshake complete — close TCP connection
+            scheduleAt(simTime(), new cMessage("sendUserListSub"));
+        } else {
+            EV << "RavensAgentApp::socketDataArrived(TCP) - unexpected message type, dropping" << endl;
+            delete packet;
+        }
+        return;
+    }
+    MecAppBase::socketDataArrived(socket, packet, urgent);
+}
+
+void RavensAgentApp::socketPeerClosed(inet::TcpSocket *socket){
+    if (socket == &controllerMgmtSocket_) {
+        EV << "RavensAgentApp::socketPeerClosed - controller closed mgmt connection" << endl;
+        controllerMgmtSocket_.close();
+        return;
+    }
+    MecAppBase::socketPeerClosed(socket);
+}
+
 void RavensAgentApp::socketClosed(inet::TcpSocket* socket)
 {
+    if (socket == &controllerMgmtSocket_) {
+        EV << "RavensAgentApp::socketClosed - controller mgmt TCP connection closed" << endl;
+        return;
+    }
+
     std::string socketType = "UNKNOWN";
     if (socket == rnisSocket_)
         socketType = "RNIS";
@@ -915,6 +945,22 @@ void RavensAgentApp::socketClosed(inet::TcpSocket* socket)
             << " (" << socketType << " SOCKET)" << endl;
 
     MecAppBase::socketClosed(socket);
+}
+
+void RavensAgentApp::socketFailure(inet::TcpSocket *socket, int code){
+    if (socket == &controllerMgmtSocket_) {
+        EV << "RavensAgentApp::socketFailure - controller mgmt TCP failure, code=" << code << endl;
+        return;
+    }
+    MecAppBase::socketFailure(socket, code);
+}
+
+void RavensAgentApp::socketStatusArrived(inet::TcpSocket *socket, inet::TcpStatusInfo *status){
+    MecAppBase::socketStatusArrived(socket, status);
+}
+
+void RavensAgentApp::socketDeleted(inet::TcpSocket *socket){
+    MecAppBase::socketDeleted(socket);
 }
 
 

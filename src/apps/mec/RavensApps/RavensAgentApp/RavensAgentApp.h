@@ -64,10 +64,12 @@ protected:
 
     std::string mecHostId;
 
-    inet::UdpSocket controllerSocket_;
+    inet::UdpSocket controllerSocket_;      // UDP — event frames + data frames to Controller dataPort
+    inet::TcpSocket controllerMgmtSocket_; // TCP — config handshake to Controller mgmtPort (close-after-ACK)
     int localPort_;
 
     int controllerPort;
+    int controllerMgmtPort_;
     inet::L3Address controllerAddress_;
 
     // RAVENS V3 - Using RNIS besides LS
@@ -121,11 +123,20 @@ protected:
     void sendEventFrame();     // sends event frame if pending entries/exits exist (UDP)
     void sendDataFrame();      // sends data frame only if agentMode_ == AGENT_MODE_EVENT_AND_DATA (UDP)
 
-    // udp socket callback methods
+    // UdpSocket::ICallback
     virtual void socketDataArrived(inet::UdpSocket *socket, inet::Packet *packet) override;
     virtual void socketErrorArrived(inet::UdpSocket *socket, inet::Indication *indication) override;
     virtual void socketClosed(inet::UdpSocket *socket) override;
-	virtual void socketClosed(inet::TcpSocket *socket) override;
+
+    // TcpSocket::ICallback — for controllerMgmtSocket_ (config handshake)
+    virtual void socketAvailable(inet::TcpSocket *socket, inet::TcpAvailableInfo *availableInfo) override;
+    virtual void socketEstablished(inet::TcpSocket *socket) override;
+    virtual void socketDataArrived(inet::TcpSocket *socket, inet::Packet *msg, bool urgent) override;
+    virtual void socketPeerClosed(inet::TcpSocket *socket) override;
+    virtual void socketClosed(inet::TcpSocket *socket) override;
+    virtual void socketFailure(inet::TcpSocket *socket, int code) override;
+    virtual void socketStatusArrived(inet::TcpSocket *socket, inet::TcpStatusInfo *status) override;
+    virtual void socketDeleted(inet::TcpSocket *socket) override;
 
 
 public:
