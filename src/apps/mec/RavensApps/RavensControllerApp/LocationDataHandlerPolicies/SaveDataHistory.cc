@@ -124,11 +124,9 @@ void SaveDataHistory::addUserUpdate(UserMEHUpdate& update)
 	}
 }
 
-void SaveDataHistory::handleEventMessage(inet::Ptr<const RavensLinkEventMessage> event)
+void SaveDataHistory::handleEventMessage(const RavensEventList& events, const std::string& sourceMEH)
 {
-    std::string sourceMEH = event->getMecHostId();
-
-    for (const auto& e : event->getEvents()) {
+    for (const auto& e : events) {
         std::string eventType;
         std::string fromMEH;
         std::string toMEH;
@@ -138,7 +136,8 @@ void SaveDataHistory::handleEventMessage(inet::Ptr<const RavensLinkEventMessage>
             auto userIt = controllerApp_->userStateMap.find(e.ueAddress);
             if (userIt != controllerApp_->userStateMap.end() && !userIt->second.currentMEH.empty()) {
                 fromMEH = userIt->second.currentMEH;
-                eventType = "HANDOVER";
+                // pendingExitTime != 0 means user was in exit hold — this is a HANDOVER
+                eventType = (userIt->second.pendingExitTime != 0) ? "HANDOVER" : "ENTRY";
             } else {
                 eventType = "ENTRY";
             }

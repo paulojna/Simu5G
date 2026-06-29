@@ -312,9 +312,77 @@ void RavensControllerApp::socketDeleted(inet::TcpSocket *socket){
 void RavensControllerApp::handleEventFrame(inet::Ptr<const RavensLinkEventMessage> event,
                                             inet::L3Address remoteAddress, int srcPort)
 {
-    // TODO Piece 10: confirm/reject handover based on event.samplesSinceChange vs confirmationCount_/exitConfidenceThreshold_
-    EV << "RavensControllerApp::handleEventFrame - received " << event->getEvents().size() << " events from " << remoteAddress << endl;
-    locationDataHandlerPolicy_->handleEventMessage(event);
+    std::string sourceMEH = event->getMecHostId();
+    EV << "RavensControllerApp::handleEventFrame - " << event->getEvents().size()
+       << " events from " << sourceMEH << endl;
+
+    // Step 1: Expire pending exits whose F2 hold window has elapsed
+    for (auto it = userStateMap.begin(); it != userStateMap.end(); ) {
+        if (it->second.pendingExitTime != 0 && simTime() >= it->second.pendingExitTime) {
+            EV << "RavensControllerApp::handleEventFrame - exit hold expired for "
+               << it->first << ", removing" << endl;
+            it = userStateMap.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    // Step 2: Filter events by confidence threshold
+    RavensEventList confirmedEntries, confirmedExits;
+    for (const auto& e : event->getEvents()) {
+        if (e.eventType == EVENT_ENTRY && e.samplesSinceChange >= confirmationCount_) {
+            confirmedEntries.push_back(e);
+        } else if (e.eventType == EVENT_EXIT && e.samplesSinceChange >= exitConfidenceThreshold_) {
+            confirmedExits.push_back(e);
+        } else {
+            EV << "RavensControllerApp::handleEventFrame - below threshold for "
+               << e.ueAddress << " (samples=" << e.samplesSinceChange << "), skipping" << endl;
+        }
+    }
+
+    // Step 3: Notify policy BEFORE updating map so it can classify ENTRY vs HANDOVER
+    RavensEventList allConfirmed;
+    allConfirmed.insert(allConfirmed.end(), confirmedExits.begin(), confirmedExits.end());
+    allConfirmed.insert(allConfirmed.end(), confirmedEntries.begin(), confirmedEntries.end());
+    if (!allConfirmed.empty()) {
+        locationDataHandlerPolicy_->handleEventMessage(allConfirmed, sourceMEH);
+    }
+
+    // Step 4: Apply confirmed exits — start F2 hold window (don't remove immediately)
+    for (const auto& e : confirmedExits) {
+        auto userIt = userStateMap.find(e.ueAddress);
+        if (userIt != userStateMap.end()) {
+            userIt->second.pendingExitTime = simTime() + frameInterval_;
+            EV << "RavensControllerApp::handleEventFrame - EXIT hold started for "
+               << e.ueAddress << ", expires at " << userIt->second.pendingExitTime << endl;
+        }
+    }
+
+    // Step 5: Apply confirmed entries
+    for (const auto& e : confirmedEntries) {
+        auto userIt = userStateMap.find(e.ueAddress);
+        if (userIt == userStateMap.end()) {
+            UserState state;
+            state.userId = e.ueAddress;
+            state.currentMEH = sourceMEH;
+            state.timestamp = simTime();
+            state.pendingExitTime = 0;
+            userStateMap[e.ueAddress] = state;
+            EV << "RavensControllerApp::handleEventFrame - ENTRY new user "
+               << e.ueAddress << " at " << sourceMEH << endl;
+        } else if (userIt->second.pendingExitTime != 0) {
+            // HANDOVER: user was in exit hold, now confirmed at new MEH — cancel hold
+            EV << "RavensControllerApp::handleEventFrame - HANDOVER "
+               << e.ueAddress << " from " << userIt->second.currentMEH << " to " << sourceMEH << endl;
+            userIt->second.currentMEH = sourceMEH;
+            userIt->second.pendingExitTime = 0;
+            userIt->second.timestamp = simTime();
+        } else {
+            // User already active — direct MEH update (no prior EXIT observed)
+            userIt->second.currentMEH = sourceMEH;
+            userIt->second.timestamp = simTime();
+        }
+    }
 }
 
 void RavensControllerApp::socketClosed(inet::UdpSocket *socket){
@@ -358,6 +426,7 @@ void RavensControllerApp::updateUserStateMap(inet::Ptr<const RavensLinkDataFrame
             state.currentMEH = hostId;
             state.timestamp = received_packet->getTimeStamp();
             state.userData = userData;
+            state.pendingExitTime = 0;
             userStateMap[address] = state;
             EV << "RavensControllerApp::updateUserStateMap - New user " << address << " at " << hostId << endl;
         } else {
