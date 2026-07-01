@@ -166,7 +166,7 @@ enabling quantitative comparison across experimental configurations.
   without needing its own per-user history or a separate exitTTL timer
 
 **Data frame** (`DATA_FRAME`) — periodic, full state:
-- Sent every `frameInterval`, only when `agentMode = AGENT_MODE_EVENT_AND_DATA`
+- Sent every `frameInterval`, only when `agentMode = EXTENDED_MODE`
 - LS-derived user map: address, AP, location, speed, bearing, distance
 - RNIS-derived cell aggregates: PRB usage, avg delay, PDR, data volume, avg distance
 - No per-user RNIS fields
@@ -175,8 +175,8 @@ enabling quantitative comparison across experimental configurations.
 
 | Mode | Agent sends | Used by |
 |---|---|---|
-| `AGENT_MODE_EVENT_ONLY (0)` | Event frames only | NotifyOnDataChange |
-| `AGENT_MODE_EVENT_AND_DATA (1)` | Event + Data frames | SaveDataHistory, SendToExternalServer |
+| `LITE_MODE (0)` | Event frames only | NotifyOnDataChange |
+| `EXTENDED_MODE (1)` | Event + Data frames | SaveDataHistory, SendToExternalServer |
 
 ### Registration flow (config handshake over TCP — see R1)
 
@@ -277,7 +277,7 @@ Changed in both files:
 - Renamed `USERS_INFO_SNAPSHOT (6)` → `DATA_FRAME (6)`
 - Added `UE_EVENT (7)` — *R1a: give it a fresh value to clear the `7` collision
   with the MEO-facing `USERS_UPDATE`; renumber MEO codes to 20/21 (see F3)*
-- Added `AGENT_MODE_EVENT_ONLY (0)` and `AGENT_MODE_EVENT_AND_DATA (1)`
+- Added `LITE_MODE (0)` and `EXTENDED_MODE (1)`
 - Added `EVENT_ENTRY (0)` and `EVENT_EXIT (1)`
 - Removed `CHANGE_ENTRY/MEH/POSITION/EXIT/NO_CHANGE` from Controller header
   (internal state labels, belong in handler logic not wire protocol)
@@ -292,7 +292,7 @@ Changed in both files:
   - Fields unchanged: `mecHostId`, `UsersMap users`, `AccessPointRNISData apRadioInfo`
 - Updated `RavensLinkInfrastructureDetailsMessageAck`:
   - Kept `int rate` (frame interval in ms — same rate for event and data frames)
-  - Added `int agentMode` (AGENT_MODE_EVENT_ONLY or AGENT_MODE_EVENT_AND_DATA)
+  - Added `int agentMode` (LITE_MODE or EXTENDED_MODE)
 - Added `RavensEvent` struct and `RavensEventList` typedef in
   the `cplusplus {{ }}` block (consistent with `@existingClass` pattern):
   ```cpp
@@ -388,7 +388,7 @@ Removed: `sendInterval`, `forceUpdateInterval_`, `lastSentTimestamp_`, `ttl_`,
 Added:
 ```cpp
 simtime_t frameInterval_;   // negotiated with Controller, used for both frame types
-int agentMode_;             // AGENT_MODE_EVENT_ONLY or AGENT_MODE_EVENT_AND_DATA
+int agentMode_;             // LITE_MODE or EXTENDED_MODE
 
 // Pending events — accumulated between frame sends, cleared after each frame
 struct PendingEvent {
@@ -417,7 +417,7 @@ carries only event + data frames.
 
 **`initialize()`**: Removed `ttl_`, `forceUpdateInterval_`, `lastSentTimestamp_`,
 `hasPendingUpdates_`. Reads `frameInterval_` from NED. Defaults `agentMode_` to
-`AGENT_MODE_EVENT_AND_DATA` until ACK received.
+`EXTENDED_MODE` until ACK received.
 
 **`handleProcessedMessage()` — INFRAESTRUCTURE_DETAILS_ACK**:
 - `frameInterval_ = infrastructureDetailsAck->getRate() / 1000.0` (fixes integer division bug)
@@ -449,7 +449,7 @@ carries only event + data frames.
   rescheduled unconditionally in `handleSelfMessage()`, not on the send path.
 
 **`sendDataFrame()`** — replaces `sendUsersInfoSnapshot()` (UDP `controllerSocket_`):
-- Skip if `agentMode_ != AGENT_MODE_EVENT_AND_DATA`
+- Skip if `agentMode_ != EXTENDED_MODE`
 - Compute `avg_distance_to_ap` from `users` map, call setter on `accessPointRadioInformation`
 - Build and send `RavensLinkDataFrameMessage`
 - Called from same timer handler as `sendEventFrame()`

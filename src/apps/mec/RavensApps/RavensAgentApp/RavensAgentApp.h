@@ -14,8 +14,8 @@
 #define UE_EVENT                8  // fresh value — avoids the USERS_UPDATE=7 collision (F3)
 
 // Agent operating mode (set by Controller via INFRAESTRUCTURE_DETAILS_ACK)
-#define AGENT_MODE_EVENT_ONLY       0
-#define AGENT_MODE_EVENT_AND_DATA   1
+#define LITE_MODE       0
+#define EXTENDED_MODE   1
 
 // Event subtypes (payload of UE_EVENT)
 #define EVENT_ENTRY 0
@@ -52,7 +52,7 @@ protected:
     int localSnapshotCounter;
 
     simtime_t frameInterval_;   // negotiated with Controller, used for both frame types
-    int agentMode_;             // AGENT_MODE_EVENT_ONLY or AGENT_MODE_EVENT_AND_DATA
+    int agentMode_;             // LITE_MODE or EXTENDED_MODE
 
     // Pending events — accumulated between frame sends, cleared after each frame
     struct PendingEvent {
@@ -121,7 +121,7 @@ protected:
     void sendJoinNetworkRequest();
     void sendAPList();
     void sendEventFrame();     // sends event frame if pending entries/exits exist (UDP)
-    void sendDataFrame();      // sends data frame only if agentMode_ == AGENT_MODE_EVENT_AND_DATA (UDP)
+    void sendDataFrame();      // sends data frame only if agentMode_ == EXTENDED_MODE (UDP)
 
     // UdpSocket::ICallback
     virtual void socketDataArrived(inet::UdpSocket *socket, inet::Packet *packet) override;

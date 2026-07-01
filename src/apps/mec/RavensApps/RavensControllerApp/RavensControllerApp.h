@@ -10,8 +10,8 @@
 #define UE_EVENT                8  // fresh value — avoids the USERS_UPDATE=7 collision (F3)
 
 // Agent operating mode (sent in INFRAESTRUCTURE_DETAILS_ACK)
-#define AGENT_MODE_EVENT_ONLY       0
-#define AGENT_MODE_EVENT_AND_DATA   1
+#define LITE_MODE       0
+#define EXTENDED_MODE   1
 
 // Event subtypes (payload of UE_EVENT)
 #define EVENT_ENTRY 0

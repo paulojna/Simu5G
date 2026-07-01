@@ -251,7 +251,7 @@ void RavensControllerApp::sendInfrastructureDetailsAck(inet::TcpSocket *socket){
     request->setTimeStamp(simTime().inUnit(SIMTIME_S));
     request->setInfoType(100);
     request->setRate((int)(frameInterval_ * 1000));
-    int mode = !strcmp(par("mode"), "NotifyOnDataChange") ? AGENT_MODE_EVENT_ONLY : AGENT_MODE_EVENT_AND_DATA;
+    int mode = !strcmp(par("mode"), "NotifyOnDataChange") ? LITE_MODE : EXTENDED_MODE;
     request->setAgentMode(mode);
     packet->insertAtBack(request);
     socket->send(packet);
