@@ -9,9 +9,12 @@
 #define DATA_FRAME              6
 #define UE_EVENT                8  // fresh value — avoids the USERS_UPDATE=7 collision (F3)
 
-// Agent operating mode (sent in INFRAESTRUCTURE_DETAILS_ACK)
-#define LITE_MODE       0
-#define EXTENDED_MODE   1
+// Agent operating mode (sent in INFRAESTRUCTURE_DETAILS_ACK).
+// Names describe which frame types the Agent emits — RAVENS is agnostic to how
+// the Controller/orchestrator uses them.
+#define EVENT_MODE      0   // event frames only
+#define DATA_MODE       1   // data frames only  (proactive-only; DEFINE ONLY — not yet wired)
+#define FULL_MODE       2   // event + data frames
 
 // Event subtypes (payload of UE_EVENT)
 #define EVENT_ENTRY 0

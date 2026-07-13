@@ -60,11 +60,11 @@ class RavensLinkInfrastructureDetailsMessageAck extends RavensLinkPacket
 {
     int infoType;
     int rate;       // data frame interval in ms
-    int agentMode;  // LITE_MODE=0 or EXTENDED_MODE=1
+    int agentMode;  // EVENT_MODE=0, DATA_MODE=1 (not yet wired), FULL_MODE=2
 }
 
 // Periodic data frame: LS-derived user map + RNIS-derived cell aggregates.
-// Only sent when agentMode = EXTENDED_MODE.
+// Only sent when agentMode = FULL_MODE (or DATA_MODE, once wired).
 class RavensLinkDataFrameMessage extends RavensLinkPacket
 {
     string mecHostId;

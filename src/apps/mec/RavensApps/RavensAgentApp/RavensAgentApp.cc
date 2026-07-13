@@ -53,7 +53,7 @@ void RavensAgentApp::initialize(int stage)
     this->mecHostId = mecHost->getName();
 
     frameInterval_ = par("frameInterval");
-    agentMode_ = EXTENDED_MODE; // default until ACK received
+    agentMode_ = FULL_MODE; // default until ACK received
 
 	accessPointRadioInformation = new AccessPointRadioInfoData();
 
@@ -210,7 +210,7 @@ void RavensAgentApp::sendEventFrame()
 
 void RavensAgentApp::sendDataFrame()
 {
-    if (agentMode_ != EXTENDED_MODE)
+    if (agentMode_ != FULL_MODE)
         return;
 
     // Compute avg distance to AP from current LS user map
