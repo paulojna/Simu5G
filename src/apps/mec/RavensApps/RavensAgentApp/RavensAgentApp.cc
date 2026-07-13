@@ -156,14 +156,12 @@ void RavensAgentApp::sendAPList()
 }
 
 /**
- * Sends periodic snapshots of user information to the RAVENS Controller.
- *
- * Implements hybrid send strategy:
- * - Sends immediately when any user has fresh data from Location Service or RNIS (timestamp-based change detection)
- * - Forces periodic heartbeat updates even without changes to prevent controller timeout
- *
- * Before sending, purges stale users whose data hasn't been updated within the TTL window.
- * Includes both per-user data (location + radio stats) and AP-level radio information in each snapshot.
+ * Sends a UE_EVENT frame reporting the batch of ENTRY/EXIT changes accumulated
+ * in pendingEntries_ / pendingExits_ since the last frame. No-op if neither map
+ * has anything pending — there is no heartbeat/keepalive behavior, and no TTL
+ * purge here; a stable user that neither enters nor exits is never reported
+ * again after its initial ENTRY ("report-once"). Invoked every frameInterval_,
+ * regardless of agentMode_, but sends a frame only when changes are pending.
  */
 void RavensAgentApp::sendEventFrame()
 {
@@ -696,11 +694,22 @@ void RavensAgentApp::handleLSMessage(int connId)
                         userData.setTimestamp(simTime());
                         users[address] = userData;
 
-                        // If user reappeared after a pending EXIT, cancel the exit.
-                        pendingExits_.erase(address);
-                        pendingEntries_[address] = {simTime(), 1};
-
-                        EV << "RavensAgentApp::handleLSMessage - New user detected: " << address << endl;
+                        // Coalesce opposite transitions that occur before the next frame.
+                        // If an unsent EXIT is pending, the Controller still considers this
+                        // user present at this MEH, so cancelling the EXIT is sufficient.
+                        // Otherwise the Controller does not know the user is here yet and
+                        // needs an ENTRY.
+                        bool cancelledPendingExit = pendingExits_.erase(address) > 0;
+                        if (cancelledPendingExit)
+                        {
+                            EV << "RavensAgentApp::handleLSMessage - User reappeared before EXIT was sent; "
+                               << "cancelled pending EXIT: " << address << endl;
+                        }
+                        else
+                        {
+                            pendingEntries_[address] = {simTime(), 1};
+                            EV << "RavensAgentApp::handleLSMessage - New user detected: " << address << endl;
+                        }
                     }
                 }
 
@@ -724,12 +733,21 @@ void RavensAgentApp::handleLSMessage(int connId)
                 {
                     if (currentLSAddrs.find(it->first) == currentLSAddrs.end())
                     {
-                        // Cancel any pending ENTRY for this user (left before frame fired)
-                        pendingEntries_.erase(it->first);
-                        pendingExits_[it->first] = {simTime(), 1};
-
-                        EV << "RavensAgentApp::handleLSMessage - User departed: " << it->first
-                           << " (absent for " << pendingExits_[it->first].sampleCount << " sample(s))" << endl;
+                        // Coalesce an ENTRY followed by EXIT before either is sent. The
+                        // Controller never learned that this user was present, so its known
+                        // state already matches the final state and no EXIT is necessary.
+                        bool cancelledPendingEntry = pendingEntries_.erase(it->first) > 0;
+                        if (cancelledPendingEntry)
+                        {
+                            EV << "RavensAgentApp::handleLSMessage - User left before ENTRY was sent; "
+                               << "cancelled pending ENTRY: " << it->first << endl;
+                        }
+                        else
+                        {
+                            pendingExits_[it->first] = {simTime(), 1};
+                            EV << "RavensAgentApp::handleLSMessage - User departed: " << it->first
+                               << " (absent for " << pendingExits_[it->first].sampleCount << " sample(s))" << endl;
+                        }
 
                         it = users.erase(it);
                     }
