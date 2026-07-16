@@ -288,8 +288,10 @@ void L2MeasSubscription::sendNotification(EventNotification *event)
 {
     EV << "L2MeasSubscription::sendNotification - start" << endl;
 
-    // Frequency throttling
-    if(firstNotificationSent && (simTime() - lastNotification_) <= frequency_)
+    // Nominal-deadline rate limiting — see UsersListNotificationSubscription::
+    // sendNotification for the rationale (jitter on both compared timestamps
+    // made the nominal frequency-spaced attempt a coin flip).
+    if(firstNotificationSent && simTime() < nextNotificationDue_)
     {
         EV << "L2MeasSubscription - too soon, frequency=" << frequency_ << "s" << endl;
         return;
@@ -335,6 +337,14 @@ void L2MeasSubscription::sendNotification(EventNotification *event)
     Http::send200Response(socket_, notification.dump(2).c_str());
 
     // Update state
+    if(!firstNotificationSent)
+        nextNotificationDue_ = simTime() + frequency_ - 0.25;
+    else
+        nextNotificationDue_ += frequency_;
+    if(frequency_ > 0)
+        while(nextNotificationDue_ <= simTime())
+            nextNotificationDue_ += frequency_;
+
     lastNotification_ = simTime();
     firstNotificationSent = true;
 }

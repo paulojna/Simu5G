@@ -34,6 +34,10 @@ class UsersListNotificationSubscription: public SubscriptionBase
             
             Binder* binder; //used to retrieve NodeId - Ipv4Address mapping
             omnetpp::simtime_t lastNotification;
+            // nominal deadline for the next notification — rate limiting compares
+            // against this clean deadline sequence, not against the jittered
+            // timestamp of the previous send (see sendNotification())
+            omnetpp::simtime_t nextNotificationDue_ = 0;
             bool firstNotificationSent;
     
             //set of eNodeBs from which the user wants to receive notifications from

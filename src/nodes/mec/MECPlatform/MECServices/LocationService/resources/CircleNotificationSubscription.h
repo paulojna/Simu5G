@@ -55,6 +55,8 @@ class CircleNotificationSubscription : public SubscriptionBase
 
         Binder* binder; //used to retrieve NodeId - Ipv4Address mapping
         omnetpp::simtime_t lastNotification;
+        // nominal deadline for the next notification — see UsersListNotificationSubscription
+        omnetpp::simtime_t nextNotificationDue_ = 0;
         bool firstNotificationSent;
 
         std::map<MacNodeId, bool> users; // optional: NO the bool is the last position wrt the area
