@@ -109,7 +109,7 @@ void RavensControllerApp::handleMessageWhenUp(cMessage *msg){
 void RavensControllerApp::handleStartOperation(inet::LifecycleOperation *operation){
     EV << "RavensControllerApp::handleStartOperation - start operation" << endl;
 
-    // UDP data socket — receives event frames and data frames
+    // UDP telemetry socket — receives TELEMETRY_FRAMEs (and legacy EVENT_FRAMEs during shakedown)
     int dataPort = par("dataPort");
     udpSocket.setOutputGate(gate("socketOut"));
     udpSocket.bind(dataPort);
@@ -210,14 +210,14 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
     {
         EV << "RavensControllerApp::socketDataArrived(UDP) - packet received" << endl;
         auto received_packet = packet->peekAtFront<RavensLinkPacket>();
-        if(received_packet->getType() == DATA_FRAME)
+        if(received_packet->getType() == TELEMETRY_FRAME)
         {
             auto dataFrame = packet->peekAtFront<RavensLinkDataFrameMessage>();
             updateUserStateMap(dataFrame);
             updateMehStateMap(dataFrame);
             locationDataHandlerPolicy_->handleDataMessage(dataFrame);
         }
-        else if(received_packet->getType() == UE_EVENT)
+        else if(received_packet->getType() == EVENT_FRAME)
         {
             auto eventMsg = packet->peekAtFront<RavensLinkEventMessage>();
             handleEventFrame(eventMsg, remoteAddress, srcPort);
@@ -246,12 +246,12 @@ void RavensControllerApp::sendInfrastructureDetailsAck(inet::TcpSocket *socket){
     inet::Packet* packet = new inet::Packet("RavensLinkInfrastructureDetailsAckMessage");
     auto request = inet::makeShared<RavensLinkInfrastructureDetailsMessageAck>();
     request->setChunkLength(inet::B(500));
-    request->setType(INFRAESTRUCTURE_DETAILS_ACK);
+    request->setType(INFRASTRUCTURE_DETAILS_ACK);
     request->setRequestId(0);
     request->setTimeStamp(simTime().inUnit(SIMTIME_S));
     request->setInfoType(100);
     request->setRate((int)(frameInterval_ * 1000));
-    int mode = !strcmp(par("mode"), "NotifyOnDataChange") ? EVENT_MODE : FULL_MODE;
+    int mode = !strcmp(par("mode"), "NotifyOnDataChange") ? EVENT_ONLY_MODE : FULL_MODE;
     request->setAgentMode(mode);
     packet->insertAtBack(request);
     socket->send(packet);
@@ -285,9 +285,9 @@ void RavensControllerApp::socketDataArrived(inet::TcpSocket *socket, inet::Packe
         mehStateMap[joinRequest->getMecHostId()] = newHostData;
         sendJoinNetworkAck(socket);
     }
-    else if(received_packet->getType() == INFRAESTRUCTURE_DETAILS){
+    else if(received_packet->getType() == INFRASTRUCTURE_DETAILS){
         auto infraDetails = packet->peekAtFront<RavensLinkInfrastructureDetailsMessage>();
-        EV << "RavensControllerApp::socketDataArrived(TCP) - INFRAESTRUCTURE_DETAILS from " << infraDetails->getMecHostId() << endl;
+        EV << "RavensControllerApp::socketDataArrived(TCP) - INFRASTRUCTURE_DETAILS from " << infraDetails->getMecHostId() << endl;
         auto it = mehStateMap.find(infraDetails->getMecHostId());
         if(it == mehStateMap.end()){
             EV << "RavensControllerApp::socketDataArrived(TCP) - host " << infraDetails->getMecHostId() << " not found, ignoring" << endl;
@@ -297,10 +297,10 @@ void RavensControllerApp::socketDataArrived(inet::TcpSocket *socket, inet::Packe
         it->second.setAccessPoints(infraDetails->getAPList());
         sendInfrastructureDetailsAck(socket);
     }
-    else if(received_packet->getType() == UE_EVENT){
+    else if(received_packet->getType() == EVENT_FRAME){
         // Event frames arrive over the reliable TCP signaling channel (report-once
         // semantics: a lost ENTRY/EXIT would corrupt placement state permanently).
-        // Periodic DATA_FRAME telemetry stays on UDP.
+        // Periodic TELEMETRY_FRAME telemetry stays on UDP.
         auto eventMsg = packet->peekAtFront<RavensLinkEventMessage>();
         handleEventFrame(eventMsg, socket->getRemoteAddress(), socket->getRemotePort());
     }
@@ -472,9 +472,9 @@ void RavensControllerApp::updateUserStateMap(inet::Ptr<const RavensLinkDataFrame
         auto userIt = userStateMap.find(address);
         if (userIt == userStateMap.end()) {
             // User not yet confirmed by an ENTRY event — skip.
-            // Presence is authoritative only from handleEventFrame(); DATA_FRAME
+            // Presence is authoritative only from handleEventFrame(); TELEMETRY_FRAME
             // must not pre-empt the ENTRY or onUserEntry will never fire.
-            EV << "RavensControllerApp::updateUserStateMap - DATA_FRAME for unknown user "
+            EV << "RavensControllerApp::updateUserStateMap - TELEMETRY_FRAME for unknown user "
                << address << ", skipping (waiting for ENTRY event)" << endl;
             continue;
         }

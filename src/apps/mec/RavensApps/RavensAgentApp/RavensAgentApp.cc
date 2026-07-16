@@ -146,7 +146,7 @@ void RavensAgentApp::sendAPList()
     inet::Packet* packet = new inet::Packet("RavensLinkInfrastructureDetailsMessage");
     auto request = inet::makeShared<RavensLinkInfrastructureDetailsMessage>();
     request->setChunkLength(B(500));
-    request->setType(INFRAESTRUCTURE_DETAILS);
+    request->setType(INFRASTRUCTURE_DETAILS);
     request->setRequestId(0);
     request->setTimeStamp(simTime());
     request->setMecHostId(getMecHostId().c_str());
@@ -156,7 +156,7 @@ void RavensAgentApp::sendAPList()
 }
 
 /**
- * Sends a UE_EVENT frame reporting the batch of ENTRY/EXIT changes accumulated
+ * Sends an EVENT_FRAME reporting the batch of ENTRY/EXIT changes accumulated
  * in pendingEntries_ / pendingExits_ since the last frame. No-op if neither map
  * has anything pending — there is no heartbeat/keepalive behavior, and no TTL
  * purge here; a stable user that neither enters nor exits is never reported
@@ -178,7 +178,7 @@ void RavensAgentApp::sendEventFrame()
 
     // Events are control-plane state transitions with report-once semantics —
     // a lost ENTRY/EXIT would corrupt Controller placement state permanently —
-    // so they ride the reliable TCP signaling channel (telemetry DATA_FRAMEs
+    // so they ride the reliable TCP signaling channel (TELEMETRY_FRAMEs
     // stay on UDP: loss-tolerant, superseded by the next sample). If the
     // channel is down, keep the pending maps intact: events keep coalescing
     // and are retried on the next frame tick.
@@ -211,7 +211,7 @@ void RavensAgentApp::sendEventFrame()
     inet::Packet* packet = new inet::Packet("RavensLinkEventMessage");
     auto chunk = inet::makeShared<RavensLinkEventMessage>();
     chunk->setChunkLength(inet::B(500));
-    chunk->setType(UE_EVENT);
+    chunk->setType(EVENT_FRAME);
     chunk->setRequestId(localSnapshotCounter++);
     chunk->setTimeStamp(simTime());
     chunk->setMecHostId(getMecHostId().c_str());
@@ -241,7 +241,7 @@ void RavensAgentApp::sendDataFrame()
     inet::Packet* packet = new inet::Packet("RavensLinkDataFrameMessage");
     auto chunk = inet::makeShared<RavensLinkDataFrameMessage>();
     chunk->setChunkLength(inet::B(500));
-    chunk->setType(DATA_FRAME);
+    chunk->setType(TELEMETRY_FRAME);
     chunk->setRequestId(localSnapshotCounter++);
     chunk->setTimeStamp(simTime());
     chunk->setMecHostId(getMecHostId().c_str());
@@ -251,7 +251,7 @@ void RavensAgentApp::sendDataFrame()
     packet->insertAtBack(chunk);
     controllerSocket_.send(packet);
 
-    EV << mecHostId << " - RavensAgentApp::sendDataFrame - sent data frame with " << users.size() << " users" << endl;
+    EV << mecHostId << " - RavensAgentApp::sendDataFrame - sent telemetry frame with " << users.size() << " users" << endl;
 }
 
 
@@ -480,15 +480,15 @@ void RavensAgentApp::connectToRavensController()
         delete msg;
         controllerAddress_ = L3AddressResolver().resolve(par("controllerAddress"));
 
-        // UDP telemetry socket — periodic DATA_FRAME snapshots (loss-tolerant)
+        // UDP telemetry socket — periodic TELEMETRY_FRAME snapshots (loss-tolerant)
         controllerSocket_.setOutputGate(gate("socketOut"));
         controllerSocket_.bind(localPort_);
         controllerSocket_.setCallback(this);
         controllerSocket_.connect(controllerAddress_, controllerPort);
         EV << "RavensAgentApp::connectToRavensController - UDP data socket connected to " << controllerAddress_ << ":" << controllerPort << endl;
 
-        // TCP signaling socket — config handshake (JOIN / INFRAESTRUCTURE_DETAILS),
-        // then kept open for UE_EVENT frames
+        // TCP signaling socket — config handshake (JOIN / INFRASTRUCTURE_DETAILS),
+        // then kept open for EVENT_FRAMEs
         controllerMgmtSocket_.setOutputGate(gate("socketOut"));
         controllerMgmtSocket_.setCallback(this);
         controllerMgmtSocket_.connect(controllerAddress_, controllerMgmtPort_);
@@ -834,7 +834,7 @@ void RavensAgentApp::handleLSMessage(int connId)
 /**
 * Processes incoming messages from the RAVENS Controller socket.
 * Handles JOIN_NETWORK_ACK by initiating MP1 connection for service discovery.
-* Handles INFRAESTRUCTURE_DETAILS_ACK by extracting the retrieval rate and
+* Handles INFRASTRUCTURE_DETAILS_ACK by extracting the retrieval rate and
 * scheduling the user list subscription. Delegates other messages to MecAppBase.
 */
 void RavensAgentApp::handleProcessedMessage(cMessage *msg)
@@ -981,15 +981,15 @@ void RavensAgentApp::socketDataArrived(inet::TcpSocket *socket, inet::Packet *pa
             EV << "RavensAgentApp::socketDataArrived(TCP) - JOIN_NETWORK_ACK received" << endl;
             delete packet;
             scheduleAt(simTime(), new cMessage("connectMp1"));
-        } else if (received->getType() == INFRAESTRUCTURE_DETAILS_ACK) {
+        } else if (received->getType() == INFRASTRUCTURE_DETAILS_ACK) {
             auto ack = packet->peekAtFront<RavensLinkInfrastructureDetailsMessageAck>();
             frameInterval_ = ack->getRate() / 1000.0;
             agentMode_ = ack->getAgentMode();
-            EV << "RavensAgentApp::socketDataArrived(TCP) - INFRAESTRUCTURE_DETAILS_ACK: frameInterval="
+            EV << "RavensAgentApp::socketDataArrived(TCP) - INFRASTRUCTURE_DETAILS_ACK: frameInterval="
                << frameInterval_ << "s, agentMode=" << agentMode_ << endl;
             delete packet;
             // handshake complete — connection stays open as the persistent
-            // signaling channel for UE_EVENT frames
+            // signaling channel for EVENT_FRAMEs
             scheduleAt(simTime(), new cMessage("sendUserListSub"));
         } else {
             EV << "RavensAgentApp::socketDataArrived(TCP) - unexpected message type, dropping" << endl;

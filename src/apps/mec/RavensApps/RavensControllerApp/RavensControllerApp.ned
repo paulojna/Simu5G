@@ -19,7 +19,7 @@ simple RavensControllerApp like IApp
 
         string localAddress = default(""); // local address; may be left empty ("")
         int dataPort = default(5001);      // UDP — event + data frames
-        int mgmtPort = default(5000);      // TCP — config handshake (JOIN, INFRAESTRUCTURE_DETAILS)
+        int mgmtPort = default(5000);      // TCP signaling — config handshake (JOIN, INFRASTRUCTURE_DETAILS), then EVENT_FRAMEs
 
         
     gates:

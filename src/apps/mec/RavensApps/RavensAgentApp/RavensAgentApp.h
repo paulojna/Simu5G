@@ -5,24 +5,9 @@
 
 #include <cstddef>
 #include <iterator>
-// Message types (Agent <-> Controller)
-#define JOIN_NETWORK_REQUEST    0
-#define JOIN_NETWORK_ACK        1
-#define INFRAESTRUCTURE_DETAILS     2
-#define INFRAESTRUCTURE_DETAILS_ACK 3
-#define DATA_FRAME              6
-#define UE_EVENT                8  // fresh value — avoids the USERS_UPDATE=7 collision (F3)
 
-// Agent operating mode (set by Controller via INFRAESTRUCTURE_DETAILS_ACK).
-// Names describe which frame types the Agent emits — RAVENS is agnostic to how
-// the Controller/orchestrator uses them.
-#define EVENT_MODE      0   // event frames only
-#define DATA_MODE       1   // data frames only  (proactive-only; DEFINE ONLY — not yet wired)
-#define FULL_MODE       2   // event + data frames
-
-// Event subtypes (payload of UE_EVENT)
-#define EVENT_ENTRY 0
-#define EVENT_EXIT  1
+// RavensLink frame types, agent modes and event subtypes (shared with the Controller)
+#include "apps/mec/RavensApps/RavensLinkProtocol.h"
 
 #include "omnetpp.h"
 
@@ -55,7 +40,7 @@ protected:
     int localSnapshotCounter;
 
     simtime_t frameInterval_;   // negotiated with Controller, used for both frame types
-    int agentMode_;             // EVENT_MODE, DATA_MODE, or FULL_MODE
+    int agentMode_;             // EVENT_ONLY_MODE, TELEMETRY_ONLY_MODE, or FULL_MODE
 
     // Pending events — accumulated between frame sends, cleared after each frame
     struct PendingEvent {
@@ -124,7 +109,7 @@ protected:
     void sendJoinNetworkRequest();
     void sendAPList();
     void sendEventFrame();     // sends event frame if pending entries/exits exist (UDP)
-    void sendDataFrame();      // sends data frame only if agentMode_ == FULL_MODE (UDP)
+    void sendDataFrame();      // sends telemetry frame only if agentMode_ == FULL_MODE (UDP)
 
     // UdpSocket::ICallback
     virtual void socketDataArrived(inet::UdpSocket *socket, inet::Packet *packet) override;
