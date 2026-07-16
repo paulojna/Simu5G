@@ -54,7 +54,8 @@ void CircleNotificationSubscription::sendNotification(EventNotification *event)
     EV << "CircleNotificationSubscription::sendNotification" << endl;
 
     EV << firstNotificationSent << " last " << lastNotification << " now " << simTime() << " frequency" << frequency << endl;
-    if(firstNotificationSent && (simTime() - lastNotification) <= frequency)
+    // nominal-deadline rate limiting — see UsersListNotificationSubscription::sendNotification
+    if(firstNotificationSent && simTime() < nextNotificationDue_)
     {
         EV <<"CircleNotificationSubscription::sendNotification - notification event occured near the last one. Frequency for notifications is: " << frequency << endl;
         return;
@@ -92,6 +93,14 @@ void CircleNotificationSubscription::sendNotification(EventNotification *event)
     Http::sendPostRequest(socket_, notification.dump(2).c_str(), clientHost_.c_str(), clientUri_.c_str());
 
     // update last notification sent
+    if(!firstNotificationSent)
+        nextNotificationDue_ = simTime() + frequency - 0.25;
+    else
+        nextNotificationDue_ += frequency;
+    if(frequency > 0)
+        while(nextNotificationDue_ <= simTime())
+            nextNotificationDue_ += frequency;
+
     lastNotification = simTime();
     if(firstNotificationSent == false)
         firstNotificationSent = true;

@@ -33,7 +33,8 @@ void UsersDensityNotificationSubscription::sendNotification(EventNotification *e
     EV << "UsersDensityNotificationSubscription::sendNotification" << endl;
 
     EV << firstNotificationSent << " last " << lastNotification << " now " << simTime() << " frequency" << frequency << endl;
-    if(firstNotificationSent && (simTime() - lastNotification) <= frequency)
+    // nominal-deadline rate limiting — see UsersListNotificationSubscription::sendNotification
+    if(firstNotificationSent && simTime() < nextNotificationDue_)
     {
         EV <<"UsersDensityNotificationSubscription::sendNotification - notification event occured near the last one. Frequency for notifications is: " << frequency << endl;
         return;
@@ -80,6 +81,14 @@ void UsersDensityNotificationSubscription::sendNotification(EventNotification *e
     Http::send200Response(socket_, notification.dump(2).c_str());
 
     // update last notification sent
+    if(!firstNotificationSent)
+        nextNotificationDue_ = simTime() + frequency - 0.25;
+    else
+        nextNotificationDue_ += frequency;
+    if(frequency > 0)
+        while(nextNotificationDue_ <= simTime())
+            nextNotificationDue_ += frequency;
+
     lastNotification = simTime();
     if(firstNotificationSent == false)
         firstNotificationSent = true;

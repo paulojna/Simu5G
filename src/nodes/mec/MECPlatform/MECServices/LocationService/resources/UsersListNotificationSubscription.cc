@@ -235,9 +235,17 @@ void UsersListNotificationSubscription::sendNotification(EventNotification *even
     EV << "UsersListNotificationSubscription::sendNotification - start" << endl;
 
     EV << firstNotificationSent << " last " << lastNotification << " now " << simTime() << " frequency " << frequency << endl;
-    if(firstNotificationSent && (simTime() - lastNotification) <= frequency)
+    // Rate limiting against nominal deadlines. Attempts arrive on the service's
+    // 0.5s polling grid plus a µs-scale serving delay — and so did the previous
+    // send, so comparing the two jittered timestamps against `frequency` made
+    // the nominal frequency-spaced attempt a coin flip on which delay was
+    // larger. Instead, the deadline sequence below advances in exact steps of
+    // `frequency` from an anchor placed half a polling tick (0.25s) before the
+    // next nominal slot, making accept/drop deterministic for any jitter
+    // below 0.25s.
+    if(firstNotificationSent && simTime() < nextNotificationDue_)
     {
-        EV <<"UsersListNotificationSubscription::sendNotification - notification event occured near the last one. Frequency for notifications is: " << frequency << endl;
+        EV <<"UsersListNotificationSubscription::sendNotification - notification event occurred before the nominal deadline " << nextNotificationDue_ << endl;
         return;
     }
 
@@ -270,6 +278,16 @@ void UsersListNotificationSubscription::sendNotification(EventNotification *even
     notification["subscriptionNotification"] = val;
 
     Http::send200Response(socket_, notification.dump(2).c_str());
+
+    // advance the nominal deadline sequence (anchored on the first send;
+    // missed slots are skipped so a stall never causes a catch-up burst)
+    if(!firstNotificationSent)
+        nextNotificationDue_ = simTime() + frequency - 0.25;
+    else
+        nextNotificationDue_ += frequency;
+    if(frequency > 0)
+        while(nextNotificationDue_ <= simTime())
+            nextNotificationDue_ += frequency;
 
     // update last notification sent
     lastNotification = simTime();

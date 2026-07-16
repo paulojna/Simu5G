@@ -65,6 +65,8 @@ class L2MeasSubscription : public SubscriptionBase
         int frequency_;
         std::set<MacCellId> cells_;
         simtime_t lastNotification_;
+        // nominal deadline for the next notification — see UsersListNotificationSubscription
+        simtime_t nextNotificationDue_ = 0;
         bool firstNotificationSent;
         Binder* binder_;
 
