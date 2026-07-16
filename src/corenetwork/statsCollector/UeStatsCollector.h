@@ -17,7 +17,6 @@
 #include "nodes/mec/utils/MecCommon.h"
 #include "corenetwork/statsCollector/L2Measures/L2MeasBase.h"
 #include <string>
-#include "corenetwork/statsCollector/UeStatsCollector.h"
 
 namespace simu5g {
 
@@ -35,6 +34,7 @@ using namespace inet;
 class LtePdcpRrcUe;
 class LteMacUe;
 class PacketFlowManagerUe;
+class LtePhyUe;
 class UeStatsCollector: public cSimpleModule
 {
     private:
@@ -48,6 +48,7 @@ class UeStatsCollector: public cSimpleModule
 //        LtePdcpRrcUe *pdcp_;
         LteMacBase     *mac_;
         PacketFlowManagerUe *packetFlowManager_;
+        LtePhyUe *phy_; // for serving-cell RSRP exposure
 
         // packet delay
         L2MeasBase ul_nongbr_delay_ue;
@@ -117,6 +118,11 @@ class UeStatsCollector: public cSimpleModule
         // PDPC bytes getters
         int get_ul_nongbr_data_volume_ue();
         int get_dl_nongbr_data_volume_ue();
+
+        // serving-cell mean RSRP (dBm) from the PHY, -1 if not yet measured.
+        // Instantaneous last value (refreshed on every serving-cell broadcast),
+        // not an L2MeasBase window.
+        double get_rsrp_ue();
 
 
         /* getters for GBR (Guaranteed Bit Rate) L2 measures.

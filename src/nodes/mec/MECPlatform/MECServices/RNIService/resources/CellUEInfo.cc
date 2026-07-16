@@ -88,6 +88,13 @@ nlohmann::ordered_json CellUEInfo::toJson() const
     value = ueCollector_->get_ul_gbr_data_volume_ue();
     if(value != -1) val["ul_gbr_data_volume_ue"] = value;
 
+    // Serving-cell mean RSRP (dBm, per ETSI TS 136 214) measured by the UE on
+    // cell broadcasts. The measurement matches the ETSI GS MEC 012 MeasRepUe
+    // rsrp field; carrying it in the L2Meas payload is a transport-level
+    // extension (the conformant home is a MeasRepUe subscription).
+    double rsrp = ueCollector_->get_rsrp_ue();
+    if(rsrp != -1.0) val["rsrp"] = rsrp;
+
     return val;
 }
 

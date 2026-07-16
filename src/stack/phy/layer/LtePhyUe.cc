@@ -301,6 +301,16 @@ void LtePhyUe::handoverHandler(LteAirFrame* frame, UserControlInfo* lteInfo)
 
     EV << "UE " << nodeId_ << " broadcast frame from " << lteInfo->getSourceId() << " with RSSI: " << rssi << " at " << simTime() << endl;
 
+    // capture per-cell RSRP on every broadcast (serving-cell value exposed to the RNIS)
+    std::vector<double> rsrpV = primaryChannelModel_->getRSRP(frame, lteInfo);
+    if (!rsrpV.empty())
+    {
+        double rsrp = 0;
+        for (double v : rsrpV)
+            rsrp += v;
+        broadcastRsrp_[lteInfo->getSourceId()] = rsrp / rsrpV.size();
+    }
+
     if (lteInfo->getSourceId() != masterId_ && rssi < minRssi_)
     {
         EV << "Signal too weak from a candidate master - minRssi[" << minRssi_ << "]" << endl;
