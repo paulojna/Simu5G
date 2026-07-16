@@ -8,6 +8,7 @@ UserData::UserData(){
     this->accessPointId = "";
     this->currentLocation = UserLocation();
     this->distance_to_ap = 0.0;
+    this->radioInfo = UserRadioInfoData();
 
     this->timestamp = 0;
 
@@ -18,6 +19,7 @@ UserData::UserData(const std::string& address, AccessPointData& accessPointData,
     this->accessPointId = accessPointData.getAccessPointId();
     this->currentLocation = currentLocation;
     this->distance_to_ap = calculateDistanceToAP(accessPointData.getAccessPointLocation().getX(), accessPointData.getAccessPointLocation().getY(), currentLocation.getX(), currentLocation.getY());
+    this->radioInfo = UserRadioInfoData();
 
     this->timestamp = 0;
 
@@ -42,6 +44,10 @@ void UserData::setDistanceToAP(double distance){
     this->distance_to_ap = distance;
 }
 
+void UserData::setRadioInfo(const UserRadioInfoData& radioInfo){
+    this->radioInfo = radioInfo;
+}
+
 void UserData::setTimestamp(omnetpp::simtime_t time){
     this->timestamp = time;
 }
@@ -61,6 +67,10 @@ UserLocation UserData::getCurrentLocation() const{
 
 double UserData::getDistanceToAP() const{
     return this->distance_to_ap;
+}
+
+const UserRadioInfoData& UserData::getRadioInfo() const{
+    return this->radioInfo;
 }
 
 omnetpp::simtime_t UserData::getTimestamp() const{

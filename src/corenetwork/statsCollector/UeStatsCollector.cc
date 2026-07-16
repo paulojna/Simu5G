@@ -12,6 +12,7 @@
 #include "corenetwork/statsCollector/UeStatsCollector.h"
 #include "stack/pdcp_rrc/layer/LtePdcpRrc.h"
 #include "stack/mac/layer/LteMacBase.h"
+#include "stack/phy/layer/LtePhyUe.h"
 #include "inet/common/ModuleAccess.h"
 #include "stack/packetFlowManager/PacketFlowManagerUe.h"
 #include "inet/networklayer/common/NetworkInterface.h"
@@ -27,6 +28,7 @@ UeStatsCollector::UeStatsCollector()
 //    pdcp_ = nullptr;
     mac_ = nullptr;
     packetFlowManager_ = nullptr;
+    phy_ = nullptr;
     registeredCell_ = 0;
     registeredNodeId_ = 0;
 }
@@ -57,6 +59,11 @@ void UeStatsCollector::initialize(int stage)
          */
 
         bool isNr_ = (strcmp(getAncestorPar("nicType").stdstringValue().c_str(),"NRNicUe") == 0) ? true : false;
+
+        // PHY reference for serving-cell RSRP: the NR collector reads the NR PHY,
+        // the LTE collector reads the LTE PHY (mirrors the packetFlowManager split)
+        const char* phyName = (isNr_ && collectorType_.compare("NRueStatsCollector") == 0) ? "nrPhy" : "phy";
+        phy_ = check_and_cast<LtePhyUe *>(getParentModule()->getSubmodule("cellularNic")->getSubmodule(phyName));
 
 
         if(isNr_) // the UE has both the Nics
@@ -199,6 +206,11 @@ int UeStatsCollector::get_ul_nongbr_data_volume_ue()
 int UeStatsCollector::get_dl_nongbr_data_volume_ue()
 {
     return dl_nongbr_data_volume_ue.getMean();
+}
+
+double UeStatsCollector::get_rsrp_ue()
+{
+    return (phy_ != nullptr) ? phy_->getServingCellRsrp() : -1.0;
 }
 
 DiscardedPkts UeStatsCollector::getULDiscardedPkt()

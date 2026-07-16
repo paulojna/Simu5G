@@ -21,7 +21,11 @@ SaveDataHistory::SaveDataHistory(RavensControllerApp* controllerApp, std::string
     // 1. User File (Standard Vectors + Radio Stats)
     std::string name = dirPath + "run_" + runNumber + "_users.csv";
     userFile.open(name, std::ios::out | std::ios::trunc);
-    userFile << "TimestampSent,UEId,MEHId,AccessPointId,x,y,z,Speed,Bearing,DistanceToAccessPoint" << endl;
+    userFile << "TimestampSent,LocationTimestamp,RadioTimestamp,UEId,MEHId,AccessPointId,RNISCellId,"
+             << "x,y,z,Speed,Bearing,DistanceToAccessPoint,"
+             << "DlNongbrDelayUe,UlNongbrDelayUe,"
+             << "DlNongbrPdrUe,UlNongbrPdrUe,"
+             << "DlNongbrDataVolumeUe,UlNongbrDataVolumeUe,Rsrp" << endl;
     
     // 2. Lifecycle File (Events)
     std::string lifecycleName = dirPath + "run_" + runNumber + "_lifecycle.csv";
@@ -64,16 +68,27 @@ inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkDataF
 
     // Log per-user telemetry
     for (const auto& [address, userData] : received_packet->getUsers()) {
+        const UserRadioInfoData& radioInfo = userData.getRadioInfo();
         userFile << received_packet->getTimeStamp() << ","
+                 << userData.getTimestamp() << ","
+                 << radioInfo.getTimestamp() << ","
                  << address << ","
                  << received_packet->getMecHostId() << ","
                  << userData.getAccessPointId() << ","
+                 << radioInfo.getAccessPointId() << ","
                  << userData.getCurrentLocation().getX() << ","
                  << userData.getCurrentLocation().getY() << ","
                  << userData.getCurrentLocation().getZ() << ","
                  << userData.getCurrentLocation().getHorizontalSpeed() << ","
                  << userData.getCurrentLocation().getBearing() << ","
-                 << userData.getDistanceToAP() << "\n";
+                 << userData.getDistanceToAP() << ","
+                 << radioInfo.getDlNongbrDelayUe() << ","
+                 << radioInfo.getUlNongbrDelayUe() << ","
+                 << radioInfo.getDlNongbrPdrUe() << ","
+                 << radioInfo.getUlNongbrPdrUe() << ","
+                 << radioInfo.getDlNongbrDataVolumeUe() << ","
+                 << radioInfo.getUlNongbrDataVolumeUe() << ","
+                 << radioInfo.getRsrp() << "\n";
     }
 
     msgCount_++;

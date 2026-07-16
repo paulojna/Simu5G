@@ -46,6 +46,17 @@ class LtePhyUe : public LtePhyBase
     /** RSSI received from the current serving node */
     double currentMasterRssi_;
 
+    /**
+     * Mean RSRP (dBm, averaged over all RBs) of the last broadcast received
+     * from each cell, keyed by the cell's MacNodeId. Computed with the channel
+     * model's getRSRP() (pathloss + shadowing + fading + antenna gains — the
+     * standard RSRP definition, ETSI TS 136 214). Refreshed on *every*
+     * broadcast, so the serving-cell entry tracks degradation too, and after a
+     * handover the new cell's entry is already populated.
+     * Exposed to the RNIS via UeStatsCollector.
+     */
+    std::map<MacNodeId, double> broadcastRsrp_;
+
     /** ID of not-master node from wich highest RSSI was received */
     MacNodeId candidateMasterId_;
 
@@ -153,6 +164,14 @@ class LtePhyUe : public LtePhyBase
     MacNodeId getMasterId() const
     {
         return masterId_;
+    }
+
+    // mean RSRP (dBm) of the last serving-cell broadcast; -1 if none received
+    // yet (-1 dBm is not physically reachable, so the sentinel is unambiguous)
+    double getServingCellRsrp() const
+    {
+        auto it = broadcastRsrp_.find(masterId_);
+        return (it != broadcastRsrp_.end()) ? it->second : -1.0;
     }
     omnetpp::simtime_t coherenceTime(double speed)
     {

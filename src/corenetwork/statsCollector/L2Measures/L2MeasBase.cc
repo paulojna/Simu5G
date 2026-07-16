@@ -23,7 +23,7 @@ void L2MeasBase::init(std::string name, int period, bool movingAverage)
     size_ = 0;
     index_ = 0;
     sum_ = 0;
-    mean_ = 0;
+    mean_ = -1; // -1 = no measurement yet; 0 is reserved for a true measured zero
     movingAverage_ = movingAverage;
 //    outVector_.setName(name_.c_str());
 //    histogram_.setName(name_.c_str());
@@ -57,9 +57,9 @@ void L2MeasBase::addValue(double value){
 int L2MeasBase::computeMean()
 {
     if(index_ == 0)
-        return 0;
+        return -1;
     if(!movingAverage_ && size_ < period_) // no enough data
-        return 0;
+        return -1;
     else{
         int mean = floor(sum_/size_);
         return mean < 0 ? 0: mean; // round could returns -0.00 -> -1
@@ -79,7 +79,7 @@ void L2MeasBase::reset()
     size_ = 0;
     index_ = 0;
     sum_ = 0;
-    mean_ = 0;
+    mean_ = -1; // back to "no measurement" until new samples arrive
 
 }
 

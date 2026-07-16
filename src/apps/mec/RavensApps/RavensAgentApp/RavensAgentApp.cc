@@ -518,10 +518,14 @@ void RavensAgentApp::handleRNISMessage(int connId)
 				if (cellInfo.contains("ecgi")) {
 					std::string cellId = std::to_string(cellInfo["ecgi"]["cellId"].get<int>());
 					accessPointRadioInformation->setAccessPointId(cellId);
-					accessPointRadioInformation->setDlTotalPrbUsageCell(cellInfo.value("dl_total_prb_usage_cell", 0.0));
-					accessPointRadioInformation->setUlTotalPrbUsageCell(cellInfo.value("ul_total_prb_usage_cell", 0.0));
-					accessPointRadioInformation->setDlNongbrPdrCell(cellInfo.value("dl_nongbr_pdr_cell", 0.0));
-					accessPointRadioInformation->setUlNongbrPdrCell(cellInfo.value("ul_nongbr_pdr_cell", 0.0));
+					// -1 = not measured (the RNIS omits fields whose collector has no data)
+					accessPointRadioInformation->setDlTotalPrbUsageCell(cellInfo.value("dl_total_prb_usage_cell", -1.0));
+					accessPointRadioInformation->setUlTotalPrbUsageCell(cellInfo.value("ul_total_prb_usage_cell", -1.0));
+					accessPointRadioInformation->setDlNongbrPdrCell(cellInfo.value("dl_nongbr_pdr_cell", -1.0));
+					accessPointRadioInformation->setUlNongbrPdrCell(cellInfo.value("ul_nongbr_pdr_cell", -1.0));
+					accessPointRadioInformation->setNumberOfActiveUeDlNongbrCell(
+					    cellInfo.value("number_of_active_ue_dl_nongbr_cell", -1));
+					accessPointRadioInformation->setTimestamp(simTime());
 				}
 			}
 
@@ -538,23 +542,54 @@ void RavensAgentApp::handleRNISMessage(int connId)
 
 			    double sumDlDelay = 0.0, sumUlDelay = 0.0;
 			    double sumDlVol = 0.0, sumUlVol = 0.0;
-			    int count = 0;
+			    int delayCount = 0;
 			    for (auto& ue : ueList) {
-			        sumDlDelay += ue.value("dl_nongbr_delay_ue", 0.0);
-			        sumUlDelay += ue.value("ul_nongbr_delay_ue", 0.0);
+			        // Aggregate only reported values — an absent key means "not measured"
+			        // and must not drag the average toward zero.
+			        if (ue.contains("dl_nongbr_delay_ue") || ue.contains("ul_nongbr_delay_ue")) {
+			            sumDlDelay += ue.value("dl_nongbr_delay_ue", 0.0);
+			            sumUlDelay += ue.value("ul_nongbr_delay_ue", 0.0);
+			            delayCount++;
+			        }
 			        sumDlVol   += ue.value("dl_nongbr_data_volume_ue", 0.0);
 			        sumUlVol   += ue.value("ul_nongbr_data_volume_ue", 0.0);
-			        ++count;
+
+			        if (!ue.contains("associatedId") || !ue["associatedId"].contains("value")) {
+			            EV << mecHostId << " - RavensAgentApp::handleRNISMessage - cellUEInfo without associatedId.value, skipping per-UE update" << endl;
+			            continue;
+			        }
+
+			        // The users map is keyed by the LS address format ("acr:<ip>");
+			        // RNIS reports the bare IP, so normalize before lookup.
+			        std::string ueAddress = "acr:" + ue["associatedId"]["value"].get<std::string>();
+			        auto userIt = users.find(ueAddress);
+			        if (userIt == users.end()) {
+			            EV << mecHostId << " - RavensAgentApp::handleRNISMessage - RNIS data for UE "
+			               << ueAddress << " arrived before LS state; skipping" << endl;
+			            continue;
+			        }
+
+			        UserRadioInfoData radioInfo;
+			        if (ue.contains("ecgi") && ue["ecgi"].contains("cellId"))
+			            radioInfo.setAccessPointId(std::to_string(ue["ecgi"]["cellId"].get<int>()));
+			        radioInfo.setTimestamp(simTime());
+			        radioInfo.setDlNongbrDelayUe(ue.value("dl_nongbr_delay_ue", -1.0));
+			        radioInfo.setUlNongbrDelayUe(ue.value("ul_nongbr_delay_ue", -1.0));
+			        radioInfo.setDlNongbrPdrUe(ue.value("dl_nongbr_pdr_ue", -1.0));
+			        radioInfo.setUlNongbrPdrUe(ue.value("ul_nongbr_pdr_ue", -1.0));
+			        radioInfo.setDlNongbrDataVolumeUe(ue.value("dl_nongbr_data_volume_ue", -1.0));
+			        radioInfo.setUlNongbrDataVolumeUe(ue.value("ul_nongbr_data_volume_ue", -1.0));
+			        radioInfo.setRsrp(ue.value("rsrp", -1.0));
+			        userIt->second.setRadioInfo(radioInfo);
 			    }
-			    if (count > 0) {
-			        accessPointRadioInformation->setAvgDlDelay(sumDlDelay / count);
-			        accessPointRadioInformation->setAvgUlDelay(sumUlDelay / count);
+			    if (delayCount > 0) {
+			        accessPointRadioInformation->setAvgDlDelay(sumDlDelay / delayCount);
+			        accessPointRadioInformation->setAvgUlDelay(sumUlDelay / delayCount);
 			    }
 			    accessPointRadioInformation->setTotalDlDataVolume(sumDlVol);
 			    accessPointRadioInformation->setTotalUlDataVolume(sumUlVol);
-			    accessPointRadioInformation->setNumberOfActiveUeDlNongbrCell(count);
 			    accessPointRadioInformation->setTimestamp(simTime());
-			    EV << mecHostId << " - RavensAgentApp::handleRNISMessage - aggregated " << count << " UEs into cell stats" << endl;
+			    EV << mecHostId << " - RavensAgentApp::handleRNISMessage - aggregated " << ueList.size() << " UEs into cell stats" << endl;
 			}
 		}
 	}
