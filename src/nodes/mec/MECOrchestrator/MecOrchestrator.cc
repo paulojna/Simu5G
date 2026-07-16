@@ -57,8 +57,10 @@ T* safe_check_and_cast(U* ptr) {
     return result;
 }
 
-#define USERS_UPDATE 7
-#define MIGRATION_PLAN 8
+// Must match the values in RavensControllerApp.cc (sender side).
+// TODO: replace both copies with a shared enum next to RavensControllerUpdatePacket.
+#define USERS_UPDATE 20
+#define MIGRATION_PLAN 21
 
     Define_Module(MecOrchestrator);
 

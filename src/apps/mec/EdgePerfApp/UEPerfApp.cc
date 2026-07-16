@@ -104,7 +104,7 @@ void UEPerfApp::initialize(int stage)
     //starting UERequestApp
     simtime_t startTime = par("startTime");
     EV << "UEPerfApp::initialize - starting sendStartMEWarningAlertApp() in " << startTime << " seconds " << endl;
-    scheduleAt(simTime() + 10, selfStart_);
+    scheduleAt(simTime() + startTime, selfStart_);
 
     //testing
     EV << "UEPerfApp::initialize - binding to port: local:" << localPort_ << " , dest:" << deviceAppPort_ << endl;
