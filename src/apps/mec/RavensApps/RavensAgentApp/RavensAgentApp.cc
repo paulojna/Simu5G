@@ -162,12 +162,31 @@ void RavensAgentApp::sendAPList()
  * purge here; a stable user that neither enters nor exits is never reported
  * again after its initial ENTRY ("report-once"). Invoked every frameInterval_,
  * regardless of agentMode_, but sends a frame only when changes are pending.
+ *
+ * Events are sent over the TCP signaling channel (controllerMgmtSocket_, kept
+ * open after the config handshake): report-once semantics make event loss
+ * unrecoverable, so they need reliable in-order delivery. If the channel is
+ * not connected, the pending maps are held and retried on the next frame tick.
  */
 void RavensAgentApp::sendEventFrame()
 {
     if (pendingEntries_.empty() && pendingExits_.empty())
     {
         EV << mecHostId << " - RavensAgentApp::sendEventFrame - no changes, skipping" << endl;
+        return;
+    }
+
+    // Events are control-plane state transitions with report-once semantics —
+    // a lost ENTRY/EXIT would corrupt Controller placement state permanently —
+    // so they ride the reliable TCP signaling channel (telemetry DATA_FRAMEs
+    // stay on UDP: loss-tolerant, superseded by the next sample). If the
+    // channel is down, keep the pending maps intact: events keep coalescing
+    // and are retried on the next frame tick.
+    if (controllerMgmtSocket_.getState() != inet::TcpSocket::CONNECTED)
+    {
+        EV_WARN << mecHostId << " - RavensAgentApp::sendEventFrame - signaling channel not connected; "
+                << "holding " << pendingEntries_.size() << " entries / "
+                << pendingExits_.size() << " exits for next frame" << endl;
         return;
     }
 
@@ -198,9 +217,9 @@ void RavensAgentApp::sendEventFrame()
     chunk->setMecHostId(getMecHostId().c_str());
     chunk->setEvents(events);
     packet->insertAtBack(chunk);
-    controllerSocket_.send(packet);
+    controllerMgmtSocket_.send(packet);
 
-    EV << mecHostId << " - RavensAgentApp::sendEventFrame - sent " << events.size() << " events" << endl;
+    EV << mecHostId << " - RavensAgentApp::sendEventFrame - sent " << events.size() << " events over TCP" << endl;
 
     pendingEntries_.clear();
     pendingExits_.clear();
@@ -461,14 +480,15 @@ void RavensAgentApp::connectToRavensController()
         delete msg;
         controllerAddress_ = L3AddressResolver().resolve(par("controllerAddress"));
 
-        // UDP data socket — sends event frames and data frames
+        // UDP telemetry socket — periodic DATA_FRAME snapshots (loss-tolerant)
         controllerSocket_.setOutputGate(gate("socketOut"));
         controllerSocket_.bind(localPort_);
         controllerSocket_.setCallback(this);
         controllerSocket_.connect(controllerAddress_, controllerPort);
         EV << "RavensAgentApp::connectToRavensController - UDP data socket connected to " << controllerAddress_ << ":" << controllerPort << endl;
 
-        // TCP mgmt socket — config handshake (JOIN / INFRAESTRUCTURE_DETAILS), close-after-ACK
+        // TCP signaling socket — config handshake (JOIN / INFRAESTRUCTURE_DETAILS),
+        // then kept open for UE_EVENT frames
         controllerMgmtSocket_.setOutputGate(gate("socketOut"));
         controllerMgmtSocket_.setCallback(this);
         controllerMgmtSocket_.connect(controllerAddress_, controllerMgmtPort_);
@@ -968,7 +988,8 @@ void RavensAgentApp::socketDataArrived(inet::TcpSocket *socket, inet::Packet *pa
             EV << "RavensAgentApp::socketDataArrived(TCP) - INFRAESTRUCTURE_DETAILS_ACK: frameInterval="
                << frameInterval_ << "s, agentMode=" << agentMode_ << endl;
             delete packet;
-            controllerMgmtSocket_.close(); // handshake complete — close TCP connection
+            // handshake complete — connection stays open as the persistent
+            // signaling channel for UE_EVENT frames
             scheduleAt(simTime(), new cMessage("sendUserListSub"));
         } else {
             EV << "RavensAgentApp::socketDataArrived(TCP) - unexpected message type, dropping" << endl;
