@@ -297,6 +297,13 @@ void RavensControllerApp::socketDataArrived(inet::TcpSocket *socket, inet::Packe
         it->second.setAccessPoints(infraDetails->getAPList());
         sendInfrastructureDetailsAck(socket);
     }
+    else if(received_packet->getType() == UE_EVENT){
+        // Event frames arrive over the reliable TCP signaling channel (report-once
+        // semantics: a lost ENTRY/EXIT would corrupt placement state permanently).
+        // Periodic DATA_FRAME telemetry stays on UDP.
+        auto eventMsg = packet->peekAtFront<RavensLinkEventMessage>();
+        handleEventFrame(eventMsg, socket->getRemoteAddress(), socket->getRemotePort());
+    }
     delete packet;
 }
 
