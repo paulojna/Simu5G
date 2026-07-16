@@ -47,7 +47,7 @@ simple RavensAgentApp like IMECApp, IApp
 
         string controllerAddress = default("");
         int controllerDataPort = default(5001); // UDP — event + data frames
-        int controllerMgmtPort = default(5000); // TCP — config handshake (JOIN, INFRAESTRUCTURE_DETAILS)
+        int controllerMgmtPort = default(5000); // TCP signaling — config handshake (JOIN, INFRASTRUCTURE_DETAILS), then EVENT_FRAMEs
 
         int localPort = default(1993);
 

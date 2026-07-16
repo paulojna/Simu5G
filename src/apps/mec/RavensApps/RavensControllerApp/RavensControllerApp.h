@@ -1,24 +1,8 @@
 #ifndef _RAVENS_CONTROLLER_APP_H
 #define _RAVENS_CONTROLLER_APP_H
 
-// Message types (Agent <-> Controller)
-#define JOIN_NETWORK_REQUEST    0
-#define JOIN_NETWORK_ACK        1
-#define INFRAESTRUCTURE_DETAILS     2
-#define INFRAESTRUCTURE_DETAILS_ACK 3
-#define DATA_FRAME              6
-#define UE_EVENT                8  // fresh value — avoids the USERS_UPDATE=7 collision (F3)
-
-// Agent operating mode (sent in INFRAESTRUCTURE_DETAILS_ACK).
-// Names describe which frame types the Agent emits — RAVENS is agnostic to how
-// the Controller/orchestrator uses them.
-#define EVENT_MODE      0   // event frames only
-#define DATA_MODE       1   // data frames only  (proactive-only; DEFINE ONLY — not yet wired)
-#define FULL_MODE       2   // event + data frames
-
-// Event subtypes (payload of UE_EVENT)
-#define EVENT_ENTRY 0
-#define EVENT_EXIT  1
+// RavensLink frame types, agent modes and event subtypes (shared with the Agent)
+#include "apps/mec/RavensApps/RavensLinkProtocol.h"
 
 #include <inet/networklayer/common/L3AddressResolver.h>
 #include <inet/transportlayer/contract/udp/UdpSocket.h>
@@ -81,7 +65,7 @@ class RavensControllerApp: public inet::ApplicationBase,
 
         int threshold_;
 
-        double frameInterval_;          // pushed to Agents in INFRAESTRUCTURE_DETAILS_ACK;
+        double frameInterval_;          // pushed to Agents in INFRASTRUCTURE_DETAILS_ACK;
                                         // also the F2 exit-hold window length
 
         // Data structures to be sent to the MEO depending on the mode we are in
@@ -143,7 +127,7 @@ class RavensControllerApp: public inet::ApplicationBase,
         void updateMehStateMap(inet::Ptr<const RavensLinkDataFrameMessage> received_packet);
         std::vector<UserState> removeInactiveUsers();
 
-        // Handles UE_EVENT packets (ENTRY/EXIT deltas from Agent)
+        // Handles EVENT_FRAME packets (ENTRY/EXIT deltas from Agent)
         void handleEventFrame(inet::Ptr<const RavensLinkEventMessage> event,
                               inet::L3Address remoteAddress, int srcPort);
 

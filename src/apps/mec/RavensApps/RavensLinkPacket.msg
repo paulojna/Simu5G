@@ -59,12 +59,14 @@ class RavensLinkInfrastructureDetailsMessage extends RavensLinkPacket
 class RavensLinkInfrastructureDetailsMessageAck extends RavensLinkPacket
 {
     int infoType;
-    int rate;       // data frame interval in ms
-    int agentMode;  // EVENT_MODE=0, DATA_MODE=1 (not yet wired), FULL_MODE=2
+    int rate;       // frame interval in ms
+    int agentMode;  // EVENT_ONLY_MODE=0, TELEMETRY_ONLY_MODE=1 (not yet wired), FULL_MODE=2
 }
 
-// Periodic data frame: LS-derived user map + RNIS-derived cell aggregates.
-// Only sent when agentMode = FULL_MODE (or DATA_MODE, once wired).
+// Periodic telemetry frame (TELEMETRY_FRAME): LS-derived user map + RNIS-derived
+// cell aggregates. Only sent when agentMode = FULL_MODE (or TELEMETRY_ONLY_MODE,
+// once wired). Transport: UDP telemetry channel — loss-tolerant, superseded by
+// the next frame.
 class RavensLinkDataFrameMessage extends RavensLinkPacket
 {
     string mecHostId;
@@ -72,10 +74,11 @@ class RavensLinkDataFrameMessage extends RavensLinkPacket
     AccessPointRNISData apRadioInfo;
 }
 
-// Event frame: sent at frameInterval only when UE state changes exist (entries or
-// exits). If no changes occurred, no packet is sent. Carries all state changes
-// since the previous event frame as a batch. Always sent regardless of agentMode.
-// Transport: UDP (data plane — distinct from the TCP config handshake).
+// Event frame (EVENT_FRAME): sent at frameInterval only when UE state changes
+// exist (entries or exits). If no changes occurred, no packet is sent. Carries
+// all state changes since the previous event frame as a batch. Always sent
+// regardless of agentMode. Transport: TCP signaling channel (report-once
+// semantics need reliable delivery), kept open after the config handshake.
 class RavensLinkEventMessage extends RavensLinkPacket
 {
     string mecHostId;
