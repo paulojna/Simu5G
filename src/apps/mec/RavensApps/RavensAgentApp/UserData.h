@@ -5,6 +5,7 @@
 #include "omnetpp.h" // Added for simtime_t
 #include "UserLocation.h"
 #include "AccessPointData.h"
+#include "UserRadioInfoData.h"
 
 namespace simu5g {
 
@@ -15,6 +16,7 @@ class UserData
         std::string accessPointId;
         UserLocation currentLocation;
         double distance_to_ap;
+        UserRadioInfoData radioInfo;
 
         omnetpp::simtime_t timestamp;
 
@@ -28,6 +30,7 @@ class UserData
         void setAccessPointId(const std::string& accessPointId);
         void setCurrentLocation(const UserLocation& currentLocation);
         void setDistanceToAP(double distance);
+        void setRadioInfo(const UserRadioInfoData& radioInfo);
         void setTimestamp(omnetpp::simtime_t time);
 
         // getters
@@ -35,6 +38,7 @@ class UserData
         std::string getAccessPointId() const;
         UserLocation getCurrentLocation() const;
         double getDistanceToAP() const;
+        const UserRadioInfoData& getRadioInfo() const;
         omnetpp::simtime_t getTimestamp() const;
 
         // method that calculates the eculedean distance between two points

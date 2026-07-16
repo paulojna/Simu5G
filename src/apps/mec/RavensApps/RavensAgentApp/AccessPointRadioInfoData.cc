@@ -3,18 +3,19 @@
 namespace simu5g {
 
 AccessPointRadioInfoData::AccessPointRadioInfoData() {
+    // -1 = no measurement yet, consistent with the per-UE convention
     this->accessPointId = "";
     this->timestamp = 0;
-    this->dl_total_prb_usage_cell = 0.0;
-    this->ul_total_prb_usage_cell = 0.0;
-    this->dl_nongbr_pdr_cell = 0.0;
-    this->ul_nongbr_pdr_cell = 0.0;
-    this->number_of_active_ue_dl_nongbr_cell = 0;
-    this->avg_dl_delay = 0.0;
-    this->avg_ul_delay = 0.0;
-    this->total_dl_data_volume = 0.0;
-    this->total_ul_data_volume = 0.0;
-    this->avg_distance_to_ap = 0.0;
+    this->dl_total_prb_usage_cell = -1.0;
+    this->ul_total_prb_usage_cell = -1.0;
+    this->dl_nongbr_pdr_cell = -1.0;
+    this->ul_nongbr_pdr_cell = -1.0;
+    this->number_of_active_ue_dl_nongbr_cell = -1;
+    this->avg_dl_delay = -1.0;
+    this->avg_ul_delay = -1.0;
+    this->total_dl_data_volume = -1.0;
+    this->total_ul_data_volume = -1.0;
+    this->avg_distance_to_ap = -1.0;
 }
 
 // Getters
