@@ -10,6 +10,7 @@
 #include <inet/common/socket/SocketMap.h>
 #include <inet/applications/base/ApplicationBase.h>
 #include <inet/common/packet/PacketFilter.h>
+#include <inet/common/packet/ChunkQueue.h>
 
 #include "MECHostData.h"
 #include "DataUpdates/UserMEHUpdate.h"
@@ -32,17 +33,9 @@ struct UserState
     std::string currentMEH;
     simtime_t timestamp;
     UserData userData;
-    std::string pendingMEH;       // MEH attempting handover (empty if none)
     simtime_t pendingExitTime;    // non-zero when F2 exit-hold window is active
     int pendingExitSamples = 0;   // samplesSinceChange of the EXIT that opened the hold
     simtime_t pendingExitFirstAt; // firstDetectedAt of that EXIT
-};
-
-// structure that contains the type of change and the user data at the moment the change happens
-struct UserStateChange
-{
-    int changeType;
-    UserData userData;
 };
 
 class LocationDataHandlerPolicyBase;
@@ -55,9 +48,6 @@ class RavensControllerApp: public inet::ApplicationBase,
         // Structures to hold the state of the MEHs and the users and identify changes in the data
         std::unordered_map<std::string, MECHostData> mehStateMap;
         std::unordered_map<std::string, UserState> userStateMap;
-
-        // update to be sent to the MEO
-        inet::Packet *update;
 
         // When to start sending the snapshots to the MEO and at which frequency
         int snapshot_frequency_;
@@ -78,6 +68,12 @@ class RavensControllerApp: public inet::ApplicationBase,
         inet::TcpSocket serverSocket_;  // TCP listener on mgmtPort — accepts Agent handshake connections
         inet::SocketMap socketMap;
 
+        // Per-connection TCP reassembly queues (keyed by socketId). TCP is a byte
+        // stream: one delivery may carry several RavensLink messages (e.g. burst
+        // after a retransmission) or a partial one — messages are popped only
+        // when complete.
+        std::map<int, inet::ChunkQueue> socketQueues_;
+
         friend class LocationDataHandlerPolicyBase;
         friend class SaveDataHistory;
         friend class NotifyOnDataChange;
@@ -87,9 +83,8 @@ class RavensControllerApp: public inet::ApplicationBase,
 
         // to check if we are dealing with a packet from RAVENS Agent or from a UE directly
         inet::PacketFilter ravensLinkPacketFilter;
-        inet::PacketFilter uePacketFilter;
 
-        cMessage *calculateAvg_;
+        cMessage *sendSnapshotMsg_;  // periodic MEO snapshot flush
         cMessage *expireHoldsMsg_;   // periodic F2 hold-expiry sweep (frame-independent liveness)
 
     protected:
@@ -119,24 +114,18 @@ class RavensControllerApp: public inet::ApplicationBase,
         void sendJoinNetworkAck(inet::TcpSocket *socket);
         void sendInfrastructureDetailsAck(inet::TcpSocket *socket);
 
-        // methods to deal with mehStateMap and userStateMap
-        // std::vector<std::pair<std::string, std::string>> detectInactiveUsers();
-
         // methods to deal with userStateMap
         void updateUserStateMap(inet::Ptr<const RavensLinkDataFrameMessage> received_packet);
         void updateMehStateMap(inet::Ptr<const RavensLinkDataFrameMessage> received_packet);
         std::vector<UserState> removeInactiveUsers();
 
-        // Handles EVENT_FRAME packets (ENTRY/EXIT deltas from Agent)
-        void handleEventFrame(inet::Ptr<const RavensLinkEventMessage> event,
-                              inet::L3Address remoteAddress, int srcPort);
+        // Handles EVENT_FRAME messages (ENTRY/EXIT deltas from Agent, TCP signaling channel)
+        void handleEventFrame(inet::Ptr<const RavensLinkEventMessage> event);
 
         // Sweeps userStateMap for elapsed F2 exit-holds, emits onUserExit, and removes
         // the user. Called both inline from handleEventFrame (prompt path) and from a
         // periodic self-message (liveness when no event frames are arriving).
         void expirePendingExits();
-
-        std::string getMecHostIdFromAccessPointId(std::string accessPointId);
 
         void handleSelfMessage(inet::cMessage *msg);
 

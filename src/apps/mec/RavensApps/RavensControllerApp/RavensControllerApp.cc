@@ -1,8 +1,5 @@
 #include "RavensControllerApp.h"
 
-#include "inet/networklayer/common/L3AddressTag_m.h"
-#include "inet/transportlayer/common/L4PortTag_m.h"
-#include "inet/transportlayer/contract/udp/UdpControlInfo_m.h"
 #include "LocationDataHandlerPolicies/LocationDataHandlerPolicyBase.h"
 
 #include "LocationDataHandlerPolicies/SaveDataHistory.h"
@@ -11,7 +8,6 @@
 
 #define USERS_UPDATE 20
 #define MIGRATION_PLAN 21
-#define MAX_MEH_STATE_MAP_SIZE 15
 
 namespace simu5g {
 
@@ -20,12 +16,12 @@ Define_Module(RavensControllerApp);
 
 RavensControllerApp::RavensControllerApp(){
     locationDataHandlerPolicy_ = nullptr;
-    calculateAvg_ = nullptr;
+    sendSnapshotMsg_ = nullptr;
     expireHoldsMsg_ = nullptr;
 }
 
 RavensControllerApp::~RavensControllerApp(){
-    cancelAndDelete(calculateAvg_);
+    cancelAndDelete(sendSnapshotMsg_);
     cancelAndDelete(expireHoldsMsg_);
     delete locationDataHandlerPolicy_;
 }
@@ -45,21 +41,13 @@ void RavensControllerApp::initialize(int stage){
     snapshot_starting_time_ = par("snapshot_starting_time");
     threshold_ = par("threshold");
     frameInterval_ = par("frameInterval");
-    update = nullptr;
-
-    // start mehStateMap with a maximum size
-    mehStateMap.reserve(MAX_MEH_STATE_MAP_SIZE);
-
-    if(stage == inet::INITSTAGE_LOCAL){
-        EV << "RavensControllerApp::initialize - stage " << stage << endl;
-    }
 
     if(!strcmp(par("mode"), "SaveDataHistory")){
         EV << "RavensControllerApp::initialize - SaveDataHistory mode" << endl;
         locationDataHandlerPolicy_ = new SaveDataHistory(this, par("path"));
     }else if(!strcmp(par("mode"), "NotifyOnDataChange")){
         EV << "RavensControllerApp::initialize - NotifyOnDataChange handler mode" << endl;
-        locationDataHandlerPolicy_ = new NotifyOnDataChange(this, par("threshold"));
+        locationDataHandlerPolicy_ = new NotifyOnDataChange(this);
     }else if(!strcmp(par("mode"), "SendToExternalServer")){
         EV << "RavensControllerApp::initialize - SendToExternalServer handler mode" << endl;
         locationDataHandlerPolicy_ = new SendToExternalServer(this);
@@ -73,13 +61,10 @@ void RavensControllerApp::initialize(int stage){
         EV << "RavensControllerApp::initialize - outGate is not connected" << endl;
     }
 
-    // TODO: add feature to calculate network metrics
-    //calculateAvg_ = new cMessage("calculateAvgNetworkData");
-
     ravensLinkPacketFilter.setPattern("RavensLink*");
-    uePacketFilter.setPattern("User*");
 
-    scheduleAt(simTime() + snapshot_starting_time_, new cMessage("sendSnapshot"));
+    sendSnapshotMsg_ = new cMessage("sendSnapshot");
+    scheduleAt(simTime() + snapshot_starting_time_, sendSnapshotMsg_);
 
     // Periodic F2 hold-expiry sweep. Decouples departure reporting from incoming
     // event frames: in quiet regions (and in EVENT_ONLY mode, which has no data
@@ -87,7 +72,6 @@ void RavensControllerApp::initialize(int stage){
     // arrived. Sweeps at frameInterval_ granularity (same scale as the hold itself).
     expireHoldsMsg_ = new cMessage("expireHolds");
     scheduleAt(simTime() + frameInterval_, expireHoldsMsg_);
-    // scheduleAt(simTime() + 10, calculateAvg_);
 }
 
 void RavensControllerApp::handleMessageWhenUp(cMessage *msg){
@@ -203,8 +187,6 @@ void RavensControllerApp::handleSelfMessage(cMessage *msg){
 
 void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packet *packet){
     EV << "RavensControllerApp::socketDataArrived - socket data arrived" << endl;
-    inet::L3Address remoteAddress = packet->getTag<inet::L3AddressInd>()->getSrcAddress();
-    int srcPort = packet->getTag<inet::L4PortInd>()->getSrcPort();
 
     if(ravensLinkPacketFilter.matches(packet))
     {
@@ -217,15 +199,18 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
             updateMehStateMap(dataFrame);
             locationDataHandlerPolicy_->handleDataMessage(dataFrame);
         }
-        else if(received_packet->getType() == EVENT_FRAME)
+        else
         {
-            auto eventMsg = packet->peekAtFront<RavensLinkEventMessage>();
-            handleEventFrame(eventMsg, remoteAddress, srcPort);
+            // EVENT_FRAMEs travel exclusively on the TCP signaling channel;
+            // anything else on the telemetry port is a protocol violation.
+            EV_WARN << "RavensControllerApp::socketDataArrived(UDP) - unexpected frame type "
+                    << received_packet->getType() << " on telemetry port, dropping" << endl;
         }
     	delete packet;
     }
     else{
         EV << "RavensControllerApp::socketDataArrived - unknown packet received" << endl;
+        delete packet;
     }
 }
 
@@ -274,37 +259,50 @@ void RavensControllerApp::socketEstablished(inet::TcpSocket *socket){
 
 void RavensControllerApp::socketDataArrived(inet::TcpSocket *socket, inet::Packet *packet, bool urgent){
     EV << "RavensControllerApp::socketDataArrived(TCP) - packet received" << endl;
-    auto received_packet = packet->peekAtFront<RavensLinkPacket>();
 
-    if(received_packet->getType() == JOIN_NETWORK_REQUEST){
-        auto joinRequest = packet->peekAtFront<RavensLinkJoinNetworkRequestMessage>();
-        EV << "RavensControllerApp::socketDataArrived(TCP) - JOIN_NETWORK_REQUEST from " << joinRequest->getMecHostId() << endl;
-        MECHostData newHostData;
-        newHostData.setHostId(joinRequest->getMecHostId());
-        newHostData.setL3Address(socket->getRemoteAddress());
-        mehStateMap[joinRequest->getMecHostId()] = newHostData;
-        sendJoinNetworkAck(socket);
-    }
-    else if(received_packet->getType() == INFRASTRUCTURE_DETAILS){
-        auto infraDetails = packet->peekAtFront<RavensLinkInfrastructureDetailsMessage>();
-        EV << "RavensControllerApp::socketDataArrived(TCP) - INFRASTRUCTURE_DETAILS from " << infraDetails->getMecHostId() << endl;
-        auto it = mehStateMap.find(infraDetails->getMecHostId());
-        if(it == mehStateMap.end()){
-            EV << "RavensControllerApp::socketDataArrived(TCP) - host " << infraDetails->getMecHostId() << " not found, ignoring" << endl;
-            delete packet;
-            return;
-        }
-        it->second.setAccessPoints(infraDetails->getAPList());
-        sendInfrastructureDetailsAck(socket);
-    }
-    else if(received_packet->getType() == EVENT_FRAME){
-        // Event frames arrive over the reliable TCP signaling channel (report-once
-        // semantics: a lost ENTRY/EXIT would corrupt placement state permanently).
-        // Periodic TELEMETRY_FRAME telemetry stays on UDP.
-        auto eventMsg = packet->peekAtFront<RavensLinkEventMessage>();
-        handleEventFrame(eventMsg, socket->getRemoteAddress(), socket->getRemotePort());
-    }
+    // TCP is a byte stream: one delivery may carry several RavensLink messages
+    // (e.g. a burst flushed after a retransmission) or a partial one. Push the
+    // received bytes into this connection's reassembly queue and dispatch every
+    // complete message; an incomplete tail stays queued for the next delivery.
+    inet::ChunkQueue& queue = socketQueues_[socket->getSocketId()];
+    queue.push(packet->peekDataAt(inet::B(0), packet->getTotalLength()));
     delete packet;
+
+    while (queue.has<RavensLinkPacket>(inet::b(-1))) {
+        auto received_packet = queue.pop<RavensLinkPacket>(inet::b(-1));
+
+        if(received_packet->getType() == JOIN_NETWORK_REQUEST){
+            auto joinRequest = inet::dynamicPtrCast<const RavensLinkJoinNetworkRequestMessage>(received_packet);
+            EV << "RavensControllerApp::socketDataArrived(TCP) - JOIN_NETWORK_REQUEST from " << joinRequest->getMecHostId() << endl;
+            MECHostData newHostData;
+            newHostData.setHostId(joinRequest->getMecHostId());
+            newHostData.setL3Address(socket->getRemoteAddress());
+            mehStateMap[joinRequest->getMecHostId()] = newHostData;
+            sendJoinNetworkAck(socket);
+        }
+        else if(received_packet->getType() == INFRASTRUCTURE_DETAILS){
+            auto infraDetails = inet::dynamicPtrCast<const RavensLinkInfrastructureDetailsMessage>(received_packet);
+            EV << "RavensControllerApp::socketDataArrived(TCP) - INFRASTRUCTURE_DETAILS from " << infraDetails->getMecHostId() << endl;
+            auto it = mehStateMap.find(infraDetails->getMecHostId());
+            if(it == mehStateMap.end()){
+                EV << "RavensControllerApp::socketDataArrived(TCP) - host " << infraDetails->getMecHostId() << " not found, ignoring" << endl;
+                continue;
+            }
+            it->second.setAccessPoints(infraDetails->getAPList());
+            sendInfrastructureDetailsAck(socket);
+        }
+        else if(received_packet->getType() == EVENT_FRAME){
+            // Event frames arrive over the reliable TCP signaling channel (report-once
+            // semantics: a lost ENTRY/EXIT would corrupt placement state permanently).
+            // Periodic TELEMETRY_FRAME telemetry stays on UDP.
+            auto eventMsg = inet::dynamicPtrCast<const RavensLinkEventMessage>(received_packet);
+            handleEventFrame(eventMsg);
+        }
+        else {
+            EV_WARN << "RavensControllerApp::socketDataArrived(TCP) - unexpected frame type "
+                    << received_packet->getType() << ", dropping" << endl;
+        }
+    }
 }
 
 void RavensControllerApp::socketPeerClosed(inet::TcpSocket *socket){
@@ -314,12 +312,14 @@ void RavensControllerApp::socketPeerClosed(inet::TcpSocket *socket){
 
 void RavensControllerApp::socketClosed(inet::TcpSocket *socket){
     EV << "RavensControllerApp::socketClosed(TCP)" << endl;
+    socketQueues_.erase(socket->getSocketId());
     socketMap.removeSocket(socket);
     delete socket;
 }
 
 void RavensControllerApp::socketFailure(inet::TcpSocket *socket, int code){
     EV << "RavensControllerApp::socketFailure - code=" << code << endl;
+    socketQueues_.erase(socket->getSocketId());
     socketMap.removeSocket(socket);
     delete socket;
 }
@@ -346,8 +346,7 @@ void RavensControllerApp::expirePendingExits()
     }
 }
 
-void RavensControllerApp::handleEventFrame(inet::Ptr<const RavensLinkEventMessage> event,
-                                            inet::L3Address remoteAddress, int srcPort)
+void RavensControllerApp::handleEventFrame(inet::Ptr<const RavensLinkEventMessage> event)
 {
     std::string sourceMEH = event->getMecHostId();
     EV << "RavensControllerApp::handleEventFrame - " << event->getEvents().size()

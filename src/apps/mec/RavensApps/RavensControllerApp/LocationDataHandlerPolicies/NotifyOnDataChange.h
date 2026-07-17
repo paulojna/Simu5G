@@ -21,7 +21,7 @@ class NotifyOnDataChange : public LocationDataHandlerPolicyBase
         virtual void onUserExit    (const std::string& userId, const std::string& fromMeh,
                                     int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) override;
     public:
-        NotifyOnDataChange(RavensControllerApp* controllerApp, int treshold);
+        NotifyOnDataChange(RavensControllerApp* controllerApp);
         virtual ~NotifyOnDataChange(){}
 };
 

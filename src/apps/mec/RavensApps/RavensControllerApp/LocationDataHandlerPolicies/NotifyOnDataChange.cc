@@ -2,7 +2,7 @@
 
 namespace simu5g {
 
-NotifyOnDataChange::NotifyOnDataChange(RavensControllerApp *controllerApp, int treshold)
+NotifyOnDataChange::NotifyOnDataChange(RavensControllerApp *controllerApp)
     : LocationDataHandlerPolicyBase(controllerApp)
 {
 }
