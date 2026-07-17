@@ -5,6 +5,8 @@
 #include "Outputs/MeoOutput.h"
 #include "Outputs/PredictionOutput.h"
 
+#include <filesystem>
+
 #define USERS_UPDATE 20
 #define MIGRATION_PLAN 21
 
@@ -45,13 +47,26 @@ void RavensControllerApp::initialize(int stage){
     // HistoryOutput is registered first so ground truth is written before any
     // other output acts on the same frame.
     profile_ = par("profile").stringValue();
+
+    // The Controller owns the per-run results directory; every file-writing
+    // output receives it ready-made so the layout has a single source of truth.
+    if(profile_ == "History" || profile_ == "Prediction"){
+        std::string profileDir = (profile_ == "History") ? "history" : "prediction";
+        std::string runNumber = std::to_string(getEnvir()->getConfigEx()->getActiveRunNumber());
+        runDir_ = std::string(par("path").stringValue()) + profileDir + "/run_" + runNumber + "/";
+        std::error_code ec;
+        std::filesystem::create_directories(runDir_, ec);
+        if (ec)
+            EV_WARN << "RavensControllerApp::initialize - error creating " << runDir_ << " : " << ec.message() << endl;
+    }
+
     if(profile_ == "History"){
-        outputs_.push_back(new HistoryOutput(this, par("path"), "history"));
+        outputs_.push_back(new HistoryOutput(this, runDir_));
         agentMode_ = FULL_MODE;
     }else if(profile_ == "Prediction"){
-        outputs_.push_back(new HistoryOutput(this, par("path"), "prediction"));
+        outputs_.push_back(new HistoryOutput(this, runDir_));
         outputs_.push_back(new MeoOutput(this));
-        outputs_.push_back(new PredictionOutput(this));
+        outputs_.push_back(new PredictionOutput(this, runDir_));
         agentMode_ = FULL_MODE;
     }else if(profile_ == "Reaction"){
         outputs_.push_back(new MeoOutput(this));

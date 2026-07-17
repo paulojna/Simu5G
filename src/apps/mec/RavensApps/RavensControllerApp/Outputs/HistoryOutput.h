@@ -31,8 +31,8 @@ class HistoryOutput : public RavensOutputBase
         virtual void onUserExit    (const std::string& userId, const std::string& fromMeh,
                                     int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) override;
     public:
-        // profileDir separates runs per profile (e.g. "history", "prediction")
-        HistoryOutput(RavensControllerApp* controllerApp, std::string path, std::string profileDir);
+        // runDir: per-run results directory, created and owned by the Controller
+        HistoryOutput(RavensControllerApp* controllerApp, std::string runDir);
         virtual ~HistoryOutput();
 };
 

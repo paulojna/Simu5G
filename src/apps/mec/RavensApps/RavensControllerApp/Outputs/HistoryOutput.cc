@@ -1,22 +1,14 @@
 #include "HistoryOutput.h"
-#include <filesystem>
 
 namespace simu5g {
 
-HistoryOutput::HistoryOutput(RavensControllerApp* controllerApp, std::string path, std::string profileDir)
+HistoryOutput::HistoryOutput(RavensControllerApp* controllerApp, std::string runDir)
     : RavensOutputBase(controllerApp)
 {
     std::string runNumber = std::to_string(getEnvir()->getConfigEx()->getActiveRunNumber());
-    std::string dirPath = path + profileDir + "/run_" + runNumber + "/";
-
-    std::error_code ec;
-    std::filesystem::create_directories(dirPath, ec);
-    if (ec) {
-        EV << "HistoryOutput - error creating directory " << dirPath << " : " << ec.message() << endl;
-    }
 
     // 1. User File (Standard Vectors + Radio Stats)
-    std::string name = dirPath + "run_" + runNumber + "_users.csv";
+    std::string name = runDir + "run_" + runNumber + "_users.csv";
     userFile.open(name, std::ios::out | std::ios::trunc);
     userFile << "TimestampSent,LocationTimestamp,RadioTimestamp,UEId,MEHId,AccessPointId,RNISCellId,"
              << "x,y,z,Speed,Bearing,DistanceToAccessPoint,"
@@ -25,12 +17,12 @@ HistoryOutput::HistoryOutput(RavensControllerApp* controllerApp, std::string pat
              << "DlNongbrDataVolumeUe,UlNongbrDataVolumeUe,Rsrp" << endl;
 
     // 2. Lifecycle File (Events)
-    std::string lifecycleName = dirPath + "run_" + runNumber + "_lifecycle.csv";
+    std::string lifecycleName = runDir + "run_" + runNumber + "_lifecycle.csv";
     lifecycleFile.open(lifecycleName, std::ios::out | std::ios::trunc);
     lifecycleFile << "timestamp,eventType,userId,fromMEH,toMEH,samplesSinceChange,firstDetectedAt" << endl;
 
     // 3. Radio Stats File (DL/UL Usage and PDR)
-    std::string radioStatsName = dirPath + "run_" + runNumber + "_radio_stats.csv";
+    std::string radioStatsName = runDir + "run_" + runNumber + "_radio_stats.csv";
     radioStatsFile.open(radioStatsName, std::ios::out | std::ios::trunc);
     radioStatsFile << "Timestamp,MEHId,CellId,DlPrbUsageCell,UlPrbUsageCell,DlNongbrPdrCell,UlNongbrPdrCell,"
                    << "AvgDlDelay,AvgUlDelay,TotalDlDataVolume,TotalUlDataVolume,NumActiveUeDlNongbr,AvgDistanceToAp" << endl;

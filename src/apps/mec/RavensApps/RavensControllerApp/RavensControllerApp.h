@@ -62,6 +62,9 @@ class RavensControllerApp: public inet::ApplicationBase,
 
         std::string profile_;           // "History", "Prediction" or "Reaction"
         int agentMode_;                 // mode sent to Agents, derived from profile_
+        std::string runDir_;            // <path>/<profile>/run_<N>/ — created by the
+                                        // Controller, shared by all file-writing outputs
+                                        // (empty in the Reaction profile)
 
         // Data structures to be sent to the MEO depending on the mode we are in
         // PERFORMANCE IMPROVEMENT: Changed from vector to map for O(1) lookup in addUserUpdate()

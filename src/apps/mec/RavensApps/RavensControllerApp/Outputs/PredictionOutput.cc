@@ -9,9 +9,16 @@ namespace simu5g {
 	    return totalSize;
 	}
 
-	PredictionOutput::PredictionOutput(RavensControllerApp* controllerApp): RavensOutputBase(controllerApp)
+	PredictionOutput::PredictionOutput(RavensControllerApp* controllerApp, std::string runDir): RavensOutputBase(controllerApp)
 	{
 		flaskUrl_ = "http://localhost:5001/predict";
+
+		if (!runDir.empty()) {
+			std::string runNumber = std::to_string(getEnvir()->getConfigEx()->getActiveRunNumber());
+			std::string logName = runDir + "run_" + runNumber + "_predictions.jsonl";
+			predictionsLog_.open(logName, std::ios::out | std::ios::trunc);
+			EV << "PredictionOutput initialized. Predictions log: " << logName << endl;
+		}
 
 		// Reset Flask state at the start of each simulation run
 		// to prevent stale UE buffers from previous runs
@@ -38,6 +45,8 @@ namespace simu5g {
 
 	PredictionOutput::~PredictionOutput()
 	{
+		if (predictionsLog_.is_open())
+			predictionsLog_.close();
 	}
 
 	void PredictionOutput::onTelemetry(inet::Ptr<const RavensLinkDataFrameMessage> received_packet)
@@ -47,6 +56,22 @@ namespace simu5g {
 		std::cout << simTime() << " - PredictionOutput - sending to Flask, users: " << payload["users"].size() << std::endl;
 		std::string response = postToFlask(payload);
 		std::cout << simTime() << " - PredictionOutput - Flask response (" << response.size() << " bytes): " << response << std::endl;
+
+		// Log the call verbatim — the ground truth for the offline prediction
+		// evaluation. Empty response = failed/timed-out call, logged as "".
+		if (predictionsLog_.is_open()) {
+			nlohmann::json logLine;
+			logLine["t"] = simTime().str();
+			logLine["sourceMeh"] = received_packet->getMecHostId();
+			try {
+				logLine["response"] = nlohmann::json::parse(response);
+			} catch (const nlohmann::json::exception&) {
+				logLine["response"] = response;  // not valid JSON — keep raw string
+			}
+			predictionsLog_ << logLine.dump() << "\n";
+			predictionsLog_.flush();
+		}
+
 		std::vector<MigrationPrediction> predictions = parseResponse(response);
 
 		for (auto& pred : predictions)
