@@ -1,10 +1,9 @@
 #include "RavensControllerApp.h"
 
-#include "LocationDataHandlerPolicies/LocationDataHandlerPolicyBase.h"
-
-#include "LocationDataHandlerPolicies/SaveDataHistory.h"
-#include "LocationDataHandlerPolicies/NotifyOnDataChange.h"
-#include "LocationDataHandlerPolicies/SendToExternalServer.h"
+#include "Outputs/RavensOutputBase.h"
+#include "Outputs/HistoryOutput.h"
+#include "Outputs/MeoOutput.h"
+#include "Outputs/PredictionOutput.h"
 
 #define USERS_UPDATE 20
 #define MIGRATION_PLAN 21
@@ -15,7 +14,6 @@ Define_Module(RavensControllerApp);
 
 
 RavensControllerApp::RavensControllerApp(){
-    locationDataHandlerPolicy_ = nullptr;
     sendSnapshotMsg_ = nullptr;
     expireHoldsMsg_ = nullptr;
 }
@@ -23,7 +21,8 @@ RavensControllerApp::RavensControllerApp(){
 RavensControllerApp::~RavensControllerApp(){
     cancelAndDelete(sendSnapshotMsg_);
     cancelAndDelete(expireHoldsMsg_);
-    delete locationDataHandlerPolicy_;
+    for (auto* output : outputs_)
+        delete output;
 }
 
 void RavensControllerApp::finish(){
@@ -39,21 +38,28 @@ void RavensControllerApp::initialize(int stage){
         return;
     snapshot_frequency_ = par("snapshot_frequency");
     snapshot_starting_time_ = par("snapshot_starting_time");
-    threshold_ = par("threshold");
+    staleWarningThreshold_ = par("staleWarningThreshold");
     frameInterval_ = par("frameInterval");
 
-    if(!strcmp(par("mode"), "SaveDataHistory")){
-        EV << "RavensControllerApp::initialize - SaveDataHistory mode" << endl;
-        locationDataHandlerPolicy_ = new SaveDataHistory(this, par("path"));
-    }else if(!strcmp(par("mode"), "NotifyOnDataChange")){
-        EV << "RavensControllerApp::initialize - NotifyOnDataChange handler mode" << endl;
-        locationDataHandlerPolicy_ = new NotifyOnDataChange(this);
-    }else if(!strcmp(par("mode"), "SendToExternalServer")){
-        EV << "RavensControllerApp::initialize - SendToExternalServer handler mode" << endl;
-        locationDataHandlerPolicy_ = new SendToExternalServer(this);
+    // Profile = which outputs are active + which mode the Agents are put in.
+    // HistoryOutput is registered first so ground truth is written before any
+    // other output acts on the same frame.
+    profile_ = par("profile").stringValue();
+    if(profile_ == "History"){
+        outputs_.push_back(new HistoryOutput(this, par("path"), "history"));
+        agentMode_ = FULL_MODE;
+    }else if(profile_ == "Prediction"){
+        outputs_.push_back(new HistoryOutput(this, par("path"), "prediction"));
+        outputs_.push_back(new MeoOutput(this));
+        outputs_.push_back(new PredictionOutput(this));
+        agentMode_ = FULL_MODE;
+    }else if(profile_ == "Reaction"){
+        outputs_.push_back(new MeoOutput(this));
+        agentMode_ = EVENT_ONLY_MODE;
     }else{
-        throw cRuntimeError("RavensControllerApp::initialize - invalid mode parameter");
+        throw cRuntimeError("RavensControllerApp::initialize - invalid profile parameter '%s' (expected History, Prediction or Reaction)", profile_.c_str());
     }
+    EV << "RavensControllerApp::initialize - profile " << profile_ << " with " << outputs_.size() << " output(s)" << endl;
 
     if(gate("outGate")->isConnected()){
         EV << "RavensControllerApp::initialize - outGate is connected" << endl;
@@ -93,7 +99,7 @@ void RavensControllerApp::handleMessageWhenUp(cMessage *msg){
 void RavensControllerApp::handleStartOperation(inet::LifecycleOperation *operation){
     EV << "RavensControllerApp::handleStartOperation - start operation" << endl;
 
-    // UDP telemetry socket — receives TELEMETRY_FRAMEs (and legacy EVENT_FRAMEs during shakedown)
+    // UDP telemetry socket — receives TELEMETRY_FRAMEs (EVENT_FRAMEs are TCP-only)
     int dataPort = par("dataPort");
     udpSocket.setOutputGate(gate("socketOut"));
     udpSocket.bind(dataPort);
@@ -177,6 +183,7 @@ void RavensControllerApp::handleSelfMessage(cMessage *msg){
         // Frame-independent liveness: flush any F2 holds whose window has elapsed
         // even if no event frame has arrived to drive handleEventFrame().
         expirePendingExits();
+        warnStaleUsers();
         scheduleAt(simTime() + frameInterval_, msg);
     }
     else
@@ -197,7 +204,8 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
             auto dataFrame = packet->peekAtFront<RavensLinkDataFrameMessage>();
             updateUserStateMap(dataFrame);
             updateMehStateMap(dataFrame);
-            locationDataHandlerPolicy_->handleDataMessage(dataFrame);
+            for (auto* output : outputs_)
+                output->onTelemetry(dataFrame);
         }
         else
         {
@@ -236,8 +244,7 @@ void RavensControllerApp::sendInfrastructureDetailsAck(inet::TcpSocket *socket){
     request->setTimeStamp(simTime().inUnit(SIMTIME_S));
     request->setInfoType(100);
     request->setRate((int)(frameInterval_ * 1000));
-    int mode = !strcmp(par("mode"), "NotifyOnDataChange") ? EVENT_ONLY_MODE : FULL_MODE;
-    request->setAgentMode(mode);
+    request->setAgentMode(agentMode_);  // derived from profile_ in initialize()
     packet->insertAtBack(request);
     socket->send(packet);
 }
@@ -336,9 +343,10 @@ void RavensControllerApp::expirePendingExits()
         if (it->second.pendingExitTime != 0 && simTime() >= it->second.pendingExitTime) {
             EV << "RavensControllerApp::expirePendingExits - exit hold expired for "
                << it->first << ", removing" << endl;
-            locationDataHandlerPolicy_->onUserExit(it->first, it->second.currentMEH,
-                                                   it->second.pendingExitSamples,
-                                                   it->second.pendingExitFirstAt);
+            for (auto* output : outputs_)
+                output->onUserExit(it->first, it->second.currentMEH,
+                                   it->second.pendingExitSamples,
+                                   it->second.pendingExitFirstAt);
             it = userStateMap.erase(it);
         } else {
             ++it;
@@ -360,7 +368,7 @@ void RavensControllerApp::handleEventFrame(inet::Ptr<const RavensLinkEventMessag
     // truth for presence, so every detected ENTRY/EXIT is acted on. Debounce
     // (handover vs. departure) is handled entirely by the F2 hold below, not by a
     // per-event sample threshold. samplesSinceChange / firstDetectedAt are carried
-    // through to the policy hooks as metadata only.
+    // through to the output hooks as metadata only.
     RavensEventList entries, exits;
     for (const auto& e : event->getEvents()) {
         if (e.eventType == EVENT_ENTRY) entries.push_back(e);
@@ -398,8 +406,9 @@ void RavensControllerApp::handleEventFrame(inet::Ptr<const RavensLinkEventMessag
             state.pendingExitTime     = 0;
             state.pendingExitSamples  = 0;
             userStateMap[e.ueAddress] = state;
-            locationDataHandlerPolicy_->onUserEntry(e.ueAddress, sourceMEH,
-                                                    e.samplesSinceChange, e.firstDetectedAt);
+            for (auto* output : outputs_)
+                output->onUserEntry(e.ueAddress, sourceMEH,
+                                    e.samplesSinceChange, e.firstDetectedAt);
             EV << "RavensControllerApp::handleEventFrame - ENTRY new user "
                << e.ueAddress << " at " << sourceMEH << endl;
         } else if (userIt->second.pendingExitTime != 0) {
@@ -411,8 +420,9 @@ void RavensControllerApp::handleEventFrame(inet::Ptr<const RavensLinkEventMessag
             if (sourceMEH != fromMeh) {
                 // True handover: EXIT-from-A then ENTRY-at-B order
                 userIt->second.currentMEH = sourceMEH;
-                locationDataHandlerPolicy_->onUserHandover(e.ueAddress, fromMeh, sourceMEH,
-                                                           e.samplesSinceChange, e.firstDetectedAt);
+                for (auto* output : outputs_)
+                    output->onUserHandover(e.ueAddress, fromMeh, sourceMEH,
+                                           e.samplesSinceChange, e.firstDetectedAt);
                 EV << "RavensControllerApp::handleEventFrame - HANDOVER "
                    << e.ueAddress << " from " << fromMeh << " to " << sourceMEH << endl;
             }
@@ -423,8 +433,9 @@ void RavensControllerApp::handleEventFrame(inet::Ptr<const RavensLinkEventMessag
                 // ENTRY from a different MEH without a prior EXIT (ENTRY-before-EXIT order)
                 std::string fromMeh = userIt->second.currentMEH;
                 userIt->second.currentMEH = sourceMEH;
-                locationDataHandlerPolicy_->onUserHandover(e.ueAddress, fromMeh, sourceMEH,
-                                                           e.samplesSinceChange, e.firstDetectedAt);
+                for (auto* output : outputs_)
+                    output->onUserHandover(e.ueAddress, fromMeh, sourceMEH,
+                                           e.samplesSinceChange, e.firstDetectedAt);
                 EV << "RavensControllerApp::handleEventFrame - HANDOVER (ENTRY-first) "
                    << e.ueAddress << " from " << fromMeh << " to " << sourceMEH << endl;
             }
@@ -443,25 +454,28 @@ void RavensControllerApp::socketErrorArrived(inet::UdpSocket *socket, inet::Indi
 }
 
 /*
-    Method that runs through the userStateMap and detect users that have not been updated for a pre-determined
-    amount time - defined by the treshold_.
-*/
-std::vector<UserState> RavensControllerApp::removeInactiveUsers(){
-    simtime_t actual = simTime();
-    std::vector<UserState> inactiveUsers;
+    Diagnostic sweep (called from the periodic expireHolds self-message).
 
-    auto it = userStateMap.begin();
-    while (it != userStateMap.end()) {
-        if(actual - it->second.timestamp > threshold_){
-            // add the user to the list of inactive users
-            inactiveUsers.push_back(it->second);
-            it = userStateMap.erase(it);  // erase() returns iterator to next element
-        } else {
-            ++it;
+    Departures always arrive as reliable EXIT events over TCP, so a user whose
+    state stops being refreshed can only mean a pipeline bug — it is reported
+    loudly (once per user) but state is never mutated. Only meaningful when
+    telemetry flows (FULL mode): in EVENT_ONLY mode a stable user is legitimately
+    silent, so the check is skipped entirely.
+*/
+void RavensControllerApp::warnStaleUsers(){
+    if (agentMode_ != FULL_MODE)
+        return;
+
+    simtime_t now = simTime();
+    for (auto& [address, state] : userStateMap) {
+        if (!state.staleWarned && now - state.timestamp > staleWarningThreshold_) {
+            EV_WARN << "RavensControllerApp::warnStaleUsers - user " << address
+                    << " at " << state.currentMEH << " has had no update for "
+                    << (now - state.timestamp) << "s (threshold " << staleWarningThreshold_
+                    << "s) — possible pipeline bug, state kept" << endl;
+            state.staleWarned = true;
         }
     }
-
-    return inactiveUsers;
 }
 
 void RavensControllerApp::updateUserStateMap(inet::Ptr<const RavensLinkDataFrameMessage> received_packet) {
@@ -484,6 +498,7 @@ void RavensControllerApp::updateUserStateMap(inet::Ptr<const RavensLinkDataFrame
         // Refresh telemetry only — MEH transitions are driven by handleEventFrame()
         userIt->second.timestamp = received_packet->getTimeStamp();
         userIt->second.userData = userData;
+        userIt->second.staleWarned = false;   // fresh again — re-arm the stale warning
     }
 }
 

@@ -1,4 +1,4 @@
-#include "SendToExternalServer.h"
+#include "PredictionOutput.h"
 
 namespace simu5g {
 
@@ -9,7 +9,7 @@ namespace simu5g {
 	    return totalSize;
 	}
 
-	SendToExternalServer::SendToExternalServer(RavensControllerApp* controllerApp): LocationDataHandlerPolicyBase(controllerApp)
+	PredictionOutput::PredictionOutput(RavensControllerApp* controllerApp): RavensOutputBase(controllerApp)
 	{
 		flaskUrl_ = "http://localhost:5001/predict";
 
@@ -27,62 +27,33 @@ namespace simu5g {
 			curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
 			CURLcode res = curl_easy_perform(curl);
 			if (res == CURLE_OK) {
-				std::cout << "[SendToExternalServer] Flask state reset: " << response << std::endl;
+				std::cout << "[PredictionOutput] Flask state reset: " << response << std::endl;
 			} else {
-				std::cout << "[SendToExternalServer] WARNING: Flask reset failed: "
+				std::cout << "[PredictionOutput] WARNING: Flask reset failed: "
 				          << curl_easy_strerror(res) << std::endl;
 			}
 			curl_easy_cleanup(curl);
 		}
 	}
 
-	SendToExternalServer::~SendToExternalServer()
+	PredictionOutput::~PredictionOutput()
 	{
 	}
 
-	inet::Packet* SendToExternalServer::handleDataMessage(inet::Ptr<const RavensLinkDataFrameMessage> received_packet)
+	void PredictionOutput::onTelemetry(inet::Ptr<const RavensLinkDataFrameMessage> received_packet)
 	{
-		// C1 safety net: purge users absent longer than threshold_
-		std::vector<UserState> removedUsers = controllerApp_->removeInactiveUsers();
-		for (const auto& user : removedUsers)
-			onUserExit(user.userId, user.currentMEH, -1, SIMTIME_ZERO);
-
 		// Forward data frame to Flask and collect migration predictions
 		nlohmann::json payload = formatSnapshot(received_packet);
-		std::cout << simTime() << " - SendToExternalServer - sending to Flask, users: " << payload["users"].size() << std::endl;
+		std::cout << simTime() << " - PredictionOutput - sending to Flask, users: " << payload["users"].size() << std::endl;
 		std::string response = postToFlask(payload);
-		std::cout << simTime() << " - SendToExternalServer - Flask response (" << response.size() << " bytes): " << response << std::endl;
+		std::cout << simTime() << " - PredictionOutput - Flask response (" << response.size() << " bytes): " << response << std::endl;
 		std::vector<MigrationPrediction> predictions = parseResponse(response);
 
 		for (auto& pred : predictions)
 			controllerApp_->migrationPredictions.insert_or_assign(pred.getUeAddress(), pred);
-
-		return nullptr;
 	}
 
-	void SendToExternalServer::onUserEntry(const std::string& userId, const std::string& meh,
-	                                       int /*samplesSinceChange*/, omnetpp::simtime_t /*firstDetectedAt*/)
-	{
-		EV << "SendToExternalServer::onUserEntry - " << userId << " at " << meh << endl;
-		emitUserUpdate(userId, "", meh);
-	}
-
-	void SendToExternalServer::onUserHandover(const std::string& userId,
-	                                          const std::string& fromMeh, const std::string& toMeh,
-	                                          int /*samplesSinceChange*/, omnetpp::simtime_t /*firstDetectedAt*/)
-	{
-		EV << "SendToExternalServer::onUserHandover - " << userId << " " << fromMeh << " -> " << toMeh << endl;
-		emitUserUpdate(userId, fromMeh, toMeh);
-	}
-
-	void SendToExternalServer::onUserExit(const std::string& userId, const std::string& fromMeh,
-	                                      int /*samplesSinceChange*/, omnetpp::simtime_t /*firstDetectedAt*/)
-	{
-		EV << "SendToExternalServer::onUserExit - " << userId << " left " << fromMeh << endl;
-		emitUserUpdate(userId, fromMeh, "");
-	}
-
-	nlohmann::json SendToExternalServer::formatSnapshot(inet::Ptr<const RavensLinkDataFrameMessage> snapshot)
+	nlohmann::json PredictionOutput::formatSnapshot(inet::Ptr<const RavensLinkDataFrameMessage> snapshot)
 	{
 	    nlohmann::json payload;
 
@@ -127,12 +98,12 @@ namespace simu5g {
 	}
 
 
-	std::string SendToExternalServer::postToFlask(const nlohmann::json& payload)
+	std::string PredictionOutput::postToFlask(const nlohmann::json& payload)
 	{
 	    std::string response;
 	    CURL* curl = curl_easy_init();
 	    if (!curl) {
-	        EV << "SendToExternalServer::postToFlask - Failed to init curl" << endl;
+	        EV << "PredictionOutput::postToFlask - Failed to init curl" << endl;
 	        return response;
 		}
 
@@ -148,7 +119,7 @@ namespace simu5g {
 
 	    CURLcode res = curl_easy_perform(curl);
 	    if (res != CURLE_OK) {
-	        std::cout << "SendToExternalServer::postToFlask - curl error: " << curl_easy_strerror(res) << std::endl;
+	        std::cout << "PredictionOutput::postToFlask - curl error: " << curl_easy_strerror(res) << std::endl;
 	        response.clear();
 	    }
 
@@ -157,7 +128,7 @@ namespace simu5g {
 	    return response;
 	}
 
-	std::vector<MigrationPrediction> SendToExternalServer::parseResponse(const std::string& response)
+	std::vector<MigrationPrediction> PredictionOutput::parseResponse(const std::string& response)
 	{
 		std::vector<MigrationPrediction> predictions;
 		if (response.empty()) return predictions;
@@ -181,11 +152,10 @@ namespace simu5g {
 	        }
 	    }
 	    catch (const nlohmann::json::exception& e) {
-	        EV << "SendToExternalServer::parseResponse - JSON parse error: " << e.what() << endl;
+	        EV << "PredictionOutput::parseResponse - JSON parse error: " << e.what() << endl;
 	    }
 
 	    return predictions;
 	}
 
 } // namespace simu5g
-

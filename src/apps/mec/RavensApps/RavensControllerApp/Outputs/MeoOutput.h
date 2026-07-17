@@ -1,18 +1,18 @@
-#ifndef RAVENS_CONTROLLER_APP_NOTIFYONDATACHANGE_H_
-#define RAVENS_CONTROLLER_APP_NOTIFYONDATACHANGE_H_
+#ifndef RAVENS_CONTROLLER_APP_MEOOUTPUT_H_
+#define RAVENS_CONTROLLER_APP_MEOOUTPUT_H_
 
-#include "LocationDataHandlerPolicyBase.h"
+#include "RavensOutputBase.h"
 #include "../../RavensControllerUpdatePacket_m.h"
 #include <string>
 
-// class RavensControllerApp;
-
 namespace simu5g {
 
-class NotifyOnDataChange : public LocationDataHandlerPolicyBase
+// Reports UE lifecycle to the MEO: turns entry/handover/exit hooks into
+// UserMEHUpdate entries, flushed by the Controller's periodic snapshot.
+// Active in the Prediction and Reaction profiles.
+class MeoOutput : public RavensOutputBase
 {
     protected:
-        virtual inet::Packet* handleDataMessage(inet::Ptr<const RavensLinkDataFrameMessage> received_packet) override;
         virtual void onUserEntry   (const std::string& userId, const std::string& meh,
                                     int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) override;
         virtual void onUserHandover(const std::string& userId, const std::string& fromMeh,
@@ -21,10 +21,10 @@ class NotifyOnDataChange : public LocationDataHandlerPolicyBase
         virtual void onUserExit    (const std::string& userId, const std::string& fromMeh,
                                     int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) override;
     public:
-        NotifyOnDataChange(RavensControllerApp* controllerApp);
-        virtual ~NotifyOnDataChange(){}
+        MeoOutput(RavensControllerApp* controllerApp);
+        virtual ~MeoOutput(){}
 };
 
 }
 
-#endif /* "RAVENS_CONTROLLER_APP_NOTIFYONDATACHANGE_H_" */
+#endif /* RAVENS_CONTROLLER_APP_MEOOUTPUT_H_ */

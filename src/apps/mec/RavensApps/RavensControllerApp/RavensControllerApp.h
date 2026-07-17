@@ -36,9 +36,10 @@ struct UserState
     simtime_t pendingExitTime;    // non-zero when F2 exit-hold window is active
     int pendingExitSamples = 0;   // samplesSinceChange of the EXIT that opened the hold
     simtime_t pendingExitFirstAt; // firstDetectedAt of that EXIT
+    bool staleWarned = false;     // stale-telemetry warning already emitted for this user
 };
 
-class LocationDataHandlerPolicyBase;
+class RavensOutputBase;
 
 class RavensControllerApp: public inet::ApplicationBase,
                            public inet::UdpSocket::ICallback,
@@ -53,10 +54,14 @@ class RavensControllerApp: public inet::ApplicationBase,
         int snapshot_frequency_;
         int snapshot_starting_time_;
 
-        int threshold_;
+        int staleWarningThreshold_;     // telemetry silence (s) after which a user is
+                                        // flagged as stale (warning only, FULL mode only)
 
         double frameInterval_;          // pushed to Agents in INFRASTRUCTURE_DETAILS_ACK;
                                         // also the F2 exit-hold window length
+
+        std::string profile_;           // "History", "Prediction" or "Reaction"
+        int agentMode_;                 // mode sent to Agents, derived from profile_
 
         // Data structures to be sent to the MEO depending on the mode we are in
         // PERFORMANCE IMPROVEMENT: Changed from vector to map for O(1) lookup in addUserUpdate()
@@ -74,12 +79,14 @@ class RavensControllerApp: public inet::ApplicationBase,
         // when complete.
         std::map<int, inet::ChunkQueue> socketQueues_;
 
-        friend class LocationDataHandlerPolicyBase;
-        friend class SaveDataHistory;
-        friend class NotifyOnDataChange;
-        friend class SendToExternalServer;
-        
-        LocationDataHandlerPolicyBase* locationDataHandlerPolicy_;
+        friend class RavensOutputBase;
+        friend class HistoryOutput;
+        friend class MeoOutput;
+        friend class PredictionOutput;
+
+        // Outputs selected by profile_; the core publishes telemetry and lifecycle
+        // hooks to every registered output (see RavensOutputBase).
+        std::vector<RavensOutputBase*> outputs_;
 
         // to check if we are dealing with a packet from RAVENS Agent or from a UE directly
         inet::PacketFilter ravensLinkPacketFilter;
@@ -117,7 +124,12 @@ class RavensControllerApp: public inet::ApplicationBase,
         // methods to deal with userStateMap
         void updateUserStateMap(inet::Ptr<const RavensLinkDataFrameMessage> received_packet);
         void updateMehStateMap(inet::Ptr<const RavensLinkDataFrameMessage> received_packet);
-        std::vector<UserState> removeInactiveUsers();
+
+        // Diagnostic only (FULL mode): warns once per user whose telemetry went
+        // silent for longer than staleWarningThreshold_. Departures always arrive
+        // as reliable EXIT events, so staleness can only mean a pipeline bug —
+        // it is reported loudly but never mutates state.
+        void warnStaleUsers();
 
         // Handles EVENT_FRAME messages (ENTRY/EXIT deltas from Agent, TCP signaling channel)
         void handleEventFrame(inet::Ptr<const RavensLinkEventMessage> event);

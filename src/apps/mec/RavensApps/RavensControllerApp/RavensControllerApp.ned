@@ -8,11 +8,15 @@ simple RavensControllerApp like IApp
 {
     parameters:
         @class("RavensControllerApp");
-        string mode = default("SaveDataHistory"); // available modes: "SaveDataHistory", "NotifyOnDataChange" and "SendToExternalServer"
-        int threshold = default(10);
-        int snapshot_frequency = default(2);  
+        // Run profile — selects the active outputs and the mode pushed to Agents:
+        //   "History"    = HistoryOutput (CSVs), Agents in FULL mode, MEO-silent
+        //   "Prediction" = HistoryOutput + MeoOutput + PredictionOutput, FULL mode
+        //   "Reaction"   = MeoOutput only, Agents in EVENT_ONLY mode
+        string profile = default("History");
+        int staleWarningThreshold = default(10); // s of telemetry silence before a stale-user warning (diagnostic only, FULL mode)
+        int snapshot_frequency = default(2);
         int snapshot_starting_time = default(2);
-        string path = default("../tust_1to1/results/"); // path to save the data
+        string path = default("../tust_1to1/results/"); // base dir for CSVs; HistoryOutput appends <profile>/run_<N>/
 
         double frameInterval = default(3);         // frame interval pushed to Agents via ACK (s);
                                                    // also the Controller's F2 exit-hold window

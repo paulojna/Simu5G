@@ -1,5 +1,5 @@
-#ifndef RAVENS_CONTROLLER_APP_LOCATIONDATAHANDLERPOLICYBASE_H_
-#define RAVENS_CONTROLLER_APP_LOCATIONDATAHANDLERPOLICYBASE_H_
+#ifndef RAVENS_CONTROLLER_APP_RAVENSOUTPUTBASE_H_
+#define RAVENS_CONTROLLER_APP_RAVENSOUTPUTBASE_H_
 
 #include "../RavensControllerApp.h"
 
@@ -9,18 +9,24 @@ using namespace omnetpp;
 
 class RavensControllerApp;
 
-// abstract class
-class LocationDataHandlerPolicyBase
+// Abstract base of the Controller's outputs. The Controller core owns the world
+// model (userStateMap / mehStateMap) and publishes to the set of outputs selected
+// by the "profile" parameter; each output consumes telemetry and/or lifecycle
+// hooks and is otherwise independent (History = HistoryOutput; Prediction =
+// HistoryOutput + MeoOutput + PredictionOutput; Reaction = MeoOutput).
+class RavensOutputBase
 {
     friend class RavensControllerApp;
 
     protected:
         RavensControllerApp* controllerApp_;
 
-        virtual inet::Packet* handleDataMessage(inet::Ptr<const RavensLinkDataFrameMessage> received_packet) = 0;
+        // Called for every TELEMETRY_FRAME (FULL mode only), after the core has
+        // refreshed the world model. Default is a no-op.
+        virtual void onTelemetry(inet::Ptr<const RavensLinkDataFrameMessage> received_packet) {}
 
         // Semantic hooks — called by handleEventFrame() at each authoritative decision point.
-        // Default implementations are no-ops; policies override only what they need.
+        // Default implementations are no-ops; outputs override only what they need.
         virtual void onUserEntry   (const std::string& userId, const std::string& meh,
                                     int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) {}
         virtual void onUserHandover(const std::string& userId, const std::string& fromMeh,
@@ -30,16 +36,16 @@ class LocationDataHandlerPolicyBase
                                     int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) {}
 
         // Shared helper: insert_or_assign a UserMEHUpdate into controllerApp_->userUpdates.
-        // Not for SaveDataHistory (log-only).
+        // Used by MeoOutput only.
         void emitUserUpdate(const std::string& address,
                             const std::string& lastMeh,
                             const std::string& newMeh);
 
     public:
-        LocationDataHandlerPolicyBase(RavensControllerApp* controllerApp) { controllerApp_ = controllerApp; }
-        virtual ~LocationDataHandlerPolicyBase() {}
+        RavensOutputBase(RavensControllerApp* controllerApp) { controllerApp_ = controllerApp; }
+        virtual ~RavensOutputBase() {}
 };
 
 }
 
-#endif /* RAVENS_CONTROLLER_APP_LOCATIONDATAHANDLERPOLICYBASE_H_ */
+#endif /* RAVENS_CONTROLLER_APP_RAVENSOUTPUTBASE_H_ */
