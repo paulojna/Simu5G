@@ -315,30 +315,58 @@ all unmeasurable until this is fixed. It is a prerequisite for the signaling res
 optimisation.
 
 **Change:** Frame size reflects content. A telemetry frame carrying 20 users is larger than
-one carrying 2; an event frame with 5 events is larger than one with 1. Sizes derive from
-named, documented per-record constants.
+one carrying 2; an event frame with 5 events is larger than one with 1. Each send site calls
+a sizing function that takes the payload it is about to send, and those functions live in one
+shared header alongside named per-record constants.
 
 **Files:**
+- New `src/apps/mec/RavensApps/RavensLinkSizes.h` — the constants and the sizing functions,
+  alongside `RavensLinkProtocol.h` and shared by both ends for the same reason
 - `src/apps/mec/RavensApps/RavensAgentApp/RavensAgentApp.cc` — `sendJoinNetworkRequest`,
-  `sendAPDetails`, `sendEventFrame`, `sendDataFrame`
+  `sendAPList`, `sendEventFrame`, `sendDataFrame`
 - `src/apps/mec/RavensApps/RavensControllerApp/RavensControllerApp.cc` —
   `sendJoinNetworkAck`, `sendInfrastructureDetailsAck`
-- New shared header for the size constants, alongside
-  `src/apps/mec/RavensApps/RavensLinkProtocol.h`
 
 **Sizing constants** (fixed binary encoding; each needs a comment naming the fields it covers):
 
 | Constant | Bytes | Basis |
 |---|---|---|
-| `FRAME_HEADER_B` | 24 | type + requestId + timestamp + host id |
-| `USER_RECORD_B` | 80 | address, cell id, x/y/z, bearing, speed, distance, timestamp (~40) + radio: 2 delays, 2 PDRs, 2 volumes, RSRP, timestamp (~40) |
-| `CELL_RECORD_B` | 64 | cell id + timestamp + ~9 aggregate metrics |
-| `EVENT_RECORD_B` | 16 | address + event type + sample count + firstDetectedAt |
+| `FRAME_HEADER_B` | 24 | type 4 + requestId 4 + timestamp 8 + host id 8 — every Agent→Controller frame |
+| `ACK_HEADER_B` | 16 | type 4 + requestId 4 + timestamp 8 — Controller→Agent replies carry no host id |
+| `CONFIG_ACK_PAYLOAD_B` | 12 | infoType + telemetry interval + agent mode |
+| `USER_RECORD_B` | 80 | location 40: address 4, cell id 4, x/y/z 12, bearing 2, speed 2, distance 4, timestamp 8 · radio 40: 2 delays 8, 2 PDRs 8, 2 volumes 8, RSRP 2, timestamp 8 |
+| `CELL_RADIO_RECORD_B` | 64 | cell id 4 + timestamp 8 + 10 aggregate metrics — **one per telemetry frame**, not one per user |
+| `AP_RECORD_B` | 16 | AP id 4 + x/y/z 12 — **n per infrastructure-details frame** |
+| `EVENT_RECORD_B` | 16 | address 4 + event type 1 + sample count 1 + firstDetectedAt 8 |
 
-Frame length = `FRAME_HEADER_B + n × RECORD_B`.
+Frame length = `FRAME_HEADER_B + n × RECORD_B`, plus `CELL_RADIO_RECORD_B` once on a
+telemetry frame that carries cell aggregates.
+
+**Sizing is computed per message, not hardcoded per call site.** `RavensLinkSizes.h` exposes
+`telemetryFrameBytes(users, hasCellRadio)`, `eventFrameBytes(events)` and
+`infrastructureFrameBytes(aps)`, each taking the payload actually being sent. This does not
+change the number — for a fixed-width encoding `header + n × record` is the closed form of
+walking the fields — but it means a field added to `UserData` or `RavensEvent` is a one-place
+update, and the call site reads as "size this message" rather than asserting a constant.
+
+**Why not measure the real serialized size.** Three reasons, checked against the code:
+`FieldsChunk::getChunkLength()` returns only what was set and no `ChunkSerializer` is
+registered for the RavensLink messages, so there is nothing to read off; IP-layer byte counts
+are *derived from* the chunk length we set, so the constants define the measurement rather
+than approximate it; and every radio field is always present (a missing RNIS value is written
+as the `-1` sentinel, never omitted), so the only content that genuinely varies in length is
+the `std::string` address and cell id — whose length is an OMNeT++ module-naming artifact,
+not a protocol property. A real encoding puts an IPv4 address in 4 bytes flat.
+
+Writing real serializers (`Register_Serializer`, ~200 lines) is the correct route only if
+packets ever need to be byte-exact on a real wire — emulation, pcap export, comparison with a
+real deployment. None of that is in scope, and the Reaction-vs-Prediction ratio is already
+immune to the constants being approximate.
 
 **Done when:**
 - No `setChunkLength` on the Agent↔Controller path uses a literal
+- Every Agent↔Controller send site sizes its frame by calling a function in
+  `RavensLinkSizes.h` with the payload it is sending
 - Telemetry frame size scales with user count; event frame with event count; infrastructure
   details with AP count
 - A short run shows frame sizes differing across frames
@@ -353,6 +381,9 @@ Frame length = `FRAME_HEADER_B + n × RECORD_B`.
   per host (4900 vehicles over 3600 s across 11 hosts), so ~0.8–2.4 kB unbatched and
   ~2.2–6.6 kB batched. Fragmentation is acceptable (see settled decisions) — this measurement
   establishes how often it happens, not whether to prevent it.
+  **This needs no new code and no new run:** `run_<N>_users.csv` already carries
+  `TimestampSent` and `MEHId`, so concurrent UEs per host is `group by (TimestampSent, MEHId)`
+  on any existing run, and frame size follows from the constants above.
 
 **Depends on:** —
 

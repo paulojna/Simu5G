@@ -39,7 +39,7 @@ class RavensAgentApp : public MecAppBase, public inet::UdpSocket::ICallback
 protected:
     int localSnapshotCounter;
 
-    simtime_t frameInterval_;   // negotiated with Controller, used for both frame types
+    simtime_t telemetryInterval_;  // received from the Controller in the handshake ACK
     int agentMode_;             // EVENT_ONLY_MODE, TELEMETRY_ONLY_MODE, or FULL_MODE
 
     // Pending events — accumulated between frame sends, cleared after each frame

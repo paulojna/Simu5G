@@ -33,8 +33,8 @@ struct UserState
     simtime_t timestamp;
     UserData userData;
     std::string pendingMEH;       // MEH attempting handover (empty if none)
-    simtime_t pendingExitTime;    // non-zero when F2 exit-hold window is active
-    int pendingExitSamples = 0;   // samplesSinceChange of the EXIT that opened the hold
+    simtime_t pendingExitTime;    // non-zero while the exit confirmation window is open
+    int pendingExitSamples = 0;   // samplesSinceChange of the EXIT that opened the window
     simtime_t pendingExitFirstAt; // firstDetectedAt of that EXIT
 };
 
@@ -65,8 +65,9 @@ class RavensControllerApp: public inet::ApplicationBase,
 
         int threshold_;
 
-        double frameInterval_;          // pushed to Agents in INFRASTRUCTURE_DETAILS_ACK;
-                                        // also the F2 exit-hold window length
+        double telemetryInterval_;        // pushed to Agents in INFRASTRUCTURE_DETAILS_ACK
+        double exitConfirmationWindow_;   // Controller-private; how long to wait before
+                                          // treating a reported EXIT as leaving the system
 
         // Data structures to be sent to the MEO depending on the mode we are in
         // PERFORMANCE IMPROVEMENT: Changed from vector to map for O(1) lookup in addUserUpdate()
@@ -90,7 +91,7 @@ class RavensControllerApp: public inet::ApplicationBase,
         inet::PacketFilter uePacketFilter;
 
         cMessage *calculateAvg_;
-        cMessage *expireHoldsMsg_;   // periodic F2 hold-expiry sweep (frame-independent liveness)
+        cMessage *expireHoldsMsg_;   // periodic sweep for elapsed exit confirmation windows
 
     protected:
         virtual void initialize(int stage) override;
@@ -131,7 +132,7 @@ class RavensControllerApp: public inet::ApplicationBase,
         void handleEventFrame(inet::Ptr<const RavensLinkEventMessage> event,
                               inet::L3Address remoteAddress, int srcPort);
 
-        // Sweeps userStateMap for elapsed F2 exit-holds, emits onUserExit, and removes
+        // Sweeps userStateMap for elapsed exit confirmation windows, emits onUserExit, and removes
         // the user. Called both inline from handleEventFrame (prompt path) and from a
         // periodic self-message (liveness when no event frames are arriving).
         void expirePendingExits();

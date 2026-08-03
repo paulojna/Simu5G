@@ -1,5 +1,7 @@
 #include "RavensControllerApp.h"
 
+#include "apps/mec/RavensApps/RavensLinkSizes.h"
+
 #include "inet/networklayer/common/L3AddressTag_m.h"
 #include "inet/transportlayer/common/L4PortTag_m.h"
 #include "inet/transportlayer/contract/udp/UdpControlInfo_m.h"
@@ -44,7 +46,8 @@ void RavensControllerApp::initialize(int stage){
     snapshot_frequency_ = par("snapshot_frequency");
     snapshot_starting_time_ = par("snapshot_starting_time");
     threshold_ = par("threshold");
-    frameInterval_ = par("frameInterval");
+    telemetryInterval_ = par("telemetryInterval");
+    exitConfirmationWindow_ = par("exitConfirmationWindow");
     update = nullptr;
 
     // start mehStateMap with a maximum size
@@ -81,12 +84,14 @@ void RavensControllerApp::initialize(int stage){
 
     scheduleAt(simTime() + snapshot_starting_time_, new cMessage("sendSnapshot"));
 
-    // Periodic F2 hold-expiry sweep. Decouples departure reporting from incoming
-    // event frames: in quiet regions (and in EVENT_ONLY mode, which has no data
-    // frames) a hold would otherwise never be revisited until some unrelated frame
-    // arrived. Sweeps at frameInterval_ granularity (same scale as the hold itself).
+    // Periodic sweep for exit windows that have elapsed. Decouples departure
+    // reporting from incoming event frames: in quiet regions (and in EVENT_ONLY
+    // mode, which has no telemetry frames) a waiting exit would otherwise never be
+    // revisited until some unrelated frame arrived.
+    // Sweeping at half the window means an exit is confirmed between one and one
+    // and a half windows after it was reported, instead of up to two.
     expireHoldsMsg_ = new cMessage("expireHolds");
-    scheduleAt(simTime() + frameInterval_, expireHoldsMsg_);
+    scheduleAt(simTime() + exitConfirmationWindow_ / 2, expireHoldsMsg_);
     // scheduleAt(simTime() + 10, calculateAvg_);
 }
 
@@ -147,6 +152,12 @@ void RavensControllerApp::handleSelfMessage(cMessage *msg){
 
                 inet::Packet *update = new inet::Packet("UserMEHUpdatedListMessage");
                 auto userMEHUpdatedListMessage = inet::makeShared<UserMEHUpdatedListMessage>();
+                // This size is arbitrary and never transmitted. The Controller ->
+                // MEO link is a direct module connection with no channel, delay or
+                // datarate, because the two are modelled as co-located management
+                // entities that would plausibly share a server. Signaling results
+                // are scoped to the Agent -> Controller path, which does cross the
+                // modelled network - do not add this frame to an overhead total.
                 userMEHUpdatedListMessage->setChunkLength(inet::B(1500));
                 userMEHUpdatedListMessage->setType(USERS_UPDATE);
                 userMEHUpdatedListMessage->setUeMehList(userUpdatesVector);
@@ -171,6 +182,7 @@ void RavensControllerApp::handleSelfMessage(cMessage *msg){
 
             	inet::Packet *entry = new inet::Packet("MigrationPredictionListMessage");
             	auto predictionListMessage = inet::makeShared<MigrationPredictionListMessage>();
+            	// Arbitrary and never transmitted, same as the user update above.
             	predictionListMessage->setChunkLength(inet::B(1500));
             	predictionListMessage->setType(MIGRATION_PLAN);
             	predictionListMessage->setPredictions(predictionsVector);
@@ -190,10 +202,12 @@ void RavensControllerApp::handleSelfMessage(cMessage *msg){
     }
     else if(strcmp(msg->getName(), "expireHolds") == 0)
     {
-        // Frame-independent liveness: flush any F2 holds whose window has elapsed
-        // even if no event frame has arrived to drive handleEventFrame().
+        // Confirm departures even when no event frame has arrived to drive
+        // handleEventFrame(). Only acts on UEs whose window has already elapsed —
+        // this sweep controls how promptly that is noticed, never how long the
+        // window is.
         expirePendingExits();
-        scheduleAt(simTime() + frameInterval_, msg);
+        scheduleAt(simTime() + exitConfirmationWindow_ / 2, msg);
     }
     else
     {
@@ -233,7 +247,8 @@ void RavensControllerApp::sendJoinNetworkAck(inet::TcpSocket *socket){
     EV << "RavensControllerApp::sendJoinNetworkAck - sending join network ack over TCP" << endl;
     inet::Packet* packet = new inet::Packet("JoinNetworkAckMessage");
     auto request = inet::makeShared<RavensLinkPacket>();
-    request->setChunkLength(inet::B(500));
+    // Header only: this ack carries no payload.
+    request->setChunkLength(joinAckBytes());
     request->setType(JOIN_NETWORK_ACK);
     request->setRequestId(0);
     request->setTimeStamp(simTime().inUnit(SIMTIME_S));
@@ -245,12 +260,16 @@ void RavensControllerApp::sendInfrastructureDetailsAck(inet::TcpSocket *socket){
     EV << "RavensControllerApp::sendInfrastructureDetailsAck - sending infrastructure details ack over TCP" << endl;
     inet::Packet* packet = new inet::Packet("RavensLinkInfrastructureDetailsAckMessage");
     auto request = inet::makeShared<RavensLinkInfrastructureDetailsMessageAck>();
-    request->setChunkLength(inet::B(500));
+    // Fixed size: three configuration values, the same on every handshake.
+    request->setChunkLength(configAckBytes());
     request->setType(INFRASTRUCTURE_DETAILS_ACK);
     request->setRequestId(0);
     request->setTimeStamp(simTime().inUnit(SIMTIME_S));
     request->setInfoType(100);
-    request->setRate((int)(frameInterval_ * 1000));
+    // Only the telemetry cadence is pushed to the Agent. exitConfirmationWindow_
+    // stays here — it is the Controller's own question about the whole system,
+    // and a single Agent has no way to answer it.
+    request->setTelemetryIntervalMs((int)(telemetryInterval_ * 1000));
     int mode = !strcmp(par("mode"), "NotifyOnDataChange") ? EVENT_ONLY_MODE : FULL_MODE;
     request->setAgentMode(mode);
     packet->insertAtBack(request);
@@ -353,14 +372,14 @@ void RavensControllerApp::handleEventFrame(inet::Ptr<const RavensLinkEventMessag
     EV << "RavensControllerApp::handleEventFrame - " << event->getEvents().size()
        << " events from " << sourceMEH << endl;
 
-    // Step 1: Expire any elapsed F2 holds promptly (the periodic timer is the
-    // backstop for quiet periods; this catches them as soon as a frame arrives).
+    // Step 1: Confirm any departures whose window has elapsed (the periodic sweep
+    // is the backstop for quiet periods; this catches them as soon as a frame arrives).
     expirePendingExits();
 
     // Step 2: Split events by type. No confidence gate — LS is the single source of
     // truth for presence, so every detected ENTRY/EXIT is acted on. Debounce
-    // (handover vs. departure) is handled entirely by the F2 hold below, not by a
-    // per-event sample threshold. samplesSinceChange / firstDetectedAt are carried
+    // (handover vs. departure) is handled entirely by the exit confirmation window
+    // below, not by a per-event sample threshold. samplesSinceChange / firstDetectedAt are carried
     // through to the policy hooks as metadata only.
     RavensEventList entries, exits;
     for (const auto& e : event->getEvents()) {
@@ -368,19 +387,19 @@ void RavensControllerApp::handleEventFrame(inet::Ptr<const RavensLinkEventMessag
         else                            exits.push_back(e);
     }
 
-    // Step 3: Apply exits — start F2 hold window and stash metadata fields
+    // Step 3: Apply exits — open the exit confirmation window and stash metadata fields
     for (const auto& e : exits) {
         auto userIt = userStateMap.find(e.ueAddress);
         if (userIt == userStateMap.end())
             continue;
-        // C5: ignore a stale EXIT from a MEH the user already left
+        // Ignore a stale EXIT from a host the user has already left
         if (userIt->second.currentMEH != sourceMEH) {
             EV << "RavensControllerApp::handleEventFrame - stale EXIT for " << e.ueAddress
                << " from " << sourceMEH << " (current MEH is " << userIt->second.currentMEH
                << "), ignoring" << endl;
             continue;
         }
-        userIt->second.pendingExitTime    = simTime() + frameInterval_;
+        userIt->second.pendingExitTime    = simTime() + exitConfirmationWindow_;
         userIt->second.pendingExitSamples = e.samplesSinceChange;
         userIt->second.pendingExitFirstAt = e.firstDetectedAt;
         EV << "RavensControllerApp::handleEventFrame - EXIT hold started for "

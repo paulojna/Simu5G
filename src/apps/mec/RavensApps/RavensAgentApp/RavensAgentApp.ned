@@ -51,7 +51,11 @@ simple RavensAgentApp like IMECApp, IApp
 
         int localPort = default(1993);
 
-        double frameInterval @unit(s) = default(3s); // default, overridden by Controller ACK
+        // Pre-negotiation default only. The Controller sends the real value in the
+        // handshake ACK, which always arrives before the first frame is sent, so
+        // this value is never actually used to time anything. It exists so the
+        // member is never uninitialised.
+        double telemetryInterval @unit(s) = default(3s);
 		
 	gates:
 	 	input mePlatformIn;

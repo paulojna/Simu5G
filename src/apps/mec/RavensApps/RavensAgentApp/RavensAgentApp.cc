@@ -1,5 +1,7 @@
 #include "RavensAgentApp.h"
 
+#include "apps/mec/RavensApps/RavensLinkSizes.h"
+
 #include "inet/common/TimeTag_m.h"
 #include "inet/common/packet/Packet_m.h"
 
@@ -52,7 +54,7 @@ void RavensAgentApp::initialize(int stage)
 
     this->mecHostId = mecHost->getName();
 
-    frameInterval_ = par("frameInterval");
+    telemetryInterval_ = par("telemetryInterval");
     agentMode_ = FULL_MODE; // default until ACK received
 
 	accessPointRadioInformation = new AccessPointRadioInfoData();
@@ -126,7 +128,7 @@ void RavensAgentApp::sendJoinNetworkRequest()
     EV << "RavensAgentApp::sendJoinNetworkRequest - Sending Join Network Request" << endl;
     inet::Packet* packet = new inet::Packet("RavensLinkJoinNetworkRequestMessage");
     auto request = inet::makeShared<RavensLinkJoinNetworkRequestMessage>();
-    request->setChunkLength(B(500));
+    request->setChunkLength(joinRequestBytes());
     request->setType(JOIN_NETWORK_REQUEST);
     request->setRequestId(0);
     request->setTimeStamp(simTime().inUnit(SIMTIME_S));
@@ -145,7 +147,8 @@ void RavensAgentApp::sendAPList()
     EV << "RavensAgentApp::sendAPList - Sending AP List" << endl;
     inet::Packet* packet = new inet::Packet("RavensLinkInfrastructureDetailsMessage");
     auto request = inet::makeShared<RavensLinkInfrastructureDetailsMessage>();
-    request->setChunkLength(B(500));
+    // Size grows with the number of access points this host reports.
+    request->setChunkLength(infrastructureFrameBytes(accessPoints));
     request->setType(INFRASTRUCTURE_DETAILS);
     request->setRequestId(0);
     request->setTimeStamp(simTime());
@@ -160,8 +163,10 @@ void RavensAgentApp::sendAPList()
  * in pendingEntries_ / pendingExits_ since the last frame. No-op if neither map
  * has anything pending — there is no heartbeat/keepalive behavior, and no TTL
  * purge here; a stable user that neither enters nor exits is never reported
- * again after its initial ENTRY ("report-once"). Invoked every frameInterval_,
+ * again after its initial ENTRY ("report-once"). Invoked every telemetryInterval_,
  * regardless of agentMode_, but sends a frame only when changes are pending.
+ * Riding the telemetry timer is temporary — a later step emits events the moment
+ * a change is confirmed, which is the point of having a separate control plane.
  *
  * Events are sent over the TCP signaling channel (controllerMgmtSocket_, kept
  * open after the config handshake): report-once semantics make event loss
@@ -210,7 +215,9 @@ void RavensAgentApp::sendEventFrame()
 
     inet::Packet* packet = new inet::Packet("RavensLinkEventMessage");
     auto chunk = inet::makeShared<RavensLinkEventMessage>();
-    chunk->setChunkLength(inet::B(500));
+    // Size grows with the number of state changes being reported. This frame is
+    // small by design - its cheapness against periodic polling is the point.
+    chunk->setChunkLength(eventFrameBytes(events));
     chunk->setType(EVENT_FRAME);
     chunk->setRequestId(localSnapshotCounter++);
     chunk->setTimeStamp(simTime());
@@ -240,7 +247,10 @@ void RavensAgentApp::sendDataFrame()
 
     inet::Packet* packet = new inet::Packet("RavensLinkDataFrameMessage");
     auto chunk = inet::makeShared<RavensLinkDataFrameMessage>();
-    chunk->setChunkLength(inet::B(500));
+    // Size grows with the number of users observed this frame. The cell
+    // aggregates add a fixed block, and are absent until the first RNIS reply
+    // arrives - so the earliest frames of a run are legitimately smaller.
+    chunk->setChunkLength(telemetryFrameBytes(users, accessPointRadioInformation != nullptr));
     chunk->setType(TELEMETRY_FRAME);
     chunk->setRequestId(localSnapshotCounter++);
     chunk->setTimeStamp(simTime());
@@ -436,9 +446,10 @@ void RavensAgentApp::handleSelfMessage(cMessage *msg)
     else if(strcmp(msg->getName(), "sendUserList") == 0)
     {
         EV << "RavensAgentApp::handleMessage- " << msg->getName() << endl;
-        // Reschedule first (unconditional — C4: timer must not die on a quiet interval)
+        // Reschedule first, unconditionally: the timer must not die on an interval
+        // where there happened to be nothing to send.
         cMessage *next = new cMessage("sendUserList");
-        scheduleAt(simTime() + frameInterval_, next);
+        scheduleAt(simTime() + telemetryInterval_, next);
         // Then conditionally send frames
         sendEventFrame();
         sendDataFrame();
@@ -643,7 +654,7 @@ void RavensAgentApp::handleRNISMessage(int connId)
  *   1. Upsert loop — updates existing users, inserts new ones.
  *      New users are recorded in pendingEntries_ with firstDetectedAt and
  *      sampleCount, which accumulate across 1s intervals until the next
- *      control frame fires (every frameInterval_).
+ *      control frame fires (every telemetryInterval_).
  *   2. Departure detection — any user in the local map absent from this
  *      notification is removed immediately and added to pendingExits_.
  *      pendingExits_ tracks firstDetectedAt and sampleCount so the Controller
@@ -983,10 +994,10 @@ void RavensAgentApp::socketDataArrived(inet::TcpSocket *socket, inet::Packet *pa
             scheduleAt(simTime(), new cMessage("connectMp1"));
         } else if (received->getType() == INFRASTRUCTURE_DETAILS_ACK) {
             auto ack = packet->peekAtFront<RavensLinkInfrastructureDetailsMessageAck>();
-            frameInterval_ = ack->getRate() / 1000.0;
+            telemetryInterval_ = ack->getTelemetryIntervalMs() / 1000.0;
             agentMode_ = ack->getAgentMode();
-            EV << "RavensAgentApp::socketDataArrived(TCP) - INFRASTRUCTURE_DETAILS_ACK: frameInterval="
-               << frameInterval_ << "s, agentMode=" << agentMode_ << endl;
+            EV << "RavensAgentApp::socketDataArrived(TCP) - INFRASTRUCTURE_DETAILS_ACK: telemetryInterval="
+               << telemetryInterval_ << "s, agentMode=" << agentMode_ << endl;
             delete packet;
             // handshake complete — connection stays open as the persistent
             // signaling channel for EVENT_FRAMEs

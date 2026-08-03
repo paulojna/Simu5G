@@ -59,7 +59,7 @@ class RavensLinkInfrastructureDetailsMessage extends RavensLinkPacket
 class RavensLinkInfrastructureDetailsMessageAck extends RavensLinkPacket
 {
     int infoType;
-    int rate;       // frame interval in ms
+    int telemetryIntervalMs;  // how often the Agent sends telemetry frames, in ms
     int agentMode;  // EVENT_ONLY_MODE=0, TELEMETRY_ONLY_MODE=1 (not yet wired), FULL_MODE=2
 }
 
@@ -74,11 +74,13 @@ class RavensLinkDataFrameMessage extends RavensLinkPacket
     AccessPointRNISData apRadioInfo;
 }
 
-// Event frame (EVENT_FRAME): sent at frameInterval only when UE state changes
-// exist (entries or exits). If no changes occurred, no packet is sent. Carries
-// all state changes since the previous event frame as a batch. Always sent
-// regardless of agentMode. Transport: TCP signaling channel (report-once
-// semantics need reliable delivery), kept open after the config handshake.
+// Event frame (EVENT_FRAME): sent only when UE state changes exist (entries or
+// exits). If no changes occurred, no packet is sent. Carries all state changes
+// since the previous event frame as a batch. Always sent regardless of
+// agentMode. Transport: TCP signaling channel (report-once semantics need
+// reliable delivery), kept open after the config handshake.
+// Note: still emitted on the telemetry timer today; a later step moves it to
+// fire the moment a change is confirmed.
 class RavensLinkEventMessage extends RavensLinkPacket
 {
     string mecHostId;
