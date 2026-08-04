@@ -57,6 +57,9 @@ void RavensAgentApp::initialize(int stage)
     telemetryInterval_ = par("telemetryInterval");
     agentMode_ = FULL_MODE; // default until ACK received
 
+    entryConfirmSamples_ = par("entryConfirmSamples");
+    exitConfirmSamples_ = par("exitConfirmSamples");
+
 	accessPointRadioInformation = new AccessPointRadioInfoData();
 
     // connection to the RAVENS CONTROLLER
@@ -159,77 +162,52 @@ void RavensAgentApp::sendAPList()
 }
 
 /**
- * Sends an EVENT_FRAME reporting the batch of ENTRY/EXIT changes accumulated
- * in pendingEntries_ / pendingExits_ since the last frame. No-op if neither map
- * has anything pending — there is no heartbeat/keepalive behavior, and no TTL
- * purge here; a stable user that neither enters nor exits is never reported
- * again after its initial ENTRY ("report-once"). Invoked every telemetryInterval_,
- * regardless of agentMode_, but sends a frame only when changes are pending.
- * Riding the telemetry timer is temporary — a later step emits events the moment
- * a change is confirmed, which is the point of having a separate control plane.
+ * Sends an EVENT_FRAME reporting newEvents — the ENTRY/EXIT changes that
+ * crossed their confirmation threshold at the LS tick that just ran — together
+ * with anything still queued in pendingUnsent_ from a previous attempt. Called
+ * once per LS tick from handleLSMessage, whether or not that tick produced any
+ * new events, so a previously-failed send gets a chance to retry. No-op if
+ * there is nothing new and nothing queued — there is no heartbeat/keepalive
+ * behavior, and no TTL purge; a stable user that neither enters nor exits is
+ * never reported again after its initial ENTRY ("report-once").
  *
  * Events are sent over the TCP signaling channel (controllerMgmtSocket_, kept
  * open after the config handshake): report-once semantics make event loss
- * unrecoverable, so they need reliable in-order delivery. If the channel is
- * not connected, the pending maps are held and retried on the next frame tick.
+ * unrecoverable, so they need reliable in-order delivery (TELEMETRY_FRAMEs
+ * stay on UDP: loss-tolerant, superseded by the next sample). If the channel
+ * is not connected, newEvents joins pendingUnsent_ and both are retried on the
+ * next LS tick.
  */
-void RavensAgentApp::sendEventFrame()
+void RavensAgentApp::sendEventFrame(const RavensEventList& newEvents)
 {
-    if (pendingEntries_.empty() && pendingExits_.empty())
-    {
-        EV << mecHostId << " - RavensAgentApp::sendEventFrame - no changes, skipping" << endl;
-        return;
-    }
+    pendingUnsent_.insert(pendingUnsent_.end(), newEvents.begin(), newEvents.end());
 
-    // Events are control-plane state transitions with report-once semantics —
-    // a lost ENTRY/EXIT would corrupt Controller placement state permanently —
-    // so they ride the reliable TCP signaling channel (TELEMETRY_FRAMEs
-    // stay on UDP: loss-tolerant, superseded by the next sample). If the
-    // channel is down, keep the pending maps intact: events keep coalescing
-    // and are retried on the next frame tick.
+    if (pendingUnsent_.empty())
+        return;
+
     if (controllerMgmtSocket_.getState() != inet::TcpSocket::CONNECTED)
     {
         EV_WARN << mecHostId << " - RavensAgentApp::sendEventFrame - signaling channel not connected; "
-                << "holding " << pendingEntries_.size() << " entries / "
-                << pendingExits_.size() << " exits for next frame" << endl;
+                << "holding " << pendingUnsent_.size() << " event(s) for retry" << endl;
         return;
-    }
-
-    RavensEventList events;
-    for (const auto& [addr, ev] : pendingEntries_) {
-        RavensEvent e;
-        e.ueAddress = addr;
-        e.eventType = EVENT_ENTRY;
-        e.samplesSinceChange = ev.sampleCount;
-        e.firstDetectedAt = ev.firstDetectedAt;
-        events.push_back(e);
-    }
-    for (const auto& [addr, ev] : pendingExits_) {
-        RavensEvent e;
-        e.ueAddress = addr;
-        e.eventType = EVENT_EXIT;
-        e.samplesSinceChange = ev.sampleCount;
-        e.firstDetectedAt = ev.firstDetectedAt;
-        events.push_back(e);
     }
 
     inet::Packet* packet = new inet::Packet("RavensLinkEventMessage");
     auto chunk = inet::makeShared<RavensLinkEventMessage>();
     // Size grows with the number of state changes being reported. This frame is
     // small by design - its cheapness against periodic polling is the point.
-    chunk->setChunkLength(eventFrameBytes(events));
+    chunk->setChunkLength(eventFrameBytes(pendingUnsent_));
     chunk->setType(EVENT_FRAME);
     chunk->setRequestId(localSnapshotCounter++);
     chunk->setTimeStamp(simTime());
     chunk->setMecHostId(getMecHostId().c_str());
-    chunk->setEvents(events);
+    chunk->setEvents(pendingUnsent_);
     packet->insertAtBack(chunk);
     controllerMgmtSocket_.send(packet);
 
-    EV << mecHostId << " - RavensAgentApp::sendEventFrame - sent " << events.size() << " events over TCP" << endl;
+    EV << mecHostId << " - RavensAgentApp::sendEventFrame - sent " << pendingUnsent_.size() << " events over TCP" << endl;
 
-    pendingEntries_.clear();
-    pendingExits_.clear();
+    pendingUnsent_.clear();
 }
 
 void RavensAgentApp::sendDataFrame()
@@ -450,8 +428,9 @@ void RavensAgentApp::handleSelfMessage(cMessage *msg)
         // where there happened to be nothing to send.
         cMessage *next = new cMessage("sendUserList");
         scheduleAt(simTime() + telemetryInterval_, next);
-        // Then conditionally send frames
-        sendEventFrame();
+        // Event frames no longer ride this timer — they are sent from
+        // handleLSMessage the moment a state change is confirmed. Only the
+        // telemetry frame is still on a fixed cadence.
         sendDataFrame();
         delete msg;
     }
@@ -650,16 +629,29 @@ void RavensAgentApp::handleRNISMessage(int connId)
  *   and apIndex_, then triggers AP details transmission to the Controller.
  *
  * code 200 / subscriptionNotification:
- *   Periodic UE list from the LS subscription. Runs the eRAVENS diff logic:
- *   1. Upsert loop — updates existing users, inserts new ones.
- *      New users are recorded in pendingEntries_ with firstDetectedAt and
- *      sampleCount, which accumulate across 1s intervals until the next
- *      control frame fires (every telemetryInterval_).
- *   2. Departure detection — any user in the local map absent from this
- *      notification is removed immediately and added to pendingExits_.
- *      pendingExits_ tracks firstDetectedAt and sampleCount so the Controller
- *      receives confidence context (e.g. absent for 3 samples = confident EXIT).
- *   Both pending maps are cleared by sendEventFrame() after each frame.
+ *   Periodic UE list from the LS subscription. Runs the stability-threshold
+ *   diff logic, updating eventState_ (per-UE consecutive present/absent
+ *   counters, see the struct definition in RavensAgentApp.h) and the users
+ *   map together:
+ *   1. Upsert loop — for each UE reported present this tick: updates
+ *      location in the users map; in eventState_, cancels any in-progress
+ *      absent streak (a return before EXIT confirmed) and extends the
+ *      present streak. A present streak that reaches entryConfirmSamples_
+ *      and has not yet been reported produces an ENTRY event immediately —
+ *      not on the next frame tick — and marks the UE reported.
+ *   2. Departure detection — any UE in the users map absent from this
+ *      notification is removed from users immediately and its absent streak
+ *      in eventState_ is extended (started fresh if this is the first
+ *      absent sample). If the UE was reported and the absent streak reaches
+ *      exitConfirmSamples_, an EXIT event is produced and the UE's
+ *      eventState_ entry is erased — tracking is done. If the UE was never
+ *      reported, its eventState_ entry is erased immediately with no event:
+ *      the Controller was never told it existed, so there is nothing to
+ *      retract, and a later reappearance starts a fresh streak.
+ *   All events produced by this tick are batched into a single call to
+ *   sendEventFrame(), which is invoked once per tick regardless of whether
+ *   this tick produced anything, so a previously unsent event gets a chance
+ *   to retry.
  *
  * code 201:
  *   Subscription confirmed. Schedules the first frame timer.
@@ -709,6 +701,10 @@ void RavensAgentApp::handleLSMessage(int connId)
             {
                 nlohmann::json userInfoList = jsonBody["subscriptionNotification"]["userInfoList"];
 
+                // Events confirmed at this tick — entries crossing entryConfirmSamples_,
+                // exits crossing exitConfirmSamples_. Sent as one frame at the end.
+                RavensEventList confirmedEvents;
+
                 // Build current address set while upserting — single pass over userInfoList.
                 // currentLSAddrs is used after the loop for departure detection.
                 std::unordered_set<std::string> currentLSAddrs;
@@ -745,74 +741,94 @@ void RavensAgentApp::handleLSMessage(int connId)
                         );
                         it->second.setDistanceToAP(newDistance);
                         it->second.setTimestamp(simTime());
-
-                        // If an ENTRY is still pending (frame not yet sent), accumulate
-                        // confidence: one more consecutive 1s sample present at this MEH.
-                        auto entryIt = pendingEntries_.find(address);
-                        if (entryIt != pendingEntries_.end())
-                            entryIt->second.sampleCount++;
                     }
                     else
                     {
-                        // New user — insert and track as pending ENTRY.
-                        // timestamp serves as firstDetectedAt for the control frame.
+                        // New user — insert into the users map (current placement).
                         UserData userData = UserData(address, apData, userLocation);
                         userData.setTimestamp(simTime());
                         users[address] = userData;
+                    }
 
-                        // Coalesce opposite transitions that occur before the next frame.
-                        // If an unsent EXIT is pending, the Controller still considers this
-                        // user present at this MEH, so cancelling the EXIT is sufficient.
-                        // Otherwise the Controller does not know the user is here yet and
-                        // needs an ENTRY.
-                        bool cancelledPendingExit = pendingExits_.erase(address) > 0;
-                        if (cancelledPendingExit)
-                        {
-                            EV << "RavensAgentApp::handleLSMessage - User reappeared before EXIT was sent; "
-                               << "cancelled pending EXIT: " << address << endl;
-                        }
-                        else
-                        {
-                            pendingEntries_[address] = {simTime(), 1};
-                            EV << "RavensAgentApp::handleLSMessage - New user detected: " << address << endl;
-                        }
+                    // eventState_ tracks stability independently of the users map, so
+                    // it is updated the same way whether the UE already existed or not.
+                    UeEventState& st = eventState_[address];
+                    if (st.consecutiveAbsent > 0)
+                    {
+                        // Returned before its absent streak reached exitConfirmSamples_ —
+                        // cancel the streak. If already reported, this is the whole story:
+                        // the Controller's view never changed, so nothing is sent. If not
+                        // yet reported, this cannot happen — an unreported UE's absent
+                        // streak is erased outright on departure (see below), so a return
+                        // always starts a brand-new entry, never reaches this branch.
+                        EV << mecHostId << " - RavensAgentApp::handleLSMessage - User reappeared before EXIT was confirmed: "
+                           << address << endl;
+                        st.consecutiveAbsent = 0;
+                        st.consecutivePresent = 1;
+                    }
+                    else if (st.consecutivePresent == 0)
+                    {
+                        // First sample ever seen for this address (or first sample after
+                        // a fresh eventState_ entry was created above by operator[]).
+                        st.firstDetectedAt = simTime();
+                        st.consecutivePresent = 1;
+                    }
+                    else
+                    {
+                        st.consecutivePresent++;
+                    }
+
+                    if (!st.reported && st.consecutivePresent >= entryConfirmSamples_)
+                    {
+                        RavensEvent e;
+                        e.ueAddress = address;
+                        e.eventType = EVENT_ENTRY;
+                        e.samplesSinceChange = st.consecutivePresent;
+                        e.firstDetectedAt = st.firstDetectedAt;
+                        confirmedEvents.push_back(e);
+                        st.reported = true;
+                        EV << mecHostId << " - RavensAgentApp::handleLSMessage - ENTRY confirmed for " << address
+                           << " after " << st.consecutivePresent << " sample(s)" << endl;
                     }
                 }
 
-                // Accumulate confidence for users already pending EXIT that remain
-                // absent this sample. The departure loop below only catches the
-                // *first* absent sample (it iterates `users`, from which a departed
-                // user is erased immediately); subsequent absent samples are counted
-                // here. New departures this round are not yet in pendingExits_, so
-                // they are not double-counted.
-                for (auto& [addr, ev] : pendingExits_)
-                {
-                    if (currentLSAddrs.find(addr) == currentLSAddrs.end())
-                        ev.sampleCount++;
-                }
-
-                // Departure detection — LS has replacement semantics: any user
-                // absent from this notification has left this cell. Remove from
-                // users map immediately and seed pendingExits_ (sampleCount=1) so the
-                // Controller receives confidence accumulated by the pass above.
+                // Departure detection — LS has replacement semantics: any user in the
+                // users map absent from this notification has left this cell.
                 for (auto it = users.begin(); it != users.end(); )
                 {
                     if (currentLSAddrs.find(it->first) == currentLSAddrs.end())
                     {
-                        // Coalesce an ENTRY followed by EXIT before either is sent. The
-                        // Controller never learned that this user was present, so its known
-                        // state already matches the final state and no EXIT is necessary.
-                        bool cancelledPendingEntry = pendingEntries_.erase(it->first) > 0;
-                        if (cancelledPendingEntry)
+                        UeEventState& st = eventState_[it->first];
+                        if (st.consecutiveAbsent == 0)
+                            st.firstDetectedAt = simTime();  // first absent sample of this streak
+                        st.consecutiveAbsent++;
+                        st.consecutivePresent = 0;
+
+                        if (st.reported)
                         {
-                            EV << "RavensAgentApp::handleLSMessage - User left before ENTRY was sent; "
-                               << "cancelled pending ENTRY: " << it->first << endl;
+                            if (st.consecutiveAbsent >= exitConfirmSamples_)
+                            {
+                                RavensEvent e;
+                                e.ueAddress = it->first;
+                                e.eventType = EVENT_EXIT;
+                                e.samplesSinceChange = st.consecutiveAbsent;
+                                e.firstDetectedAt = st.firstDetectedAt;
+                                confirmedEvents.push_back(e);
+                                EV << mecHostId << " - RavensAgentApp::handleLSMessage - EXIT confirmed for " << it->first
+                                   << " after " << st.consecutiveAbsent << " sample(s)" << endl;
+                                eventState_.erase(it->first);  // done — fully reported and retracted
+                            }
+                            // else: still within the grace period, keep waiting.
                         }
                         else
                         {
-                            pendingExits_[it->first] = {simTime(), 1};
-                            EV << "RavensAgentApp::handleLSMessage - User departed: " << it->first
-                               << " (absent for " << pendingExits_[it->first].sampleCount << " sample(s))" << endl;
+                            // Never reported to the Controller, so there is nothing to
+                            // retract. Drop the state entirely rather than keep counting
+                            // an absence nobody needs to hear about; a later reappearance
+                            // is treated as a brand-new UE.
+                            EV << mecHostId << " - RavensAgentApp::handleLSMessage - Unreported user left, no event: "
+                               << it->first << endl;
+                            eventState_.erase(it->first);
                         }
 
                         it = users.erase(it);
@@ -822,6 +838,10 @@ void RavensAgentApp::handleLSMessage(int connId)
                         ++it;
                     }
                 }
+
+                // Sent every tick, whether or not confirmedEvents is empty, so a
+                // previously unsent frame (channel was down) gets a chance to retry.
+                sendEventFrame(confirmedEvents);
             }
         }
         else

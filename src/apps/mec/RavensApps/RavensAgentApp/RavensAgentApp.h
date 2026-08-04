@@ -42,13 +42,26 @@ protected:
     simtime_t telemetryInterval_;  // received from the Controller in the handshake ACK
     int agentMode_;             // EVENT_ONLY_MODE, TELEMETRY_ONLY_MODE, or FULL_MODE
 
-    // Pending events — accumulated between frame sends, cleared after each frame
-    struct PendingEvent {
-        simtime_t firstDetectedAt;
-        int       sampleCount;
+    int entryConfirmSamples_;  // consecutive present LS samples required to confirm ENTRY
+    int exitConfirmSamples_;   // consecutive absent LS samples required to confirm EXIT
+
+    // Per-UE event detection state. Lives across LS ticks (unlike the old
+    // frame-boundary pending maps) so consecutive-sample counts survive between
+    // samples. An entry is created the first time a UE is observed and erased
+    // either when its EXIT is confirmed and sent, or — if it was never reported —
+    // the moment it disappears, so a later reappearance starts fresh.
+    struct UeEventState {
+        simtime_t firstDetectedAt;   // start of the current present or absent streak
+        int consecutivePresent = 0;
+        int consecutiveAbsent  = 0;
+        bool reported = false;       // true once ENTRY has been sent to the Controller
     };
-    std::unordered_map<std::string, PendingEvent> pendingEntries_; // users appeared since last frame
-    std::unordered_map<std::string, PendingEvent> pendingExits_;   // users absent since last frame
+    std::unordered_map<std::string, UeEventState> eventState_;
+
+    // Events that crossed their threshold but could not be sent yet because the
+    // signaling channel was down. Retried on the next LS tick, whether or not
+    // that tick produces new events of its own.
+    RavensEventList pendingUnsent_;
 
     std::string mecHostId;
 
@@ -108,7 +121,7 @@ protected:
     void connectToRavensController();
     void sendJoinNetworkRequest();
     void sendAPList();
-    void sendEventFrame();     // sends event frame if pending entries/exits exist (UDP)
+    void sendEventFrame(const RavensEventList& newEvents);  // sends newEvents plus any retry backlog (TCP)
     void sendDataFrame();      // sends telemetry frame only if agentMode_ == FULL_MODE (UDP)
 
     // UdpSocket::ICallback

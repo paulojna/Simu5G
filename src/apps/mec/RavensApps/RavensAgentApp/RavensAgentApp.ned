@@ -56,7 +56,16 @@ simple RavensAgentApp like IMECApp, IApp
         // this value is never actually used to time anything. It exists so the
         // member is never uninitialised.
         double telemetryInterval @unit(s) = default(3s);
-		
+
+        // Consecutive present LS samples (1s each) required before an ENTRY is
+        // reported to the Controller. Symmetric with exitConfirmSamples by design —
+        // see RAVENS_PLAN.md, "Event reporting", for why an asymmetric threshold
+        // is unsafe.
+        int entryConfirmSamples = default(2);
+        // Consecutive absent LS samples (1s each) required before an EXIT is
+        // reported to the Controller.
+        int exitConfirmSamples = default(2);
+
 	gates:
 	 	input mePlatformIn;
 	  	output mePlatformOut;
