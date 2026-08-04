@@ -557,6 +557,12 @@ added, renamed, or computed differently on one side would produce a model traine
 distribution and served on another, silently. Making both come from one producer removes the
 possibility rather than relying on discipline.
 
+They have **already diverged**, measured after Step 4: the CSV row writes 20 fields and the
+prediction payload writes 8. Missing from the payload are the radio timestamp, the RNIS cell
+id, both delays, both packet delivery ratios, both data volumes, and RSRP — nine fields a
+model can be trained on and will never be served. Adding them by hand was deliberately not
+done, because a second hand-maintained field list is what produced the gap.
+
 **Change:** A single function produces a sample record. `HistoryOutput` writes it as CSV
 columns; `PredictionOutput` serialises the identical fields. A `confirmedMEH` field is added
 alongside the existing observing `MEHId`, recording what the Controller believed at that
@@ -566,8 +572,9 @@ moment — diagnostic only, and cheap to add now given what a regeneration costs
 - `Outputs/RavensOutputBase.h` / `.cc` — the shared sample record and its producer; add a
   per-UE sample hook alongside the frame-level `onTelemetry`, which stays for the cell-level
   radio aggregates
-- `RavensControllerApp.cc` — dispatch samples to the per-UE hook, tagging each with the
-  confirmed placement from `userStateMap`
+- `RavensControllerApp.cc` / `.h` — dispatch samples to the per-UE hook, tagging each with the
+  confirmed placement from `userStateMap`; drop `pendingMEH`; move the last-resort cleanup onto
+  the periodic sweep
 - `Outputs/HistoryOutput.cc` — user rows from the sample hook, cell rows from the frame hook
 - `Outputs/PredictionOutput.cc` — payload built from the shared record
 
@@ -579,6 +586,27 @@ moment — diagnostic only, and cheap to add now given what a regeneration costs
 - Cell-level radio aggregates still come from the frame-level hook, unchanged
 - No Controller-side buffering or reordering is introduced — samples are emitted as they
   arrive and sorted by whoever consumes them
+- `pendingMEH` is gone from `UserState`
+- The last-resort cleanup runs on every profile, including one with no telemetry at all,
+  and a run in that profile shows it firing when an exit event is deliberately dropped
+
+**Also in this step — two findings from Step 4.** Neither is about sample representation;
+both are small, both are in files this step already opens, and neither is worth a step of its
+own.
+
+1. **`UserState::pendingMEH` is dead.** Declared, never assigned, never read. Same category as
+   the telemetry copy and the unused change struct removed in Step 4; it survived that pass
+   only because that pass was looking at the telemetry copy specifically.
+2. **The last-resort cleanup cannot run in the reaction profile.** `removeInactiveUsers` is
+   called only from the three `handleDataMessage` implementations, so it is driven entirely by
+   telemetry arriving. In event-only mode no telemetry frame is ever sent, so the backstop
+   that catches a user whose exit event went missing is absent from precisely the profile that
+   has nothing but events — the one where a lost exit is least recoverable. Nothing breaks in
+   normal operation, since it is a backstop and not a primary path.
+   **Fix:** drive it from something that ticks regardless of profile. The Controller already
+   runs a periodic sweep for elapsed exit confirmation windows; that sweep is the natural home,
+   and moving it there also removes the oddity of a cleanup being triggered by an unrelated
+   message arriving.
 
 **Depends on:** Step 4
 

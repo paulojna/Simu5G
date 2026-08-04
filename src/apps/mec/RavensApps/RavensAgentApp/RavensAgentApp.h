@@ -5,6 +5,8 @@
 
 #include <cstddef>
 #include <iterator>
+#include <map>
+#include <vector>
 
 // RavensLink frame types, agent modes and event subtypes (shared with the Controller)
 #include "apps/mec/RavensApps/RavensLinkProtocol.h"
@@ -86,7 +88,33 @@ protected:
 
     std::vector<AccessPointData> accessPoints;
 	std::unordered_map<std::string, size_t> apIndex_;
+
+    // Current state: where each UE is right now, overwritten every Location
+    // Service tick. Used for the event detection above and for the cell-level
+    // averages. A UE is erased from here the moment it stops being reported.
     std::unordered_map<std::string, UserData> users;
+
+    // Observations waiting to go out in the next telemetry frame, keyed by UE.
+    // The Location Service is read once a second while frames leave less often,
+    // so each UE normally accumulates several samples between frames; sending
+    // them all is what keeps a trajectory continuous instead of subsampled.
+    //
+    // Deliberately separate from the users map above, and with a different
+    // lifetime: a sample is copied in when observed and stays until a frame
+    // carries it away, so erasing a departed UE from users does not discard the
+    // observations it already produced. Those final observations - a UE on its
+    // way out of the cell - are the ones the handover models most need.
+    //
+    // Ordered (not hashed) so groups leave in a stable address order, which
+    // keeps the resulting rows consistent from run to run.
+    std::map<std::string, std::vector<UserData>> sampleBuffer_;
+
+    // How many telemetry frames this Agent sent, and how many of those were
+    // large enough that the network layer had to split them up. Recorded as
+    // result scalars in finish(), so "does this actually happen, and how often?"
+    // is answered by a number per run rather than by searching the logs.
+    long telemetryFramesSent_ = 0;
+    long telemetryFramesOversized_ = 0;
 
 	AccessPointRadioInfoData* accessPointRadioInformation;
 

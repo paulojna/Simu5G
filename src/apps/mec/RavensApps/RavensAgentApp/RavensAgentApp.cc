@@ -72,6 +72,12 @@ void RavensAgentApp::finish()
     MecAppBase::finish();
     EV << "RavensAgentApp::finish()" << endl;
 
+    // Recorded as scalars rather than only logged: these end up in the run's
+    // result file, so how often frames grew past the path limit is a number
+    // that can be read straight off a batch of runs.
+    recordScalar("telemetryFramesSent", telemetryFramesSent_);
+    recordScalar("telemetryFramesOversized", telemetryFramesOversized_);
+
     if(gate("socketOut")->isConnected()){
 
     }
@@ -210,10 +216,31 @@ void RavensAgentApp::sendEventFrame(const RavensEventList& newEvents)
     pendingUnsent_.clear();
 }
 
+/**
+ * Sends the periodic telemetry frame: everything the Location Service reported
+ * since the previous frame, grouped per UE, plus the cell-level radio
+ * aggregates.
+ *
+ * The frame timer and the sensing rate are independent. The Location Service is
+ * read every second and each reading is buffered; this function ships the whole
+ * buffer and empties it. So the number of frames is unchanged from when only the
+ * newest value was sent — there is simply more inside each one, and no
+ * observation is discarded for having been taken between two frames.
+ *
+ * Emptying the buffer here, and only here, is what lets a departing UE's last
+ * observations still be delivered: by the time the UE is erased from the current
+ * -state map, its samples already belong to the buffer.
+ */
 void RavensAgentApp::sendDataFrame()
 {
-    if (agentMode_ != FULL_MODE)
+    if (agentMode_ != FULL_MODE) {
+        // Nothing will ever drain the buffer in this mode. It is normally empty
+        // already, since samples are only buffered in full mode — but the Agent
+        // starts in full mode and learns its real mode from the handshake reply,
+        // so anything collected before that reply is dropped here.
+        sampleBuffer_.clear();
         return;
+    }
 
     // Compute avg distance to AP from current LS user map
     if (accessPointRadioInformation != nullptr && !users.empty()) {
@@ -223,23 +250,54 @@ void RavensAgentApp::sendDataFrame()
         accessPointRadioInformation->setAvgDistanceToAp(totalDist / users.size());
     }
 
+    // Hand the buffered observations over to the wire form, one group per UE.
+    // The samples are moved rather than copied — the buffer is being emptied
+    // either way, and a busy host can be holding a few hundred of them.
+    UeSampleGroupList groups;
+    groups.reserve(sampleBuffer_.size());
+    int sampleCount = 0;
+    for (auto& [address, samples] : sampleBuffer_) {
+        sampleCount += (int)samples.size();
+        UeSampleGroup group;
+        group.ueAddress = address;
+        group.samples = std::move(samples);
+        groups.push_back(std::move(group));
+    }
+    sampleBuffer_.clear();
+
     inet::Packet* packet = new inet::Packet("RavensLinkDataFrameMessage");
     auto chunk = inet::makeShared<RavensLinkDataFrameMessage>();
-    // Size grows with the number of users observed this frame. The cell
+    // Size grows with the observations actually carried, not with the number of
+    // UEs: a UE seen three times this interval costs three samples. The cell
     // aggregates add a fixed block, and are absent until the first RNIS reply
     // arrives - so the earliest frames of a run are legitimately smaller.
-    chunk->setChunkLength(telemetryFrameBytes(users, accessPointRadioInformation != nullptr));
+    inet::B frameBytes = telemetryFrameBytes(groups, accessPointRadioInformation != nullptr);
+    chunk->setChunkLength(frameBytes);
     chunk->setType(TELEMETRY_FRAME);
     chunk->setRequestId(localSnapshotCounter++);
     chunk->setTimeStamp(simTime());
     chunk->setMecHostId(getMecHostId().c_str());
-    chunk->setUsers(users);
+    chunk->setUserSamples(groups);
     if (accessPointRadioInformation != nullptr)
         chunk->setApRadioInfo(*accessPointRadioInformation);
     packet->insertAtBack(chunk);
     controllerSocket_.send(packet);
+    telemetryFramesSent_++;
 
-    EV << mecHostId << " - RavensAgentApp::sendDataFrame - sent telemetry frame with " << users.size() << " users" << endl;
+    // Past this size the network layer splits the frame and the receiver
+    // reassembles it, which on this path is safe (see TELEMETRY_PATH_MTU_B).
+    // The warning and the count are here to make it visible how often busy
+    // hosts cross the line, not to stop them doing it.
+    if (frameBytes > inet::B(TELEMETRY_PATH_MTU_B)) {
+        telemetryFramesOversized_++;
+        EV_WARN << mecHostId << " - RavensAgentApp::sendDataFrame - frame of "
+                << frameBytes << " exceeds the " << TELEMETRY_PATH_MTU_B
+                << " B path limit and will be split up: " << groups.size()
+                << " users, " << sampleCount << " samples" << endl;
+    }
+
+    EV << mecHostId << " - RavensAgentApp::sendDataFrame - sent telemetry frame with "
+       << groups.size() << " users, " << sampleCount << " samples, " << frameBytes << endl;
 }
 
 
@@ -639,15 +697,19 @@ void RavensAgentApp::handleRNISMessage(int connId)
  *      present streak. A present streak that reaches entryConfirmSamples_
  *      and has not yet been reported produces an ENTRY event immediately —
  *      not on the next frame tick — and marks the UE reported.
- *   2. Departure detection — any UE in the users map absent from this
- *      notification is removed from users immediately and its absent streak
- *      in eventState_ is extended (started fresh if this is the first
- *      absent sample). If the UE was reported and the absent streak reaches
- *      exitConfirmSamples_, an EXIT event is produced and the UE's
- *      eventState_ entry is erased — tracking is done. If the UE was never
- *      reported, its eventState_ entry is erased immediately with no event:
- *      the Controller was never told it existed, so there is nothing to
- *      retract, and a later reappearance starts a fresh streak.
+ *   2. Departure detection — walks eventState_, not the users map, because a
+ *      UE leaves the users map on its first absent sample while its absent
+ *      streak has to keep growing across ticks. Anyone being tracked but
+ *      missing from this notification has its absent streak extended (started
+ *      fresh if this is the first absent sample) and is removed from the
+ *      users map, so the cell averages stop counting it right away. If the UE
+ *      was reported and the absent streak reaches exitConfirmSamples_, an EXIT
+ *      event is produced and the UE's eventState_ entry is erased — tracking
+ *      is done. If the UE was never reported, its eventState_ entry is erased
+ *      immediately with no event: the Controller was never told it existed, so
+ *      there is nothing to retract, and a later reappearance starts a fresh
+ *      streak. Buffered telemetry samples are untouched either way and still
+ *      go out with the next frame.
  *   All events produced by this tick are batched into a single call to
  *   sendEventFrame(), which is invoked once per tick regardless of whether
  *   this tick produced anything, so a previously unsent event gets a chance
@@ -750,6 +812,22 @@ void RavensAgentApp::handleLSMessage(int connId)
                         users[address] = userData;
                     }
 
+                    // Record this tick as an observation of this UE. The sample is a
+                    // copy taken while the value is current — position from this tick,
+                    // radio values as the RNIS last reported them, each carrying its
+                    // own timestamp so a repeated radio reading stays recognisable as
+                    // a repeat.
+                    //
+                    // Because it is a copy, it no longer depends on the users map
+                    // entry: when this UE later disappears and is erased below, the
+                    // observations it already produced are safe here and still go out.
+                    //
+                    // Skipped in event-only mode, where no telemetry frame will ever
+                    // be sent — that mode exists so a host does no telemetry work at
+                    // all, and buffering samples nothing will drain would undo it.
+                    if (agentMode_ == FULL_MODE)
+                        sampleBuffer_[address].push_back(users[address]);
+
                     // eventState_ tracks stability independently of the users map, so
                     // it is updated the same way whether the UE already existed or not.
                     UeEventState& st = eventState_[address];
@@ -792,51 +870,68 @@ void RavensAgentApp::handleLSMessage(int connId)
                     }
                 }
 
-                // Departure detection — LS has replacement semantics: any user in the
-                // users map absent from this notification has left this cell.
-                for (auto it = users.begin(); it != users.end(); )
+                // Departure detection — the Location Service replaces its whole list
+                // every tick, so anyone being tracked who is missing from this tick's
+                // list was not observed this second.
+                //
+                // This walks eventState_, not the users map. The users map is "who is
+                // here now", and a UE is dropped from it the moment it stops being
+                // reported — so counting absent samples there can only ever reach one,
+                // and a threshold of two is never crossed. Absence is a property of the
+                // tracking state, which is meant to outlive presence; that is what it
+                // is for.
+                for (auto it = eventState_.begin(); it != eventState_.end(); )
                 {
-                    if (currentLSAddrs.find(it->first) == currentLSAddrs.end())
+                    if (currentLSAddrs.find(it->first) != currentLSAddrs.end())
                     {
-                        UeEventState& st = eventState_[it->first];
-                        if (st.consecutiveAbsent == 0)
-                            st.firstDetectedAt = simTime();  // first absent sample of this streak
-                        st.consecutiveAbsent++;
-                        st.consecutivePresent = 0;
-
-                        if (st.reported)
-                        {
-                            if (st.consecutiveAbsent >= exitConfirmSamples_)
-                            {
-                                RavensEvent e;
-                                e.ueAddress = it->first;
-                                e.eventType = EVENT_EXIT;
-                                e.samplesSinceChange = st.consecutiveAbsent;
-                                e.firstDetectedAt = st.firstDetectedAt;
-                                confirmedEvents.push_back(e);
-                                EV << mecHostId << " - RavensAgentApp::handleLSMessage - EXIT confirmed for " << it->first
-                                   << " after " << st.consecutiveAbsent << " sample(s)" << endl;
-                                eventState_.erase(it->first);  // done — fully reported and retracted
-                            }
-                            // else: still within the grace period, keep waiting.
-                        }
-                        else
-                        {
-                            // Never reported to the Controller, so there is nothing to
-                            // retract. Drop the state entirely rather than keep counting
-                            // an absence nobody needs to hear about; a later reappearance
-                            // is treated as a brand-new UE.
-                            EV << mecHostId << " - RavensAgentApp::handleLSMessage - Unreported user left, no event: "
-                               << it->first << endl;
-                            eventState_.erase(it->first);
-                        }
-
-                        it = users.erase(it);
+                        ++it;      // observed this tick — already handled in the loop above
+                        continue;
                     }
-                    else
+
+                    UeEventState& st = it->second;
+                    if (st.consecutiveAbsent == 0)
+                        st.firstDetectedAt = simTime();   // first absent sample of this streak
+                    st.consecutiveAbsent++;
+                    st.consecutivePresent = 0;
+
+                    // Not here as far as anything about the present is concerned — the
+                    // cell averages must not include it. A no-op once the streak is
+                    // under way.
+                    //
+                    // sampleBuffer_ is deliberately left alone: this UE's observations
+                    // from earlier in the interval are still owed to the Controller and
+                    // leave with the next frame. That buffer is emptied when a frame is
+                    // sent, and at no other time.
+                    users.erase(it->first);
+
+                    if (!st.reported)
                     {
-                        ++it;
+                        // The Controller was never told this UE existed, so there is
+                        // nothing to retract. Drop the state rather than keep counting
+                        // an absence nobody needs to hear about; a later reappearance
+                        // starts as a brand-new UE.
+                        EV << mecHostId << " - RavensAgentApp::handleLSMessage - Unreported user left, no event: "
+                           << it->first << endl;
+                        it = eventState_.erase(it);
+                        continue;
                     }
+
+                    if (st.consecutiveAbsent >= exitConfirmSamples_)
+                    {
+                        RavensEvent e;
+                        e.ueAddress = it->first;
+                        e.eventType = EVENT_EXIT;
+                        e.samplesSinceChange = st.consecutiveAbsent;
+                        e.firstDetectedAt = st.firstDetectedAt;
+                        confirmedEvents.push_back(e);
+                        EV << mecHostId << " - RavensAgentApp::handleLSMessage - EXIT confirmed for "
+                           << it->first << " after " << st.consecutiveAbsent << " sample(s)" << endl;
+                        it = eventState_.erase(it);   // done — reported and retracted
+                        continue;
+                    }
+
+                    ++it;   // still counting — the UE stays tracked, so the next tick
+                            // continues the streak instead of losing it
                 }
 
                 // Sent every tick, whether or not confirmedEvents is empty, so a

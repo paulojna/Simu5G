@@ -488,26 +488,39 @@ std::vector<UserState> RavensControllerApp::removeInactiveUsers(){
     return inactiveUsers;
 }
 
-void RavensControllerApp::updateUserStateMap(inet::Ptr<const RavensLinkDataFrameMessage> received_packet) {
-    std::string hostId = received_packet->getMecHostId();
+/*
+    Marks every user named in a telemetry frame as still alive. That is the
+    whole job.
 
-    for (const auto& [address, userData] : received_packet->getUsers()) {
-        auto userIt = userStateMap.find(address);
+    Placement is decided exclusively by the event channel. A telemetry frame
+    never moves a user between hosts and never introduces one: presence has to
+    be confirmed by an entry event first, and acting on telemetry here would
+    pre-empt that confirmation, so the entry hook would never fire for that user.
+
+    The timestamp being refreshed feeds exactly one thing — the long-timeout
+    safety net in removeInactiveUsers(). Without the refresh, a user who entered
+    and then stayed on the same host would eventually be purged as inactive
+    despite being perfectly alive.
+
+    A user appears once per frame, as one group, however many observations that
+    group holds. So there is no question of which observation "wins": what is
+    recorded is the frame's own timestamp, not any observation's.
+*/
+void RavensControllerApp::updateUserStateMap(inet::Ptr<const RavensLinkDataFrameMessage> received_packet) {
+    for (const auto& group : received_packet->getUserSamples()) {
+        auto userIt = userStateMap.find(group.ueAddress);
         if (userIt == userStateMap.end()) {
-            // User not yet confirmed by an ENTRY event — skip.
-            // Presence is authoritative only from handleEventFrame(); TELEMETRY_FRAME
-            // must not pre-empt the ENTRY or onUserEntry will never fire.
+            // Not yet confirmed by an entry event — skip, as above.
             EV << "RavensControllerApp::updateUserStateMap - TELEMETRY_FRAME for unknown user "
-               << address << ", skipping (waiting for ENTRY event)" << endl;
+               << group.ueAddress << ", skipping (waiting for ENTRY event)" << endl;
             continue;
         }
         if (received_packet->getTimeStamp() < userIt->second.timestamp) {
-            EV << "RavensControllerApp::updateUserStateMap - Ignored stale update for user " << address << endl;
+            EV << "RavensControllerApp::updateUserStateMap - Ignored stale update for user "
+               << group.ueAddress << endl;
             continue;
         }
-        // Refresh telemetry only — MEH transitions are driven by handleEventFrame()
         userIt->second.timestamp = received_packet->getTimeStamp();
-        userIt->second.userData = userData;
     }
 }
 

@@ -25,24 +25,27 @@
 namespace simu5g {
 	using namespace omnetpp;
 
-// the most updated state of a given user
+// What the Controller believes about one user: which host it is on, and how far
+// along any departure from that host has got.
+//
+// Note what is *not* here: the user's telemetry. The Controller used to keep a
+// copy of each user's latest position and radio values, and nothing ever read
+// it — both outputs take telemetry straight from the arriving frame. Keeping it
+// would also have forced an arbitrary choice now that a frame carries several
+// observations per user: which one becomes "the" stored copy? Removing the
+// field removes the question.
+//
+// The timestamp stays, and is not telemetry: it is a liveness mark, the only
+// input to the long-timeout safety net in removeInactiveUsers().
 struct UserState
 {
     std::string userId;
     std::string currentMEH;
-    simtime_t timestamp;
-    UserData userData;
+    simtime_t timestamp;          // last time anything was heard about this user
     std::string pendingMEH;       // MEH attempting handover (empty if none)
     simtime_t pendingExitTime;    // non-zero while the exit confirmation window is open
     int pendingExitSamples = 0;   // samplesSinceChange of the EXIT that opened the window
     simtime_t pendingExitFirstAt; // firstDetectedAt of that EXIT
-};
-
-// structure that contains the type of change and the user data at the moment the change happens
-struct UserStateChange
-{
-    int changeType;
-    UserData userData;
 };
 
 class LocationDataHandlerPolicyBase;

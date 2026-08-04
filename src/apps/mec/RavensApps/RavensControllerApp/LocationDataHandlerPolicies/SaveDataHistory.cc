@@ -43,7 +43,11 @@ SaveDataHistory::SaveDataHistory(RavensControllerApp* controllerApp, std::string
 
 inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkDataFrameMessage> received_packet)
 {
-    // C1 safety net: purge users absent longer than threshold_ — log as EXIT, MEO-silent
+    // Last-resort cleanup: drop users nothing has been heard about for far longer
+    // than any normal gap, and record the departure. Departures are normally
+    // confirmed through the event channel long before this, so this should stay
+    // quiet — it exists so a user whose exit event was somehow never delivered
+    // cannot linger indefinitely.
     std::vector<UserState> removedUsers = controllerApp_->removeInactiveUsers();
     for (const auto& user : removedUsers)
         onUserExit(user.userId, user.currentMEH, -1, SIMTIME_ZERO);
@@ -66,29 +70,44 @@ inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkDataF
                        << apRadioInfo.getAvgDistanceToAp() << endl;
     }
 
-    // Log per-user telemetry
-    for (const auto& [address, userData] : received_packet->getUsers()) {
-        const UserRadioInfoData& radioInfo = userData.getRadioInfo();
-        userFile << received_packet->getTimeStamp() << ","
-                 << userData.getTimestamp() << ","
-                 << radioInfo.getTimestamp() << ","
-                 << address << ","
-                 << received_packet->getMecHostId() << ","
-                 << userData.getAccessPointId() << ","
-                 << radioInfo.getAccessPointId() << ","
-                 << userData.getCurrentLocation().getX() << ","
-                 << userData.getCurrentLocation().getY() << ","
-                 << userData.getCurrentLocation().getZ() << ","
-                 << userData.getCurrentLocation().getHorizontalSpeed() << ","
-                 << userData.getCurrentLocation().getBearing() << ","
-                 << userData.getDistanceToAP() << ","
-                 << radioInfo.getDlNongbrDelayUe() << ","
-                 << radioInfo.getUlNongbrDelayUe() << ","
-                 << radioInfo.getDlNongbrPdrUe() << ","
-                 << radioInfo.getUlNongbrPdrUe() << ","
-                 << radioInfo.getDlNongbrDataVolumeUe() << ","
-                 << radioInfo.getUlNongbrDataVolumeUe() << ","
-                 << radioInfo.getRsrp() << "\n";
+    // Log per-user telemetry: one row per observation, not one per user. A frame
+    // carries every Location Service reading taken since the previous frame, so a
+    // user normally contributes several rows here — consecutive positions a
+    // second apart rather than a single sample every few seconds.
+    //
+    // The columns are unchanged. What changes is that LocationTimestamp now
+    // varies within a frame while TimestampSent does not, which makes
+    // LocationTimestamp the meaningful key: it is when the observation was taken,
+    // whereas TimestampSent is only when the frame happened to leave.
+    //
+    // Rows may include users the event channel never announced, and users that
+    // had already left by the time the frame was sent. Both are intended: this
+    // file records what was observed, while the lifecycle file records confirmed
+    // placement. Filtering one against the other is an offline job.
+    for (const auto& group : received_packet->getUserSamples()) {
+        for (const auto& sample : group.samples) {
+            const UserRadioInfoData& radioInfo = sample.getRadioInfo();
+            userFile << received_packet->getTimeStamp() << ","
+                     << sample.getTimestamp() << ","
+                     << radioInfo.getTimestamp() << ","
+                     << group.ueAddress << ","
+                     << received_packet->getMecHostId() << ","
+                     << sample.getAccessPointId() << ","
+                     << radioInfo.getAccessPointId() << ","
+                     << sample.getCurrentLocation().getX() << ","
+                     << sample.getCurrentLocation().getY() << ","
+                     << sample.getCurrentLocation().getZ() << ","
+                     << sample.getCurrentLocation().getHorizontalSpeed() << ","
+                     << sample.getCurrentLocation().getBearing() << ","
+                     << sample.getDistanceToAP() << ","
+                     << radioInfo.getDlNongbrDelayUe() << ","
+                     << radioInfo.getUlNongbrDelayUe() << ","
+                     << radioInfo.getDlNongbrPdrUe() << ","
+                     << radioInfo.getUlNongbrPdrUe() << ","
+                     << radioInfo.getDlNongbrDataVolumeUe() << ","
+                     << radioInfo.getUlNongbrDataVolumeUe() << ","
+                     << radioInfo.getRsrp() << "\n";
+        }
     }
 
     msgCount_++;

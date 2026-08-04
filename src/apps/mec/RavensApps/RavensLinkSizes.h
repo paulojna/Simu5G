@@ -46,14 +46,34 @@ const int ACK_HEADER_B = 16;
 // Records
 // ---------------------------------------------------------------------------
 
-// One UE in a telemetry frame. Two halves, one per data source:
-//   Location Service 40: address 4, cell id 4, x/y/z 12, bearing 2, speed 2,
-//                        distance to AP 4, timestamp 8 (+2 padding)
-//   RNIS             40: dl/ul delay 8, dl/ul PDR 8, dl/ul data volume 8,
-//                        RSRP 2, timestamp 8 (+6 padding)
+// One UE's group in a telemetry frame. The UE is identified once, and its
+// observations follow. Sending the identity per group rather than per sample is
+// the only size saving grouping buys - small, but it is the honest encoding: a
+// real protocol would not repeat the address on every observation of the same
+// UE.
+//   address 4 + sample count 1 (+3 padding)
+const int UE_GROUP_HEADER_B = 8;
+
+// One observation of one UE - a single Location Service tick, with whatever the
+// RNIS had reported for that UE at the time. Two halves, one per data source:
+//   Location Service 32: cell id 4, x/y/z 12, bearing 2, speed 2,
+//                        distance to AP 4, timestamp 8
+//   RNIS             34: dl/ul delay 8, dl/ul PDR 8, dl/ul data volume 8,
+//                        RSRP 2, timestamp 8
+// 66 bytes of fields, padded to 72 for 8-byte alignment. No address: it lives
+// in the group header above.
+//
 // Both halves are always present: when the RNIS has no value it reports -1
 // rather than omitting the field, so there is no shorter variant of this record.
-const int USER_RECORD_B = 80;
+// Each half carries its own timestamp because the two services sample on
+// independent cycles - a repeated radio value is identifiable by its unchanged
+// timestamp rather than being mistaken for a fresh measurement.
+const int UE_SAMPLE_B = 72;
+
+// Sanity check on the split: a group holding exactly one sample costs
+// 8 + 72 = 80 bytes, which is precisely what one user cost before batching.
+// The change decomposes that number into "identity once, observation each" -
+// it does not re-base it, so earlier size figures remain comparable.
 
 // Cell-level radio aggregates in a telemetry frame. Sent ONCE per frame, not
 // once per user - one Agent serves one cell, so these values are shared by
@@ -75,6 +95,24 @@ const int EVENT_RECORD_B = 16;
 const int CONFIG_ACK_PAYLOAD_B = 12;
 
 // ---------------------------------------------------------------------------
+// Path limit
+// ---------------------------------------------------------------------------
+
+// Largest datagram that crosses the Agent -> Controller path without being
+// split up. It is 4470 and not the familiar 1500 because that path runs over
+// point-to-point interfaces, whose default limit in INET is 4470 (Ppp.ned).
+// "Eth10G" on those links names a datarate channel, not an Ethernet interface,
+// so the Ethernet limit never applies here.
+//
+// Exceeding it is allowed and safe: the network layer splits the datagram and
+// the receiver puts it back together, and this path - 10 Gbps, no bit errors,
+// no realistic congestion - gives no reason to expect a piece to go missing.
+// The Agent warns when a frame crosses this line purely so it is known how
+// often busy hosts do it, not to prevent it. A frame stays under the line up to
+// roughly 19 UEs when each carries three observations.
+const int TELEMETRY_PATH_MTU_B = 4470;
+
+// ---------------------------------------------------------------------------
 // Frame sizing
 // ---------------------------------------------------------------------------
 // Each function takes the payload that is about to be sent, so the call site
@@ -83,12 +121,21 @@ const int CONFIG_ACK_PAYLOAD_B = 12;
 // returns the same number - the point is that adding a field to UserData or
 // RavensEvent is a one-place update here, not a silent mismatch.
 
-// Telemetry frame: the per-UE records, plus the cell aggregates if the Agent
-// has heard from the RNIS yet (it has not, before the first RNIS reply).
-inline inet::B telemetryFrameBytes(const ::UsersMap& users, bool hasCellRadio)
+// Telemetry frame: one group per UE observed since the last frame, each holding
+// that UE's observations, plus the cell aggregates if the Agent has heard from
+// the RNIS yet (it has not, before the first RNIS reply).
+//
+// Groups are walked rather than multiplied out because they do not all hold the
+// same number of samples: a UE that arrived or left partway through the interval
+// contributes fewer than one that was present throughout.
+inline inet::B telemetryFrameBytes(const ::UeSampleGroupList& groups, bool hasCellRadio)
 {
+    int payloadBytes = 0;
+    for (const auto& group : groups)
+        payloadBytes += UE_GROUP_HEADER_B + (int)group.samples.size() * UE_SAMPLE_B;
+
     return inet::B(FRAME_HEADER_B
-                   + (int)users.size() * USER_RECORD_B
+                   + payloadBytes
                    + (hasCellRadio ? CELL_RADIO_RECORD_B : 0));
 }
 

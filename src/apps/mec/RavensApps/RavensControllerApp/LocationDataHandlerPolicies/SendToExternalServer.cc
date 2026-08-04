@@ -42,7 +42,11 @@ namespace simu5g {
 
 	inet::Packet* SendToExternalServer::handleDataMessage(inet::Ptr<const RavensLinkDataFrameMessage> received_packet)
 	{
-		// C1 safety net: purge users absent longer than threshold_
+		// Last-resort cleanup: drop users nothing has been heard about for far
+		// longer than any normal gap. Departures are normally confirmed through
+		// the event channel long before this, so this should stay quiet — it
+		// exists so a user whose exit event was somehow never delivered cannot
+		// linger indefinitely.
 		std::vector<UserState> removedUsers = controllerApp_->removeInactiveUsers();
 		for (const auto& user : removedUsers)
 			onUserExit(user.userId, user.currentMEH, -1, SIMTIME_ZERO);
@@ -105,20 +109,39 @@ namespace simu5g {
 	    cellJson["avgDistanceToAp"]                 = ap.getAvgDistanceToAp();
 	    payload["cellMetrics"] = cellJson;
 
-	    // Per-user LS state (no RNIS fields — dropped in Piece 3)
+	    // Per-user location readings, grouped as they arrived: one entry per user,
+	    // holding every reading taken since the previous frame, oldest first.
+	    //
+	    // The grouping is passed on rather than flattened because the prediction
+	    // server consumes per-user sequences. It is meant to buffer a window and
+	    // nothing more — never to work out which user or which host a reading
+	    // belongs to. Sending sequences already assembled by whoever observed them
+	    // is what keeps that true.
+	    //
+	    // Each reading carries its own timestamp. Without one they would be
+	    // indistinguishable in time, which would make the input meaningless to a
+	    // sequence model now that a single frame spans several seconds.
 	    nlohmann::json usersJson = nlohmann::json::array();
-	    for (const auto& [ueId, userData] : snapshot->getUsers())
+	    for (const auto& group : snapshot->getUserSamples())
 	    {
+	        nlohmann::json samplesJson = nlohmann::json::array();
+	        for (const auto& sample : group.samples)
+	        {
+	            nlohmann::json sampleJson;
+	            sampleJson["locationTimestamp"] = sample.getTimestamp().str();
+	            sampleJson["accessPointId"]     = sample.getAccessPointId();
+	            sampleJson["x"]                 = sample.getCurrentLocation().getX();
+	            sampleJson["y"]                 = sample.getCurrentLocation().getY();
+	            sampleJson["z"]                 = sample.getCurrentLocation().getZ();
+	            sampleJson["speed"]             = sample.getCurrentLocation().getHorizontalSpeed();
+	            sampleJson["bearing"]           = sample.getCurrentLocation().getBearing();
+	            sampleJson["distanceToAp"]      = sample.getDistanceToAP();
+	            samplesJson.push_back(sampleJson);
+	        }
+
 	        nlohmann::json userJson;
-	        userJson["ueId"]          = ueId;
-	        userJson["address"]       = userData.getAddress();
-	        userJson["accessPointId"] = userData.getAccessPointId();
-	        userJson["x"]             = userData.getCurrentLocation().getX();
-	        userJson["y"]             = userData.getCurrentLocation().getY();
-	        userJson["z"]             = userData.getCurrentLocation().getZ();
-	        userJson["speed"]         = userData.getCurrentLocation().getHorizontalSpeed();
-	        userJson["bearing"]       = userData.getCurrentLocation().getBearing();
-	        userJson["distanceToAp"]  = userData.getDistanceToAP();
+	        userJson["ueId"]    = group.ueAddress;
+	        userJson["samples"] = samplesJson;
 	        usersJson.push_back(userJson);
 	    }
 	    payload["users"] = usersJson;
