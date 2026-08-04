@@ -346,7 +346,11 @@ void RavensControllerApp::socketFailure(inet::TcpSocket *socket, int code){
 void RavensControllerApp::socketStatusArrived(inet::TcpSocket *socket, inet::TcpStatusInfo *status){}
 
 void RavensControllerApp::socketDeleted(inet::TcpSocket *socket){
-    socketMap.removeSocket(socket);
+    // No-op by design: this fires while the socket is being destroyed, either from
+    // socketClosed()/socketFailure() (which already removed it from socketMap on the
+    // preceding line) or from deleteSockets()'s own loop, which clears socketMap right
+    // after — reaching into socketMap here would erase the entry deleteSockets() is
+    // currently iterating, corrupting its std::map mid-traversal.
 }
 
 void RavensControllerApp::expirePendingExits()
