@@ -219,11 +219,14 @@ EventNotification* UsersListNotificationSubscription::handleSubscription(){
         }
     }
 
+    // An empty list is information, not a reason to stay silent. This
+    // subscription has replacement semantics — each notification is the complete
+    // set of users, and absence from it is how a subscriber learns someone has
+    // gone. Sending nothing when nobody is here therefore withholds exactly the
+    // update that says the last user left, and a host that empties out goes
+    // quiet until some unrelated user happens to arrive.
     if(userList.empty())
-    {
-        EV << "UsersListNotificationSubscription::handleSubscription - userList is empty" << endl;
-        return nullptr;
-    }
+        EV << "UsersListNotificationSubscription::handleSubscription - userList is empty, notifying with an empty list" << endl;
 
     // return the notification event
     UsersListNotificationEvent *notificationEvent = new UsersListNotificationEvent(subscriptionType_,subscriptionId_,userList);
@@ -256,7 +259,9 @@ void UsersListNotificationSubscription::sendNotification(EventNotification *even
 
     nlohmann::ordered_json val;
     nlohmann::ordered_json ueInfo;
-    nlohmann::ordered_json ueInfoList;
+    // Explicitly an array: a default-constructed json is null, and a null would
+    // serialise as `null` rather than `[]` on the no-users notification below.
+    nlohmann::ordered_json ueInfoList = nlohmann::ordered_json::array();
 
     val["isFinalNotification"] = "false";
     val["link"]["href"] = resourceURL;
@@ -268,10 +273,11 @@ void UsersListNotificationSubscription::sendNotification(EventNotification *even
         ueInfoList.push_back(ueInfo);
     }
 
-    if(ueInfoList.size() >= 1)
-        val["userInfoList"] = ueInfoList;
-    else
-        val["userInfo"] = ueInfoList[0];
+    // Always the same field, whatever the list holds — including empty. The old
+    // else-branch read element 0 of a list that had no elements, which produced a
+    // null field under a different name; a subscriber looking for the list found
+    // nothing and could not tell "no users" from "no notification".
+    val["userInfoList"] = ueInfoList;
     val["timeStamp"] = simTimeStr;
 
     nlohmann::ordered_json notification;

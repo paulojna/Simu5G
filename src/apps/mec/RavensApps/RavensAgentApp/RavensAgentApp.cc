@@ -242,12 +242,28 @@ void RavensAgentApp::sendDataFrame()
         return;
     }
 
-    // Compute avg distance to AP from current LS user map
-    if (accessPointRadioInformation != nullptr && !users.empty()) {
-        double totalDist = 0.0;
-        for (const auto& [addr, ud] : users)
-            totalDist += ud.getDistanceToAP();
-        accessPointRadioInformation->setAvgDistanceToAp(totalDist / users.size());
+    // Average distance to the serving cell, over the users currently here.
+    //
+    // Note this is the one value in the cell record that comes from the Location
+    // Service rather than the RNIS — the Agent computes it — so it empties on a
+    // different condition than the rest, and it is stamped with the RNIS clock
+    // rather than its own.
+    //
+    // With nobody here the average is undefined, not zero, so it is written as
+    // the same "not measured" value the RNIS uses for a field it has no data for.
+    // Leaving the previous value in place would have been worse than either: the
+    // cell record carries no timestamp of its own into the CSV, so a stale
+    // average is indistinguishable from a current one.
+    if (accessPointRadioInformation != nullptr) {
+        if (users.empty()) {
+            accessPointRadioInformation->setAvgDistanceToAp(-1.0);
+        }
+        else {
+            double totalDist = 0.0;
+            for (const auto& [addr, ud] : users)
+                totalDist += ud.getDistanceToAP();
+            accessPointRadioInformation->setAvgDistanceToAp(totalDist / users.size());
+        }
     }
 
     // Hand the buffered observations over to the wire form, one group per UE.

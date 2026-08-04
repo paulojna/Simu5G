@@ -35,7 +35,14 @@ SaveDataHistory::SaveDataHistory(RavensControllerApp* controllerApp, std::string
     // 3. Radio Stats File (DL/UL Usage and PDR)
     std::string radioStatsName = dirPath + "run_" + runNumber + "_radio_stats.csv";
     radioStatsFile.open(radioStatsName, std::ios::out | std::ios::trunc);
-    radioStatsFile << "Timestamp,MEHId,CellId,DlPrbUsageCell,UlPrbUsageCell,DlNongbrPdrCell,UlNongbrPdrCell,"
+    // RadioTimestamp is when these aggregates were measured; TimestampSent is only
+    // when the frame carrying them left. Without both, an aggregate that stopped
+    // being refreshed is indistinguishable from a current one — the per-user rows
+    // have always carried both, these rows did not.
+    //
+    // TimestampSent is named to match the same column in the users file: the two
+    // get joined, and one quantity under two names is a trap for whoever joins them.
+    radioStatsFile << "TimestampSent,RadioTimestamp,MEHId,CellId,DlPrbUsageCell,UlPrbUsageCell,DlNongbrPdrCell,UlNongbrPdrCell,"
                    << "AvgDlDelay,AvgUlDelay,TotalDlDataVolume,TotalUlDataVolume,NumActiveUeDlNongbr,AvgDistanceToAp" << endl;
     
     EV << "SaveDataHistory initialized. Users: " << name << ", Lifecycle: " << lifecycleName << ", RadioStats: " << radioStatsName << endl;
@@ -56,6 +63,7 @@ inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkDataF
     const AccessPointRadioInfoData& apRadioInfo = received_packet->getApRadioInfo();
     if (!apRadioInfo.getAccessPointId().empty()) {
         radioStatsFile << received_packet->getTimeStamp() << ","
+                       << apRadioInfo.getTimestamp() << ","
                        << received_packet->getMecHostId() << ","
                        << apRadioInfo.getAccessPointId() << ","
                        << apRadioInfo.getDlTotalPrbUsageCell() << ","

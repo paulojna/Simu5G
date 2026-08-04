@@ -607,6 +607,41 @@ own.
    runs a periodic sweep for elapsed exit confirmation windows; that sweep is the natural home,
    and moving it there also removes the oddity of a cleanup being triggered by an unrelated
    message arriving.
+3. **`avgDistanceToAp` should be removed from the cell record, not relocated.** It is the
+   average distance from the users on a host to their serving cell — a Location Service
+   quantity — but it lives in the cell *radio* record, is written from a different place in the
+   code than every other field there, and carries that record's timestamp, which describes when
+   the RNIS last replied rather than when the average was computed. It ended up there because
+   that was the only per-cell container in existence, not because it belongs to the radio data.
+   **It is also exactly recomputable, and better, by both consumers from data they already
+   have:** every per-user row carries `DistanceToAccessPoint` and its host, so the average is a
+   group-by — at one-second resolution instead of one value per frame, and averaged over
+   observations that genuinely share a timestamp, which the current value is not. The serving
+   path can do the same from the samples in the frame it just received. Keeping it is a derived
+   duplicate computed one way in the simulator and another way offline, with nothing holding the
+   two equal — the same failure this step exists to remove, one level up.
+   **Not a relocation:** giving it its own block and timestamp would be real structure for a
+   number that is a one-line group-by.
+4. **The Agent's four other cell aggregates go stale on an empty host — a live bug, measured.**
+   `avgDlDelay`, `avgUlDelay`, `totalDlDataVolume` and `totalUlDataVolume` are not RNIS fields;
+   the Agent computes them in `handleRNISMessage` by aggregating the notification's per-UE
+   section, inside `if (notification.contains("cellUEInfo") …)`. A cell with no users sends no
+   per-UE section, so the block is skipped and the previous values simply remain. This is the
+   same fault `avgDistanceToAp` had; only that one field was fixed, because it was the one being
+   looked at.
+   **Measured on a 300 s run:** of 312 rows for a host with no users, `AvgDlDelay` read 11 ms on
+   52 rows and 12 ms on 3; `TotalDlDataVolume` read 2786 on 9 rows and 32597 on one. The rest of
+   that record was correct — active user count and usage 0, distance −1.
+   **`RadioTimestamp` does not expose this.** It is refreshed from the cell-level section, which
+   does arrive, so the lag stays a constant 0.53 s on every row including the stale ones. The
+   timestamp records when the record was touched, not when each field in it was measured — worth
+   remembering before trusting it as a staleness marker anywhere else.
+   **Fix:** when the per-UE section is absent, write delays as −1 (a mean over no users is
+   undefined) and volumes as 0 (a sum over no users is genuinely zero). The condition is already
+   to hand: `cellUEInfo` missing *is* "no users in this cell".
+   **Related, source-level, not ours:** among the same empty rows `DlNongbrPdrCell` splits 128
+   zeros against 184 −1s. That comes from the collector and is consistent between training and
+   serving, so it is a caveat for the write-up rather than a leak to fix.
 
 **Depends on:** Step 4
 

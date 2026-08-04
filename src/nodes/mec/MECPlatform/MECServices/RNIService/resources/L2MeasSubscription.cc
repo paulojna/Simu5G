@@ -249,30 +249,45 @@ EventNotification* L2MeasSubscription::handleSubscription()
         return nullptr;
     }
 
-    // Check if any monitored cell has data
-    bool hasData = false;
-    for(auto cellId : cells_)
-    {
-        auto it = statsCollectors_.find(cellId);
-        if(it != statsCollectors_.end())
-        {
-            BaseStationStatsCollector* collector = it->second;
-            UeStatsCollectorMap* ueMap = collector->getCollectorMap();
-
-            // If cell has any UEs, we have data
-            if(!ueMap->empty())
-            {
-                hasData = true;
-                break;
-            }
-        }
-    }
-
-    if(!hasData)
-    {
-        EV << "L2MeasSubscription::handleSubscription - no UEs in monitored cells" << endl;
-        return nullptr;
-    }
+    // DISABLED — a cell with no users still has measurements worth sending: its
+    // usage and active-user counts are genuinely zero, which is a value and not a
+    // gap. With this gate in place a cell that emptied simply stopped reporting,
+    // and a subscriber — having no way to tell silence from unchanged — kept
+    // treating its last populated reading as current for as long as the cell
+    // stayed empty.
+    //
+    // Nothing extra is needed to describe the empty case: the per-cell record
+    // omits any field its collector could not measure, and the subscriber reads a
+    // missing field as "not measured". So counts arrive as zero and averages over
+    // no users arrive as unmeasured, which is what each of them actually is.
+    //
+    // Kept rather than deleted until a run confirms the empty-cell notification
+    // behaves as expected; restore by uncommenting.
+    //
+    // // Check if any monitored cell has data
+    // bool hasData = false;
+    // for(auto cellId : cells_)
+    // {
+    //     auto it = statsCollectors_.find(cellId);
+    //     if(it != statsCollectors_.end())
+    //     {
+    //         BaseStationStatsCollector* collector = it->second;
+    //         UeStatsCollectorMap* ueMap = collector->getCollectorMap();
+    //
+    //         // If cell has any UEs, we have data
+    //         if(!ueMap->empty())
+    //         {
+    //             hasData = true;
+    //             break;
+    //         }
+    //     }
+    // }
+    //
+    // if(!hasData)
+    // {
+    //     EV << "L2MeasSubscription::handleSubscription - no UEs in monitored cells" << endl;
+    //     return nullptr;
+    // }
 
     // Create event to trigger notification
     L2MeasNotificationEvent* event = new L2MeasNotificationEvent(
@@ -323,12 +338,19 @@ void L2MeasSubscription::sendNotification(EventNotification *event)
     else if(ueArray.size() == 1)
         val["cellUEInfo"] = ueArray[0];
 
-    // Check we have data
-    if(cellArray.empty() && ueArray.empty())
-    {
-        EV << "L2MeasSubscription - no data available" << endl;
-        return;
-    }
+    // DISABLED — same reason as the gate in handleSubscription above: an empty
+    // cell is a state to report, not a reason to go quiet. cellArray is only
+    // genuinely empty when no monitored cell has a stats collector at all, which
+    // is a different situation from a cell that simply has no users right now.
+    //
+    // Kept rather than deleted until a run confirms this; restore by uncommenting.
+    //
+    // // Check we have data
+    // if(cellArray.empty() && ueArray.empty())
+    // {
+    //     EV << "L2MeasSubscription - no data available" << endl;
+    //     return;
+    // }
 
     notification["subscriptionNotification"] = val;
 
