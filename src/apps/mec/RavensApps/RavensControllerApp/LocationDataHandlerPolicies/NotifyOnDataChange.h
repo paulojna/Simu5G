@@ -12,7 +12,6 @@ namespace simu5g {
 class NotifyOnDataChange : public LocationDataHandlerPolicyBase
 {
     protected:
-        virtual inet::Packet* handleDataMessage(inet::Ptr<const RavensLinkDataFrameMessage> received_packet) override;
         virtual void onUserEntry   (const std::string& userId, const std::string& meh,
                                     int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) override;
         virtual void onUserHandover(const std::string& userId, const std::string& fromMeh,
@@ -21,7 +20,7 @@ class NotifyOnDataChange : public LocationDataHandlerPolicyBase
         virtual void onUserExit    (const std::string& userId, const std::string& fromMeh,
                                     int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) override;
     public:
-        NotifyOnDataChange(RavensControllerApp* controllerApp, int treshold);
+        NotifyOnDataChange(RavensControllerApp* controllerApp);
         virtual ~NotifyOnDataChange(){}
 };
 

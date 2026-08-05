@@ -34,6 +34,12 @@ RavensControllerApp::~RavensControllerApp(){
 
 void RavensControllerApp::finish(){
     ApplicationBase::finish();
+
+    // Expected to be zero. A non-zero value means a placement change went
+    // missing on a channel that is supposed to make that impossible — see
+    // reportSilentUsers().
+    recordScalar("silentUsersReported", silentUsersReported_);
+
     if (udpSocket.isOpen())
         udpSocket.close();
     socketMap.deleteSockets();
@@ -45,7 +51,7 @@ void RavensControllerApp::initialize(int stage){
         return;
     snapshot_frequency_ = par("snapshot_frequency");
     snapshot_starting_time_ = par("snapshot_starting_time");
-    threshold_ = par("threshold");
+    silenceWarningThreshold_ = par("silenceWarningThreshold");
     telemetryInterval_ = par("telemetryInterval");
     exitConfirmationWindow_ = par("exitConfirmationWindow");
     update = nullptr;
@@ -57,12 +63,17 @@ void RavensControllerApp::initialize(int stage){
         EV << "RavensControllerApp::initialize - stage " << stage << endl;
     }
 
+    // Decided once, here, and used in two places: pushed to the Agents in the
+    // handshake ACK, and consulted by reportSilentUsers(), which has nothing to
+    // measure when no telemetry is flowing.
+    agentMode_ = !strcmp(par("mode"), "NotifyOnDataChange") ? EVENT_ONLY_MODE : FULL_MODE;
+
     if(!strcmp(par("mode"), "SaveDataHistory")){
         EV << "RavensControllerApp::initialize - SaveDataHistory mode" << endl;
         locationDataHandlerPolicy_ = new SaveDataHistory(this, par("path"));
     }else if(!strcmp(par("mode"), "NotifyOnDataChange")){
         EV << "RavensControllerApp::initialize - NotifyOnDataChange handler mode" << endl;
-        locationDataHandlerPolicy_ = new NotifyOnDataChange(this, par("threshold"));
+        locationDataHandlerPolicy_ = new NotifyOnDataChange(this);
     }else if(!strcmp(par("mode"), "SendToExternalServer")){
         EV << "RavensControllerApp::initialize - SendToExternalServer handler mode" << endl;
         locationDataHandlerPolicy_ = new SendToExternalServer(this);
@@ -207,6 +218,8 @@ void RavensControllerApp::handleSelfMessage(cMessage *msg){
         // this sweep controls how promptly that is noticed, never how long the
         // window is.
         expirePendingExits();
+        // Rides the same tick, but only looks — see reportSilentUsers().
+        reportSilentUsers();
         scheduleAt(simTime() + exitConfirmationWindow_ / 2, msg);
     }
     else
@@ -229,7 +242,11 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
             auto dataFrame = packet->peekAtFront<RavensLinkDataFrameMessage>();
             updateUserStateMap(dataFrame);
             updateMehStateMap(dataFrame);
-            locationDataHandlerPolicy_->handleDataMessage(dataFrame);
+            // Samples first, then the frame-level hook: a policy that ships the
+            // whole frame in one request needs every sample in hand before it
+            // can send, so onTelemetryFrame() doubles as "that was the frame".
+            dispatchUserSamples(dataFrame);
+            locationDataHandlerPolicy_->onTelemetryFrame(dataFrame);
         }
         else if(received_packet->getType() == EVENT_FRAME)
         {
@@ -270,8 +287,7 @@ void RavensControllerApp::sendInfrastructureDetailsAck(inet::TcpSocket *socket){
     // stays here — it is the Controller's own question about the whole system,
     // and a single Agent has no way to answer it.
     request->setTelemetryIntervalMs((int)(telemetryInterval_ * 1000));
-    int mode = !strcmp(par("mode"), "NotifyOnDataChange") ? EVENT_ONLY_MODE : FULL_MODE;
-    request->setAgentMode(mode);
+    request->setAgentMode(agentMode_);
     packet->insertAtBack(request);
     socket->send(packet);
 }
@@ -467,25 +483,45 @@ void RavensControllerApp::socketErrorArrived(inet::UdpSocket *socket, inet::Indi
 }
 
 /*
-    Method that runs through the userStateMap and detect users that have not been updated for a pre-determined
-    amount time - defined by the treshold_.
+    Reports users that telemetry has said nothing about for implausibly long.
+    It removes nothing and tells no one — it looks.
+
+    Users leave userStateMap through one path only: expirePendingExits(), after an
+    EXIT event and its confirmation window. Placement belongs to the event channel,
+    and a clock is not the event channel. This function used to delete the user and
+    report a departure, which gave telemetry a power it is explicitly denied
+    elsewhere — updateUserStateMap() refuses to let a frame introduce a user or move
+    one, yet a run of missed frames could remove one, and the departure it reported
+    tore down that user's application while the user was still there.
+
+    What it measures is worth keeping. Events ride TCP and the Agent retries them
+    while the channel is down, so a placement change should never go missing. A run
+    reporting no silent users is evidence of exactly that; a run reporting some has
+    a bug worth finding. Hence the scalar in finish() rather than a log line alone.
+
+    Reported once per user. Silence is a state, not an event, and re-reporting it
+    every sweep would turn one problem into forty log lines.
+
+    Only meaningful where telemetry is flowing. In event-only mode nothing is sent
+    about a user that is simply staying put — that is what report-once means — so
+    silence is the normal steady state there and every stationary user would be
+    reported.
 */
-std::vector<UserState> RavensControllerApp::removeInactiveUsers(){
+void RavensControllerApp::reportSilentUsers(){
+    if (agentMode_ == EVENT_ONLY_MODE)
+        return;
+
     simtime_t actual = simTime();
-    std::vector<UserState> inactiveUsers;
+    for (auto& [address, user] : userStateMap) {
+        if (user.silenceReported || actual - user.timestamp <= silenceWarningThreshold_)
+            continue;
 
-    auto it = userStateMap.begin();
-    while (it != userStateMap.end()) {
-        if(actual - it->second.timestamp > threshold_){
-            // add the user to the list of inactive users
-            inactiveUsers.push_back(it->second);
-            it = userStateMap.erase(it);  // erase() returns iterator to next element
-        } else {
-            ++it;
-        }
+        user.silenceReported = true;
+        silentUsersReported_++;
+        EV_WARN << "RavensControllerApp::reportSilentUsers - no telemetry about " << address
+                << " for " << (actual - user.timestamp) << "s, still held at "
+                << user.currentMEH << " with no EXIT event" << endl;
     }
-
-    return inactiveUsers;
 }
 
 /*
@@ -497,10 +533,14 @@ std::vector<UserState> RavensControllerApp::removeInactiveUsers(){
     be confirmed by an entry event first, and acting on telemetry here would
     pre-empt that confirmation, so the entry hook would never fire for that user.
 
-    The timestamp being refreshed feeds exactly one thing — the long-timeout
-    safety net in removeInactiveUsers(). Without the refresh, a user who entered
-    and then stayed on the same host would eventually be purged as inactive
-    despite being perfectly alive.
+    The timestamp being refreshed feeds exactly one thing — the silence
+    diagnostic in reportSilentUsers(), which warns and counts but never acts.
+    Without the refresh, a user who entered and then stayed on the same host
+    would be reported as silent despite being perfectly alive. That used to be
+    worse than a false warning: the same timestamp drove a timeout that deleted
+    the user and reported a departure, and in the profile where no telemetry
+    refreshes it, every stationary user was retired about a minute after
+    arriving and had its application torn down underneath it.
 
     A user appears once per frame, as one group, however many observations that
     group holds. So there is no question of which observation "wins": what is
@@ -521,6 +561,40 @@ void RavensControllerApp::updateUserStateMap(inet::Ptr<const RavensLinkDataFrame
             continue;
         }
         userIt->second.timestamp = received_packet->getTimeStamp();
+    }
+}
+
+/*
+    Hands the frame's observations to the output policy, one UE at a time.
+
+    Every observation becomes a UserSample here and nowhere else. That is the
+    whole point of this function: the CSV columns and the prediction payload are
+    written by different policies, in different runs, months apart, and nothing
+    at runtime could ever reveal a disagreement between them. Producing the
+    record once removes the possibility instead of relying on both sides being
+    kept in step by hand.
+
+    Nothing is held back or reordered. The groups go out in the order the Agent
+    put them in the frame, and the frame is finished when this returns. Any
+    windowing a sequence model needs belongs to whoever consumes the samples.
+
+    confirmedMEH is read once per UE, since the Controller's belief cannot change
+    partway through a frame. It is empty when the UE is not in userStateMap at
+    all: an ENTRY takes several consecutive Location Service samples to confirm,
+    so every UE spends its first seconds observed but not yet confirmed, and its
+    telemetry legitimately arrives with nothing to compare against.
+*/
+void RavensControllerApp::dispatchUserSamples(inet::Ptr<const RavensLinkDataFrameMessage> received_packet) {
+    for (const auto& group : received_packet->getUserSamples()) {
+        auto userIt = userStateMap.find(group.ueAddress);
+        std::string confirmedMEH = (userIt != userStateMap.end()) ? userIt->second.currentMEH : "";
+
+        std::vector<UserSample> samples;
+        samples.reserve(group.samples.size());
+        for (const auto& observation : group.samples)
+            samples.push_back(makeUserSample(received_packet, group.ueAddress, observation, confirmedMEH));
+
+        locationDataHandlerPolicy_->onUserSamples(samples);
     }
 }
 

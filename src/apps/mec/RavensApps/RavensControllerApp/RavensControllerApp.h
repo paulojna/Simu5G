@@ -36,16 +36,17 @@ namespace simu5g {
 // field removes the question.
 //
 // The timestamp stays, and is not telemetry: it is a liveness mark, the only
-// input to the long-timeout safety net in removeInactiveUsers().
+// input to the silence diagnostic in reportSilentUsers(). Nothing acts on it —
+// a user is retired by the event channel alone.
 struct UserState
 {
     std::string userId;
     std::string currentMEH;
     simtime_t timestamp;          // last time anything was heard about this user
-    std::string pendingMEH;       // MEH attempting handover (empty if none)
     simtime_t pendingExitTime;    // non-zero while the exit confirmation window is open
     int pendingExitSamples = 0;   // samplesSinceChange of the EXIT that opened the window
     simtime_t pendingExitFirstAt; // firstDetectedAt of that EXIT
+    bool silenceReported = false; // already warned about implausibly long silence
 };
 
 class LocationDataHandlerPolicyBase;
@@ -66,7 +67,12 @@ class RavensControllerApp: public inet::ApplicationBase,
         int snapshot_frequency_;
         int snapshot_starting_time_;
 
-        int threshold_;
+        int silenceWarningThreshold_;     // how long telemetry may say nothing about a
+                                          // user before that silence is reported (s)
+        int agentMode_;                   // EVENT_ONLY_MODE or FULL_MODE, decided by the
+                                          // configured output policy and pushed to Agents
+        long silentUsersReported_ = 0;    // users seen going implausibly silent, recorded
+                                          // as a scalar: it should be zero
 
         double telemetryInterval_;        // pushed to Agents in INFRASTRUCTURE_DETAILS_ACK
         double exitConfirmationWindow_;   // Controller-private; how long to wait before
@@ -129,7 +135,15 @@ class RavensControllerApp: public inet::ApplicationBase,
         // methods to deal with userStateMap
         void updateUserStateMap(inet::Ptr<const RavensLinkDataFrameMessage> received_packet);
         void updateMehStateMap(inet::Ptr<const RavensLinkDataFrameMessage> received_packet);
-        std::vector<UserState> removeInactiveUsers();
+
+        // Turns every observation in a telemetry frame into the canonical sample
+        // record and hands it to the output policy, one UE at a time.
+        void dispatchUserSamples(inet::Ptr<const RavensLinkDataFrameMessage> received_packet);
+
+        // Warns about users telemetry has said nothing about for implausibly long,
+        // and counts them. Removes nothing: users leave userStateMap only through
+        // the event channel, via expirePendingExits().
+        void reportSilentUsers();
 
         // Handles EVENT_FRAME packets (ENTRY/EXIT deltas from Agent)
         void handleEventFrame(inet::Ptr<const RavensLinkEventMessage> event,

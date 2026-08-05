@@ -19,9 +19,10 @@ class SaveDataHistory : public LocationDataHandlerPolicyBase
         std::ofstream userFile;
         std::ofstream lifecycleFile;
         std::ofstream radioStatsFile;
-        int msgCount_;
+        int msgCount_ = 0;
         static const int FLUSH_INTERVAL_ = 100;
-        virtual inet::Packet* handleDataMessage(inet::Ptr<const RavensLinkDataFrameMessage> received_packet) override;
+        virtual void onUserSamples(const std::vector<UserSample>& samples) override;
+        virtual void onTelemetryFrame(inet::Ptr<const RavensLinkDataFrameMessage> frame) override;
         virtual void onUserEntry   (const std::string& userId, const std::string& meh,
                                     int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) override;
         virtual void onUserHandover(const std::string& userId, const std::string& fromMeh,

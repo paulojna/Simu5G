@@ -78,8 +78,16 @@ const int UE_SAMPLE_B = 72;
 // Cell-level radio aggregates in a telemetry frame. Sent ONCE per frame, not
 // once per user - one Agent serves one cell, so these values are shared by
 // every UE in the frame.
-//   cell id 4 + timestamp 8 + 10 aggregate metrics (4 each, 2 of them counts)
-const int CELL_RADIO_RECORD_B = 64;
+//   cell id 4 + timestamp 8 + 9 metrics 36:
+//     dl/ul PRB usage 8, dl/ul non-GBR PDR 8, active UE count 4,
+//     dl/ul mean delay 8, dl/ul total data volume 8
+// 48 bytes, already 8-byte aligned.
+//
+// The previous value was 64 for "10 metrics", which did not add up either way -
+// 4 + 8 + 40 is 52. One of those ten was the mean distance to the access point,
+// a Location Service quantity that has been removed from this record; the
+// remaining nine are counted above, field by field.
+const int CELL_RADIO_RECORD_B = 48;
 
 // One access point in the infrastructure-details frame, sent once at handshake.
 //   AP id 4 + x/y/z 12

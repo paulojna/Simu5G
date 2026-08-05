@@ -15,7 +15,6 @@ AccessPointRadioInfoData::AccessPointRadioInfoData() {
     this->avg_ul_delay = -1.0;
     this->total_dl_data_volume = -1.0;
     this->total_ul_data_volume = -1.0;
-    this->avg_distance_to_ap = -1.0;
 }
 
 // Getters
@@ -63,10 +62,6 @@ double AccessPointRadioInfoData::getTotalUlDataVolume() const {
     return this->total_ul_data_volume;
 }
 
-double AccessPointRadioInfoData::getAvgDistanceToAp() const {
-    return this->avg_distance_to_ap;
-}
-
 // Setters
 void AccessPointRadioInfoData::setAccessPointId(const std::string& accessPointId) {
     this->accessPointId = accessPointId;
@@ -110,10 +105,6 @@ void AccessPointRadioInfoData::setTotalDlDataVolume(double volume) {
 
 void AccessPointRadioInfoData::setTotalUlDataVolume(double volume) {
     this->total_ul_data_volume = volume;
-}
-
-void AccessPointRadioInfoData::setAvgDistanceToAp(double distance) {
-    this->avg_distance_to_ap = distance;
 }
 
 }

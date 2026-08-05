@@ -242,29 +242,17 @@ void RavensAgentApp::sendDataFrame()
         return;
     }
 
-    // Average distance to the serving cell, over the users currently here.
+    // No average distance to the serving cell is computed here any more. It was
+    // the one value in the cell record that came from the Location Service
+    // rather than the RNIS, and it is exactly recomputable downstream: every
+    // sample in this frame carries its own DistanceToAccessPoint, so the mean is
+    // a group-by — at one-second resolution rather than one value per frame, and
+    // over observations that genuinely share a timestamp.
     //
-    // Note this is the one value in the cell record that comes from the Location
-    // Service rather than the RNIS — the Agent computes it — so it empties on a
-    // different condition than the rest, and it is stamped with the RNIS clock
-    // rather than its own.
-    //
-    // With nobody here the average is undefined, not zero, so it is written as
-    // the same "not measured" value the RNIS uses for a field it has no data for.
-    // Leaving the previous value in place would have been worse than either: the
-    // cell record carries no timestamp of its own into the CSV, so a stale
-    // average is indistinguishable from a current one.
-    if (accessPointRadioInformation != nullptr) {
-        if (users.empty()) {
-            accessPointRadioInformation->setAvgDistanceToAp(-1.0);
-        }
-        else {
-            double totalDist = 0.0;
-            for (const auto& [addr, ud] : users)
-                totalDist += ud.getDistanceToAP();
-            accessPointRadioInformation->setAvgDistanceToAp(totalDist / users.size());
-        }
-    }
+    // It was also averaging the wrong population. It ran over the current-state
+    // map at send time, which excludes UEs that have already departed, while the
+    // frame below still carries those UEs' observations. The value therefore
+    // matched no group anyone could reconstruct from the frame it travelled in.
 
     // Hand the buffered observations over to the wire form, one group per UE.
     // The samples are moved rather than copied — the buffer is being emptied

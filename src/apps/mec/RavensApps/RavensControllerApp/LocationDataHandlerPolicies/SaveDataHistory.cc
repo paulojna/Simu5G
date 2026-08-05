@@ -19,13 +19,11 @@ SaveDataHistory::SaveDataHistory(RavensControllerApp* controllerApp, std::string
     }
 
     // 1. User File (Standard Vectors + Radio Stats)
+    // The header is generated from the same field list the rows are written
+    // from, so a column cannot end up under the wrong name.
     std::string name = dirPath + "run_" + runNumber + "_users.csv";
     userFile.open(name, std::ios::out | std::ios::trunc);
-    userFile << "TimestampSent,LocationTimestamp,RadioTimestamp,UEId,MEHId,AccessPointId,RNISCellId,"
-             << "x,y,z,Speed,Bearing,DistanceToAccessPoint,"
-             << "DlNongbrDelayUe,UlNongbrDelayUe,"
-             << "DlNongbrPdrUe,UlNongbrPdrUe,"
-             << "DlNongbrDataVolumeUe,UlNongbrDataVolumeUe,Rsrp" << endl;
+    userFile << userSampleCsvHeader() << endl;
     
     // 2. Lifecycle File (Events)
     std::string lifecycleName = dirPath + "run_" + runNumber + "_lifecycle.csv";
@@ -42,24 +40,55 @@ SaveDataHistory::SaveDataHistory(RavensControllerApp* controllerApp, std::string
     //
     // TimestampSent is named to match the same column in the users file: the two
     // get joined, and one quantity under two names is a trap for whoever joins them.
+    // AvgDistanceToAp is deliberately absent. It was a Location Service average
+    // living in a radio record, and it is recomputed offline from the per-user
+    // rows: group users.csv by (LocationTimestamp, MEHId) and take the mean of
+    // DistanceToAccessPoint. That is one value per second instead of one per
+    // frame, and averaged over rows that share a timestamp.
     radioStatsFile << "TimestampSent,RadioTimestamp,MEHId,CellId,DlPrbUsageCell,UlPrbUsageCell,DlNongbrPdrCell,UlNongbrPdrCell,"
-                   << "AvgDlDelay,AvgUlDelay,TotalDlDataVolume,TotalUlDataVolume,NumActiveUeDlNongbr,AvgDistanceToAp" << endl;
+                   << "AvgDlDelay,AvgUlDelay,TotalDlDataVolume,TotalUlDataVolume,NumActiveUeDlNongbr" << endl;
     
     EV << "SaveDataHistory initialized. Users: " << name << ", Lifecycle: " << lifecycleName << ", RadioStats: " << radioStatsName << endl;
 }
 
-inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkDataFrameMessage> received_packet)
+// One row per observation, not one per user. A frame carries every Location
+// Service reading taken since the previous frame, so a user normally contributes
+// several rows here — consecutive positions a second apart rather than a single
+// sample every few seconds.
+//
+// LocationTimestamp varies within a frame while TimestampSent does not, which
+// makes LocationTimestamp the meaningful key: it is when the observation was
+// taken, whereas TimestampSent is only when the frame happened to leave.
+//
+// Rows may include users the event channel never announced, and users that had
+// already left by the time the frame was sent. Both are intended: this file
+// records what was observed, the lifecycle file records confirmed placement.
+//
+// Note which of the two may shape a model's input. Lifecycle is the right source
+// for labels, which are facts about what happened after a sample and which the
+// prediction server never has to reproduce. It is the wrong source for filtering
+// features: the server receives telemetry only, so a training set pruned by a
+// lifecycle join would carry a step the serving path cannot repeat. ConfirmedMEH
+// is carried on both paths precisely so that test can be made per row,
+// identically, in both places.
+void SaveDataHistory::onUserSamples(const std::vector<UserSample>& samples)
 {
-    // Last-resort cleanup: drop users nothing has been heard about for far longer
-    // than any normal gap, and record the departure. Departures are normally
-    // confirmed through the event channel long before this, so this should stay
-    // quiet — it exists so a user whose exit event was somehow never delivered
-    // cannot linger indefinitely.
-    std::vector<UserState> removedUsers = controllerApp_->removeInactiveUsers();
-    for (const auto& user : removedUsers)
-        onUserExit(user.userId, user.currentMEH, -1, SIMTIME_ZERO);
+    for (const auto& sample : samples) {
+        bool firstColumn = true;
+        sample.forEachField([this, &firstColumn](const char*, const auto& value) {
+            if (!firstColumn)
+                userFile << ',';
+            firstColumn = false;
+            userFile << value;
+        });
+        userFile << "\n";
+    }
+}
 
-    // Log radio stats
+// Cell-level aggregates: one row per frame, not one per user. These describe the
+// cell the Agent serves, so every user in the frame shares them.
+void SaveDataHistory::onTelemetryFrame(inet::Ptr<const RavensLinkDataFrameMessage> received_packet)
+{
     const AccessPointRadioInfoData& apRadioInfo = received_packet->getApRadioInfo();
     if (!apRadioInfo.getAccessPointId().empty()) {
         radioStatsFile << received_packet->getTimeStamp() << ","
@@ -74,58 +103,17 @@ inet::Packet* SaveDataHistory::handleDataMessage(inet::Ptr<const RavensLinkDataF
                        << apRadioInfo.getAvgUlDelay() << ","
                        << apRadioInfo.getTotalDlDataVolume() << ","
                        << apRadioInfo.getTotalUlDataVolume() << ","
-                       << apRadioInfo.getNumberOfActiveUeDlNongbrCell() << ","
-                       << apRadioInfo.getAvgDistanceToAp() << endl;
+                       << apRadioInfo.getNumberOfActiveUeDlNongbrCell() << endl;
     }
 
-    // Log per-user telemetry: one row per observation, not one per user. A frame
-    // carries every Location Service reading taken since the previous frame, so a
-    // user normally contributes several rows here — consecutive positions a
-    // second apart rather than a single sample every few seconds.
-    //
-    // The columns are unchanged. What changes is that LocationTimestamp now
-    // varies within a frame while TimestampSent does not, which makes
-    // LocationTimestamp the meaningful key: it is when the observation was taken,
-    // whereas TimestampSent is only when the frame happened to leave.
-    //
-    // Rows may include users the event channel never announced, and users that
-    // had already left by the time the frame was sent. Both are intended: this
-    // file records what was observed, while the lifecycle file records confirmed
-    // placement. Filtering one against the other is an offline job.
-    for (const auto& group : received_packet->getUserSamples()) {
-        for (const auto& sample : group.samples) {
-            const UserRadioInfoData& radioInfo = sample.getRadioInfo();
-            userFile << received_packet->getTimeStamp() << ","
-                     << sample.getTimestamp() << ","
-                     << radioInfo.getTimestamp() << ","
-                     << group.ueAddress << ","
-                     << received_packet->getMecHostId() << ","
-                     << sample.getAccessPointId() << ","
-                     << radioInfo.getAccessPointId() << ","
-                     << sample.getCurrentLocation().getX() << ","
-                     << sample.getCurrentLocation().getY() << ","
-                     << sample.getCurrentLocation().getZ() << ","
-                     << sample.getCurrentLocation().getHorizontalSpeed() << ","
-                     << sample.getCurrentLocation().getBearing() << ","
-                     << sample.getDistanceToAP() << ","
-                     << radioInfo.getDlNongbrDelayUe() << ","
-                     << radioInfo.getUlNongbrDelayUe() << ","
-                     << radioInfo.getDlNongbrPdrUe() << ","
-                     << radioInfo.getUlNongbrPdrUe() << ","
-                     << radioInfo.getDlNongbrDataVolumeUe() << ","
-                     << radioInfo.getUlNongbrDataVolumeUe() << ","
-                     << radioInfo.getRsrp() << "\n";
-        }
-    }
-
+    // Counted per frame, not per row: the two files are flushed together, and a
+    // frame is the unit that produced both.
     msgCount_++;
     if (msgCount_ >= FLUSH_INTERVAL_) {
         userFile.flush();
         radioStatsFile.flush();
         msgCount_ = 0;
     }
-
-    return nullptr;
 }
 
 void SaveDataHistory::onUserEntry(const std::string& userId, const std::string& meh,

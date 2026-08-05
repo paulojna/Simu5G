@@ -18,14 +18,16 @@ class AccessPointRadioInfoData {
         double ul_nongbr_pdr_cell;
         int    number_of_active_ue_dl_nongbr_cell;
 
-        // Computed from RNIS cellUEInfo (per-user aggregation done at Agent)
+        // Computed from RNIS cellUEInfo (per-user aggregation done at Agent).
+        // These stay even though the per-UE delay and volume fields also travel
+        // in every sample: the aggregate covers every UE the RNIS reports for
+        // the cell, while a sample only exists for UEs the Location Service has
+        // already reported, so the two populations are not the same. They carry
+        // something the samples do not.
         double avg_dl_delay;
         double avg_ul_delay;
         double total_dl_data_volume;
         double total_ul_data_volume;
-
-        // Computed from LS user map at data frame send time
-        double avg_distance_to_ap;
 
     public:
         // Default constructor
@@ -46,7 +48,6 @@ class AccessPointRadioInfoData {
         double getAvgUlDelay() const;
         double getTotalDlDataVolume() const;
         double getTotalUlDataVolume() const;
-        double getAvgDistanceToAp() const;
 
         // Setters
         void setAccessPointId(const std::string& accessPointId);
@@ -60,7 +61,6 @@ class AccessPointRadioInfoData {
         void setAvgUlDelay(double delay);
         void setTotalDlDataVolume(double volume);
         void setTotalUlDataVolume(double volume);
-        void setAvgDistanceToAp(double distance);
 };
 
 }

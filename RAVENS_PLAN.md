@@ -164,6 +164,22 @@ independently sufficient:
 - **Join on `firstDetectedAt`, never on the lifecycle row timestamp.** The row timestamp is
   when the hook fired at the Controller, which lags by the reporting delay plus the
   confirmation window. `firstDetectedAt` is ground truth.
+- **Lifecycle may build labels. It may not filter features.** A label is a fact about what
+  happened *after* a sample, and the prediction server never reproduces one — it predicts it.
+  A feature filter is different: the server receives telemetry and nothing else, so a training
+  set pruned by a lifecycle join carries a preprocessing step the serving path cannot repeat.
+  That is train/serve skew one level above the one Step 5 removes.
+- **The feature filter is the per-row test `confirmedMEH == MEHId`.** Both fields travel in the
+  telemetry sample, so the offline pipeline and the prediction server apply the identical test
+  — no join, no reconstruction, nothing to keep in step by hand. It is deliberately stricter
+  than a lifecycle join on `firstDetectedAt`: it drops the first one or two samples of every
+  residency, the interval before ENTRY was confirmed. Those are seconds in which the system did
+  not yet know where the UE was, and the server will not know either, so excluding them from
+  training matches what is served. Training on the unfiltered stream was the alternative — no
+  filter code to keep in sync at all — and is the fallback if the strict filter costs too much
+  data near boundaries, which is exactly where the models need it. Decide from the trained
+  model, not in advance: `users.csv` keeps every row either way, so this is a pipeline choice
+  below the regeneration gate.
 - **Key telemetry on `LocationTimestamp`, not `TimestampSent`.** The former is when the
   observation was taken; the latter is when the frame happened to ship.
 - **A row is not a coherent snapshot.** Location comes from the Location Service, radio
@@ -287,10 +303,18 @@ list still marks "this profile talks to the MEO".
 ### Known items
 
 1. **`USERS_UPDATE` semantics** — the decision above, plus removal of the coalescing.
-2. **Predicted EXITs are executed blindly.** `MigrateOnPrediction::handleScheduledEvent` calls
-   `removeAppFromSystem` on a predicted exit with no reactive confirmation. A false exit
-   deletes an app that is never recreated, because app creation is driven by the UE requesting
-   one and the UE never re-requests. **Exits must always be reactive.**
+2. **EXITs are executed blindly — and being reactive is not enough.**
+   `MigrateOnPrediction::handleScheduledEvent` calls `removeAppFromSystem` on a predicted exit
+   with no reactive confirmation. A false exit deletes an app that is never recreated, because
+   app creation is driven by the UE requesting one and the UE never re-requests.
+   `MigrateOnChange::reactOnUpdate` does the same on any update with an empty `newMEHId`.
+   **A reactive exit already caused this**: the deleted `removeInactiveUsers` timeout produced
+   a genuine, reactive `onUserExit` for a live user, the MEO tore its application down, and the
+   run crashed when the next packet reached the deleted module. So the requirement is stronger
+   than "exits must be reactive" — **teardown must tolerate the UE still being present.** At
+   minimum the MEO should verify the UE is absent from its own placement view before deleting,
+   and a delete for a UE it still believes is placed should be logged and ignored rather than
+   executed.
 3. **MEO execution log** — extend the migration log (executed / stale / queued / failed /
    ignored, plus reactive fallbacks) and write it into the Controller's `run_<N>` directory so
    it joins against the lifecycle CSV.
@@ -587,8 +611,12 @@ moment — diagnostic only, and cheap to add now given what a regeneration costs
 - No Controller-side buffering or reordering is introduced — samples are emitted as they
   arrive and sorted by whoever consumes them
 - `pendingMEH` is gone from `UserState`
-- The last-resort cleanup runs on every profile, including one with no telemetry at all,
-  and a run in that profile shows it firing when an exit event is deliberately dropped
+- `expirePendingExits` is the only code path that removes a user from `userStateMap` or calls
+  `onUserExit`; no timer can retire a user, and therefore no timer can tear down an application
+- `reportSilentUsers` warns at most once per user, records `silentUsersReported` as a scalar,
+  and a normal run reports zero
+- Every EXIT row in `lifecycle.csv` carries a real `samplesSinceChange` and `firstDetectedAt` —
+  the timeout was the only source of synthetic exits, and it is gone
 
 **Also in this step — two findings from Step 4.** Neither is about sample representation;
 both are small, both are in files this step already opens, and neither is worth a step of its
@@ -597,16 +625,34 @@ own.
 1. **`UserState::pendingMEH` is dead.** Declared, never assigned, never read. Same category as
    the telemetry copy and the unused change struct removed in Step 4; it survived that pass
    only because that pass was looking at the telemetry copy specifically.
-2. **The last-resort cleanup cannot run in the reaction profile.** `removeInactiveUsers` is
-   called only from the three `handleDataMessage` implementations, so it is driven entirely by
-   telemetry arriving. In event-only mode no telemetry frame is ever sent, so the backstop
-   that catches a user whose exit event went missing is absent from precisely the profile that
-   has nothing but events — the one where a lost exit is least recoverable. Nothing breaks in
-   normal operation, since it is a backstop and not a primary path.
-   **Fix:** drive it from something that ticks regardless of profile. The Controller already
-   runs a periodic sweep for elapsed exit confirmation windows; that sweep is the natural home,
-   and moving it there also removes the oddity of a cleanup being triggered by an unrelated
-   message arriving.
+2. **The last-resort cleanup is a timeout that deletes users, and it must stop being one.**
+   *(This item originally read "the cleanup cannot run in the reaction profile, so drive it
+   from the sweep". That was implemented and immediately crashed T2. The premise was wrong;
+   what follows replaces it.)*
+   `removeInactiveUsers` deleted any user nothing had been heard about for `threshold` seconds
+   and reported a departure for it. It was called only from the three `handleDataMessage`
+   implementations, so it was driven entirely by telemetry arriving — which is why it had never
+   run in the event-only profile, and why the damage stayed hidden.
+   **Why moving it to the sweep broke:** `UserState::timestamp` is refreshed by telemetry, and
+   by ENTRY events. Under report-once, a user that enters a host and stays there produces one
+   ENTRY and nothing further, so in event-only mode its timestamp is written once and never
+   again. Every stationary user therefore crossed the threshold about 60 s after arriving, was
+   declared gone, and `MigrateOnChange` executed `removeAppFromSystem` on a live user's
+   application — after which the next packet reached a deleted module.
+   **The real defect is the asymmetry.** `updateUserStateMap` explicitly refuses to let a
+   telemetry frame introduce a user or move one, because placement belongs to the event
+   channel. The timeout let telemetry *remove* one. A clock is not the event channel.
+   **Also, the premise was false in every profile.** Events ride TCP and the Agent holds and
+   retries them while the channel is down, so "an exit event might go missing" cannot happen
+   anywhere — not just in event-only mode. The backstop was vestigial, left over from when
+   placement was inferred from UDP telemetry.
+   **Fix:** users leave `userStateMap` through `expirePendingExits` alone. The timeout becomes
+   `reportSilentUsers` — a diagnostic on the same sweep that warns once per user and counts
+   into a scalar, removing nothing and notifying no one. That keeps what was worth having: a
+   run reporting zero silent users is evidence that the reliable channel does not lose
+   placement changes, which is a claim the architecture rests on. It stays guarded to telemetry
+   profiles, since without telemetry there is no liveness mark to read.
+   `threshold` is renamed `silenceWarningThreshold` — it no longer thresholds a removal.
 3. **`avgDistanceToAp` should be removed from the cell record, not relocated.** It is the
    average distance from the users on a host to their serving cell — a Location Service
    quantity — but it lives in the cell *radio* record, is written from a different place in the

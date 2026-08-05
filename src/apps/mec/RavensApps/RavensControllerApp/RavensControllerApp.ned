@@ -9,7 +9,11 @@ simple RavensControllerApp like IApp
     parameters:
         @class("RavensControllerApp");
         string mode = default("SaveDataHistory"); // available modes: "SaveDataHistory", "NotifyOnDataChange" and "SendToExternalServer"
-        int threshold = default(10);
+        // How long telemetry may say nothing about a user before that silence is
+        // reported (s). Diagnostic only: nothing is removed on this timer, since
+        // users leave the Controller's model through the event channel alone.
+        // Not applied in event-only mode, where silence is the normal state.
+        int silenceWarningThreshold = default(60);
         int snapshot_frequency = default(2);  
         int snapshot_starting_time = default(2);
         string path = default("../tust_1to1/results/"); // path to save the data

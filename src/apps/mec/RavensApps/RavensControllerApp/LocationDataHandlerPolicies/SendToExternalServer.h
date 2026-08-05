@@ -16,12 +16,17 @@ namespace simu5g {
 	private:
 		std::string flaskUrl_;
 
-		nlohmann::json formatSnapshot(inet::Ptr<const RavensLinkDataFrameMessage> snapshot);
+		// The UE groups of the frame currently being processed, waiting for the
+		// frame hook to send them. Filled and drained inside a single frame — not
+		// a buffer: no sample is ever held across frames or reordered.
+		nlohmann::json pendingUsers_;
+
 		std::string postToFlask(const nlohmann::json& payload);
 		std::vector<MigrationPrediction> parseResponse(const std::string& response);
 
 	protected:
-		virtual inet::Packet* handleDataMessage(inet::Ptr<const RavensLinkDataFrameMessage> received_packet) override;
+		virtual void onUserSamples(const std::vector<UserSample>& samples) override;
+		virtual void onTelemetryFrame(inet::Ptr<const RavensLinkDataFrameMessage> frame) override;
 		virtual void onUserEntry   (const std::string& userId, const std::string& meh,
 		                            int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) override;
 		virtual void onUserHandover(const std::string& userId, const std::string& fromMeh,

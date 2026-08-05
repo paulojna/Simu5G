@@ -9,9 +9,19 @@ namespace simu5g {
 	    return totalSize;
 	}
 
+	// A simulation time has no JSON type of its own. It is written as the decimal
+	// string, which is the same text the CSV writes, so a timestamp reads
+	// identically whether the model is being trained or served.
+	static nlohmann::json jsonValue(omnetpp::simtime_t value) { return value.str(); }
+
+	// Everything else goes through as-is: strings, whole numbers, doubles.
+	template <typename T>
+	static nlohmann::json jsonValue(const T& value) { return value; }
+
 	SendToExternalServer::SendToExternalServer(RavensControllerApp* controllerApp): LocationDataHandlerPolicyBase(controllerApp)
 	{
 		flaskUrl_ = "http://localhost:5001/predict";
+		pendingUsers_ = nlohmann::json::array();
 
 		// Reset Flask state at the start of each simulation run
 		// to prevent stale UE buffers from previous runs
@@ -40,19 +50,68 @@ namespace simu5g {
 	{
 	}
 
-	inet::Packet* SendToExternalServer::handleDataMessage(inet::Ptr<const RavensLinkDataFrameMessage> received_packet)
+	// One UE's readings from the frame being processed, oldest first.
+	//
+	// The grouping is kept rather than flattened because the prediction server
+	// consumes per-UE sequences. It is meant to hold a window and nothing more —
+	// never to work out which UE or which host a reading belongs to. Sending
+	// sequences already assembled by whoever observed them is what keeps that true.
+	//
+	// The fields come from the shared record, so this payload carries exactly what
+	// the CSV carries, under exactly the same names. That is the whole reason the
+	// record exists: the two are written in different runs and compared only
+	// through a trained model, so a field present on one side and missing on the
+	// other would never surface at runtime.
+	void SendToExternalServer::onUserSamples(const std::vector<UserSample>& samples)
 	{
-		// Last-resort cleanup: drop users nothing has been heard about for far
-		// longer than any normal gap. Departures are normally confirmed through
-		// the event channel long before this, so this should stay quiet — it
-		// exists so a user whose exit event was somehow never delivered cannot
-		// linger indefinitely.
-		std::vector<UserState> removedUsers = controllerApp_->removeInactiveUsers();
-		for (const auto& user : removedUsers)
-			onUserExit(user.userId, user.currentMEH, -1, SIMTIME_ZERO);
+		if (samples.empty())
+			return;
 
-		// Forward data frame to Flask and collect migration predictions
-		nlohmann::json payload = formatSnapshot(received_packet);
+		nlohmann::json samplesJson = nlohmann::json::array();
+		for (const auto& sample : samples)
+		{
+			nlohmann::json sampleJson;
+			sample.forEachField([&sampleJson](const char* name, const auto& value) {
+				sampleJson[name] = jsonValue(value);
+			});
+			samplesJson.push_back(sampleJson);
+		}
+
+		nlohmann::json userJson;
+		userJson["ueId"]    = samples.front().userId;
+		userJson["samples"] = samplesJson;
+		pendingUsers_.push_back(userJson);
+	}
+
+	// End of the frame: add what is shared by every UE in it, then send.
+	void SendToExternalServer::onTelemetryFrame(inet::Ptr<const RavensLinkDataFrameMessage> frame)
+	{
+		nlohmann::json payload;
+		payload["mecHostId"] = frame->getMecHostId();
+		payload["timestamp"] = frame->getTimeStamp().str();
+
+		// Cell-level radio aggregates — one set of values per frame, shared by
+		// every UE on the host, so they sit beside the users rather than inside them.
+		const AccessPointRadioInfoData& ap = frame->getApRadioInfo();
+		nlohmann::json cellJson;
+		cellJson["accessPointId"]                  = ap.getAccessPointId();
+		cellJson["dlTotalPrbUsageCell"]             = ap.getDlTotalPrbUsageCell();
+		cellJson["ulTotalPrbUsageCell"]             = ap.getUlTotalPrbUsageCell();
+		cellJson["dlNongbrPdrCell"]                 = ap.getDlNongbrPdrCell();
+		cellJson["ulNongbrPdrCell"]                 = ap.getUlNongbrPdrCell();
+		cellJson["numberOfActiveUeDlNongbrCell"]    = ap.getNumberOfActiveUeDlNongbrCell();
+		cellJson["avgDlDelay"]                      = ap.getAvgDlDelay();
+		cellJson["avgUlDelay"]                      = ap.getAvgUlDelay();
+		cellJson["totalDlDataVolume"]               = ap.getTotalDlDataVolume();
+		cellJson["totalUlDataVolume"]               = ap.getTotalUlDataVolume();
+		payload["cellMetrics"] = cellJson;
+		// No avgDistanceToAp: it is the mean of a value every sample in this
+		// same payload already carries, so the server computes it if it wants
+		// it — the same way the offline pipeline does, from the same numbers.
+
+		payload["users"] = std::move(pendingUsers_);
+		pendingUsers_ = nlohmann::json::array();
+
 		std::cout << simTime() << " - SendToExternalServer - sending to Flask, users: " << payload["users"].size() << std::endl;
 		std::string response = postToFlask(payload);
 		std::cout << simTime() << " - SendToExternalServer - Flask response (" << response.size() << " bytes): " << response << std::endl;
@@ -60,8 +119,6 @@ namespace simu5g {
 
 		for (auto& pred : predictions)
 			controllerApp_->migrationPredictions.insert_or_assign(pred.getUeAddress(), pred);
-
-		return nullptr;
 	}
 
 	void SendToExternalServer::onUserEntry(const std::string& userId, const std::string& meh,
@@ -85,70 +142,6 @@ namespace simu5g {
 		EV << "SendToExternalServer::onUserExit - " << userId << " left " << fromMeh << endl;
 		emitUserUpdate(userId, fromMeh, "");
 	}
-
-	nlohmann::json SendToExternalServer::formatSnapshot(inet::Ptr<const RavensLinkDataFrameMessage> snapshot)
-	{
-	    nlohmann::json payload;
-
-	    payload["mecHostId"] = snapshot->getMecHostId();
-	    payload["timestamp"] = snapshot->getTimeStamp().str();
-
-	    // Cell-level radio aggregates (replaces removed per-user RNIS fields)
-	    const AccessPointRadioInfoData& ap = snapshot->getApRadioInfo();
-	    nlohmann::json cellJson;
-	    cellJson["accessPointId"]                  = ap.getAccessPointId();
-	    cellJson["dlTotalPrbUsageCell"]             = ap.getDlTotalPrbUsageCell();
-	    cellJson["ulTotalPrbUsageCell"]             = ap.getUlTotalPrbUsageCell();
-	    cellJson["dlNongbrPdrCell"]                 = ap.getDlNongbrPdrCell();
-	    cellJson["ulNongbrPdrCell"]                 = ap.getUlNongbrPdrCell();
-	    cellJson["numberOfActiveUeDlNongbrCell"]    = ap.getNumberOfActiveUeDlNongbrCell();
-	    cellJson["avgDlDelay"]                      = ap.getAvgDlDelay();
-	    cellJson["avgUlDelay"]                      = ap.getAvgUlDelay();
-	    cellJson["totalDlDataVolume"]               = ap.getTotalDlDataVolume();
-	    cellJson["totalUlDataVolume"]               = ap.getTotalUlDataVolume();
-	    cellJson["avgDistanceToAp"]                 = ap.getAvgDistanceToAp();
-	    payload["cellMetrics"] = cellJson;
-
-	    // Per-user location readings, grouped as they arrived: one entry per user,
-	    // holding every reading taken since the previous frame, oldest first.
-	    //
-	    // The grouping is passed on rather than flattened because the prediction
-	    // server consumes per-user sequences. It is meant to buffer a window and
-	    // nothing more — never to work out which user or which host a reading
-	    // belongs to. Sending sequences already assembled by whoever observed them
-	    // is what keeps that true.
-	    //
-	    // Each reading carries its own timestamp. Without one they would be
-	    // indistinguishable in time, which would make the input meaningless to a
-	    // sequence model now that a single frame spans several seconds.
-	    nlohmann::json usersJson = nlohmann::json::array();
-	    for (const auto& group : snapshot->getUserSamples())
-	    {
-	        nlohmann::json samplesJson = nlohmann::json::array();
-	        for (const auto& sample : group.samples)
-	        {
-	            nlohmann::json sampleJson;
-	            sampleJson["locationTimestamp"] = sample.getTimestamp().str();
-	            sampleJson["accessPointId"]     = sample.getAccessPointId();
-	            sampleJson["x"]                 = sample.getCurrentLocation().getX();
-	            sampleJson["y"]                 = sample.getCurrentLocation().getY();
-	            sampleJson["z"]                 = sample.getCurrentLocation().getZ();
-	            sampleJson["speed"]             = sample.getCurrentLocation().getHorizontalSpeed();
-	            sampleJson["bearing"]           = sample.getCurrentLocation().getBearing();
-	            sampleJson["distanceToAp"]      = sample.getDistanceToAP();
-	            samplesJson.push_back(sampleJson);
-	        }
-
-	        nlohmann::json userJson;
-	        userJson["ueId"]    = group.ueAddress;
-	        userJson["samples"] = samplesJson;
-	        usersJson.push_back(userJson);
-	    }
-	    payload["users"] = usersJson;
-
-	    return payload;
-	}
-
 
 	std::string SendToExternalServer::postToFlask(const nlohmann::json& payload)
 	{
