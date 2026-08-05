@@ -115,6 +115,21 @@ private:
     void scheduleTimeout(unsigned int requestNumber);
     void cancelTimeout(unsigned int requestNumber);
     void forceCompleteMigration(unsigned int requestNumber, const std::string& reason);
+
+    /*
+     * Destroys the migrated-from instance once the UE has switched away from it.
+     *
+     * Goes to the old host's platform manager directly rather than through
+     * MecAppLifecycleManager::stopApplication(), which cannot do this job: it looks the
+     * app up by contextId, and performMigration() already unregistered the old contextId
+     * when it registered the new one. The lookup therefore always missed and the old
+     * instance was never destroyed — one leaked, still-running MEC app per migration,
+     * silent because the failure was only logged.
+     *
+     * StandByElement carries oldMecpm and mecUeAppID for exactly this, captured before
+     * the registry was rewritten.
+     */
+    bool terminateOldInstance(const StandByElement& standBy);
 };
 
 } 
