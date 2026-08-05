@@ -59,7 +59,7 @@ simple RavensAgentApp like IMECApp, IApp
 
         // Consecutive present LS samples (1s each) required before an ENTRY is
         // reported to the Controller. Symmetric with exitConfirmSamples by design —
-        // see RAVENS_PLAN.md, "Event reporting", for why an asymmetric threshold
+        // see ravens-plan.md, "Event reporting", for why an asymmetric threshold
         // is unsafe.
         int entryConfirmSamples = default(2);
         // Consecutive absent LS samples (1s each) required before an EXIT is
