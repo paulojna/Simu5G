@@ -234,11 +234,11 @@ MigrationResult MecAppMigrationManager::completeMigration(UALCMPMessage* ackMsg)
     // Cancel timeout
     cancelTimeout(requestNumber);
 
-    // Terminate old app instance via LifecycleManager
-    LifecycleResult terminationResult = mecAppLifecycleManager_->stopApplication(standBy.contextId);
-
-    if (!terminationResult.success) {
-        EV << "MecAppMigrationManager::completeMigration - Old instance termination failed: " << terminationResult.errorMessage << endl;
+    // Destroy the instance the UE has just switched away from. Goes straight to the old
+    // host rather than through the lifecycle manager — see terminateOldInstance().
+    if (!terminateOldInstance(standBy)) {
+        EV << "MecAppMigrationManager::completeMigration - Old instance termination failed for request "
+           << requestNumber << endl;
     }
 
     // Remove from standByList and index
@@ -271,6 +271,32 @@ MigrationResult MecAppMigrationManager::completeMigration(UALCMPMessage* ackMsg)
     }
 
     return MigrationResult(true, "Migration completed", standBy.contextId, requestNumber, "", "");
+}
+
+bool MecAppMigrationManager::terminateOldInstance(const StandByElement& standBy)
+{
+    if (standBy.oldMecpm == nullptr) {
+        EV << "MecAppMigrationManager::terminateOldInstance - no source platform manager "
+           << "recorded for request " << standBy.request << ", cannot terminate" << endl;
+        return false;
+    }
+
+    MecPlatformManager* oldMecpm = check_and_cast<MecPlatformManager*>(standBy.oldMecpm);
+
+    DeleteAppMessage* deleteAppMsg = new DeleteAppMessage();
+    deleteAppMsg->setUeAppID(standBy.mecUeAppID);
+
+    // MecPlatformManager::terminateMEApp() deletes the message itself — do not delete it here.
+    bool terminated = oldMecpm->terminateMEApp(deleteAppMsg);
+
+    if (terminated)
+        EV << "MecAppMigrationManager::terminateOldInstance - old instance for UE app "
+           << standBy.mecUeAppID << " terminated on " << standBy.oldMecpm->getFullPath() << endl;
+    else
+        EV << "MecAppMigrationManager::terminateOldInstance - WARNING: no instance found for "
+           << "UE app " << standBy.mecUeAppID << " on " << standBy.oldMecpm->getFullPath() << endl;
+
+    return terminated;
 }
 
 void MecAppMigrationManager::handleMigrationTimeout(unsigned int requestNumber)
@@ -525,11 +551,10 @@ void MecAppMigrationManager::forceCompleteMigration(unsigned int requestNumber, 
 
     StandByElement standBy = it->second;
 
-    // Terminate old instance
-    LifecycleResult terminationResult = mecAppLifecycleManager_->stopApplication(standBy.contextId);
-
-    if (!terminationResult.success) {
-        EV << "MecAppMigrationManager::forceCompleteMigration - Termination failed: " << terminationResult.errorMessage << endl;
+    // Terminate old instance (same reasoning as completeMigration)
+    if (!terminateOldInstance(standBy)) {
+        EV << "MecAppMigrationManager::forceCompleteMigration - Termination failed for request "
+           << requestNumber << endl;
     }
 
     // Clean up timeout message if not already fired

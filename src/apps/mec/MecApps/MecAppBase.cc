@@ -304,6 +304,26 @@ void MecAppBase::removeSocket(inet::TcpSocket* tcpSock)
     delete sockets_.removeSocket(tcpSock);
 }
 
+void MecAppBase::releaseSockets()
+{
+    // Called by the VIM, so the current context is the VIM's, not ours. The
+    // teardown below sends a command to tcp, and send() is only legal from the
+    // owning module — Enter_Method_Silent() switches the context so it is.
+    Enter_Method_Silent();
+
+    // destroy() rather than close(): close() starts a shutdown handshake that
+    // needs this module to still be here to finish it, and it is about to be
+    // deleted. destroy() drops the socket at the transport layer immediately,
+    // which is the whole point — an id still registered there is what produces
+    // the dispatcher loop described in the header.
+    for (auto& [socketId, socket] : sockets_.getMap()) {
+        if (socket != nullptr) {
+            EV << "MecAppBase::releaseSockets - destroying socket " << socketId << endl;
+            socket->destroy();
+        }
+    }
+}
+
 void MecAppBase::finish()
 {
     EV << "MecAppBase::finish()" << endl;

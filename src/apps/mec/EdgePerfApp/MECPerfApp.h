@@ -106,6 +106,11 @@ protected:
   public:
     MECPerfApp();
     virtual ~MECPerfApp();
+
+    // Adds ueAppSocket_ to the base teardown. That socket is this app's only
+    // non-TCP one, so the base cannot see it, and it is the one the UE sends to
+    // — leaving it registered in udp is exactly what loops the SAP dispatcher.
+    virtual void releaseSockets() override;
 };
 
 }

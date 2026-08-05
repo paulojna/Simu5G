@@ -10,6 +10,8 @@
 //
 #include <inet/networklayer/common/L3AddressResolver.h>
 #include "nodes/mec/VirtualisationInfrastructureManager/VirtualisationInfrastructureManager.h"
+// for the releaseSockets() teardown hook called from terminateMEApp()
+#include "apps/mec/MecApps/MecAppBase.h"
 #include "nodes/mec/UALCMP/UALCMPMessages/UALCMPMessages_m.h"
 #include "nodes/mec/MECOrchestrator/MECOMessages/MECOrchestratorMessages_m.h"
 
@@ -423,6 +425,21 @@ bool VirtualisationInfrastructureManager::terminateMEApp(DeleteAppMessage* msg)
         int key = ueAppID;
 
         EV << "VirtualisationInfrastructureManager::terminateMEApp - " << mecAppMap[key].meAppModule->getName() << " terminated!" << endl;
+
+        // Tear the app's sockets down FIRST, while its gates are still connected and
+        // it can still talk to udp/tcp. Once deleteModule() has run there is no module
+        // left to send the teardown, and a socket left registered in udp outlives it:
+        // udp keeps tagging the UE's packets with that socket id, the SAP dispatcher
+        // still maps the id to the out gate disconnected below, and a disconnected gate
+        // in OMNeT++ delivers back to its own module — an endless loop that ends in a
+        // stack overflow. See MecAppBase::releaseSockets().
+        if (auto* mecApp = dynamic_cast<MecAppBase*>(mecAppMap[key].meAppModule))
+            mecApp->releaseSockets();
+        else
+            EV << "VirtualisationInfrastructureManager::terminateMEApp - WARNING: "
+               << mecAppMap[key].meAppModule->getName() << " is not a MecAppBase, so its "
+               << "sockets cannot be released before deletion" << endl;
+
         //terminating the ME App instance
         mecAppMap[key].meAppModule->callFinish();
         mecAppMap[key].meAppModule->deleteModule();
