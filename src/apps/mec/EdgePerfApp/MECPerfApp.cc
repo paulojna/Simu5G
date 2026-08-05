@@ -118,6 +118,20 @@ void MECPerfApp::handleProcessedMessage(cMessage *msg)
     MecAppBase::handleProcessedMessage(msg);
 }
 
+void MECPerfApp::releaseSockets()
+{
+    // Context belongs to the VIM at this point; destroy() sends to udp, so switch it.
+    Enter_Method_Silent();
+
+    MecAppBase::releaseSockets();
+
+    if (ueAppSocket_.getState() != inet::UdpSocket::CLOSED) {
+        EV << "MECPerfApp::releaseSockets - destroying UE socket "
+           << ueAppSocket_.getSocketId() << endl;
+        ueAppSocket_.destroy();
+    }
+}
+
 void MECPerfApp::finish()
 {
     EV << "MECPerfApp::finish" << std::endl;

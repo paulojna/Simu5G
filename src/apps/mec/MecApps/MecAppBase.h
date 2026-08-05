@@ -132,6 +132,33 @@ protected:
         MecAppBase();
         virtual ~MecAppBase();
 
+        /*
+         * Tears down every socket this app holds, so that the transport layer forgets
+         * them BEFORE the module is destroyed.
+         *
+         * Must be called while the app's gates are still connected — the teardown is
+         * itself a message to udp/tcp — hence it is a separate step rather than part
+         * of finish(), which OMNeT++ runs too late and from which sending is illegal.
+         *
+         * Skipping this leaves a socket registered in udp/tcp with no module behind it.
+         * Udp then keeps tagging arriving packets with that socket id, the SAP
+         * MessageDispatcher still maps the id to the app's now-disconnected out gate
+         * (its socket table is insert-only — INET never erases from it), and
+         * cGate::deliver() on a gate with no nextGate hands the packet straight back to
+         * the dispatcher. That is an infinite two-step loop that ends in a stack
+         * overflow, not a clean error.
+         *
+         * The base handles the TCP sockets in sockets_. An app owning any other socket
+         * — typically a UdpSocket facing the UE — must override this and tear that one
+         * down too, after calling the base. MECPerfApp does; the other MEC apps with a
+         * UE-facing UDP socket (MECResponseApp, MECWarningAlertApp, MecRnisTestApp,
+         * MecRTVideoStreamingReceiver) still need the same treatment if they are ever
+         * used in a scenario that deletes apps at runtime.
+         *
+         * See VirtualisationInfrastructureManager::terminateMEApp, which is the caller.
+         */
+        virtual void releaseSockets();
+
 
 };
 
