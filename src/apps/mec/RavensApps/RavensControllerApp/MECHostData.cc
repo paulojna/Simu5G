@@ -9,14 +9,12 @@ using namespace omnetpp;
 MECHostData::MECHostData(){
     this->hostId = "";
     this->accessPoints = std::vector<AccessPointData>();
-    this->apRadioInfo = AccessPointRadioInfoData(); // Initialize with default constructor
     // this->users = std::unordered_map<std::string, UserData>();
 }
 
 MECHostData::MECHostData(const std::string& hostId, const std::vector<AccessPointData>& accessPoints, const std::unordered_map<std::string, UserData>& users){
     this->hostId = hostId;
     this->accessPoints = accessPoints;
-    this->apRadioInfo = AccessPointRadioInfoData(); // Initialize
     // this->users = users;
 }
 
@@ -28,10 +26,6 @@ void MECHostData::setHostId(const std::string& hostId){
 void MECHostData::setAccessPoints(const std::vector<AccessPointData>& accessPoints){
     this->accessPoints = accessPoints;
 }   
-
-void MECHostData::setApRadioInfo(const AccessPointRadioInfoData& apRadioInfo){
-    this->apRadioInfo = apRadioInfo;
-}
 
 // void MECHostData::setUsers(const std::unordered_map<std::string, UserData>& users){
 //     this->users = users;
@@ -53,10 +47,6 @@ std::string MECHostData::getHostId() const{
 std::vector<AccessPointData> MECHostData::getAccessPoints() const{
     return this->accessPoints;
 }   
-
-AccessPointRadioInfoData MECHostData::getApRadioInfo() const{
-    return this->apRadioInfo;
-}
 
 // std::unordered_map<std::string, UserData> MECHostData::getUsers() const{
 //     return this->users;

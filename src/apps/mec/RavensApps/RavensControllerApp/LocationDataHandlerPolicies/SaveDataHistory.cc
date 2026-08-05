@@ -31,22 +31,20 @@ SaveDataHistory::SaveDataHistory(RavensControllerApp* controllerApp, std::string
     lifecycleFile << "timestamp,eventType,userId,fromMEH,toMEH,samplesSinceChange,firstDetectedAt" << endl;
 
     // 3. Radio Stats File (DL/UL Usage and PDR)
-    std::string radioStatsName = dirPath + "run_" + runNumber + "_radio_stats.csv";
-    radioStatsFile.open(radioStatsName, std::ios::out | std::ios::trunc);
-    // RadioTimestamp is when these aggregates were measured; TimestampSent is only
-    // when the frame carrying them left. Without both, an aggregate that stopped
-    // being refreshed is indistinguishable from a current one — the per-user rows
-    // have always carried both, these rows did not.
     //
-    // TimestampSent is named to match the same column in the users file: the two
-    // get joined, and one quantity under two names is a trap for whoever joins them.
+    // RadioTimestamp is when the reading was measured; TimestampSent only when the
+    // frame carrying it left. TimestampSent is named to match the same column in
+    // the users file: the two get joined, and one quantity under two names is a
+    // trap for whoever joins them.
+    //
     // AvgDistanceToAp is deliberately absent. It was a Location Service average
     // living in a radio record, and it is recomputed offline from the per-user
     // rows: group users.csv by (LocationTimestamp, MEHId) and take the mean of
     // DistanceToAccessPoint. That is one value per second instead of one per
     // frame, and averaged over rows that share a timestamp.
-    radioStatsFile << "TimestampSent,RadioTimestamp,MEHId,CellId,DlPrbUsageCell,UlPrbUsageCell,DlNongbrPdrCell,UlNongbrPdrCell,"
-                   << "AvgDlDelay,AvgUlDelay,TotalDlDataVolume,TotalUlDataVolume,NumActiveUeDlNongbr" << endl;
+    std::string radioStatsName = dirPath + "run_" + runNumber + "_radio_stats.csv";
+    radioStatsFile.open(radioStatsName, std::ios::out | std::ios::trunc);
+    radioStatsFile << cellSampleCsvHeader() << endl;
     
     EV << "SaveDataHistory initialized. Users: " << name << ", Lifecycle: " << lifecycleName << ", RadioStats: " << radioStatsName << endl;
 }
@@ -85,27 +83,31 @@ void SaveDataHistory::onUserSamples(const std::vector<UserSample>& samples)
     }
 }
 
-// Cell-level aggregates: one row per frame, not one per user. These describe the
-// cell the Agent serves, so every user in the frame shares them.
+// One row per RNIS reading, not one per frame. The RNIS reports once a second
+// while frames leave less often, so a frame normally carries several — the same
+// relationship the user rows have with the Location Service.
+//
+// Every reading gets a row, including one from a cell with no users. That cell
+// is a state worth recording, not an absence of data: its delays read -1 and its
+// volumes 0, which says "nobody here" rather than leaving the reader to guess
+// from a missing row. An empty CellId would now mean something narrower and
+// rarer — no stats collector on the cell at all — which is worth seeing too.
+void SaveDataHistory::onCellSamples(const std::vector<CellSample>& samples)
+{
+    for (const auto& sample : samples) {
+        bool firstColumn = true;
+        sample.forEachField([this, &firstColumn](const char*, const auto& value) {
+            if (!firstColumn)
+                radioStatsFile << ',';
+            firstColumn = false;
+            radioStatsFile << value;
+        });
+        radioStatsFile << "\n";
+    }
+}
+
 void SaveDataHistory::onTelemetryFrame(inet::Ptr<const RavensLinkDataFrameMessage> received_packet)
 {
-    const AccessPointRadioInfoData& apRadioInfo = received_packet->getApRadioInfo();
-    if (!apRadioInfo.getAccessPointId().empty()) {
-        radioStatsFile << received_packet->getTimeStamp() << ","
-                       << apRadioInfo.getTimestamp() << ","
-                       << received_packet->getMecHostId() << ","
-                       << apRadioInfo.getAccessPointId() << ","
-                       << apRadioInfo.getDlTotalPrbUsageCell() << ","
-                       << apRadioInfo.getUlTotalPrbUsageCell() << ","
-                       << apRadioInfo.getDlNongbrPdrCell() << ","
-                       << apRadioInfo.getUlNongbrPdrCell() << ","
-                       << apRadioInfo.getAvgDlDelay() << ","
-                       << apRadioInfo.getAvgUlDelay() << ","
-                       << apRadioInfo.getTotalDlDataVolume() << ","
-                       << apRadioInfo.getTotalUlDataVolume() << ","
-                       << apRadioInfo.getNumberOfActiveUeDlNongbrCell() << endl;
-    }
-
     // Counted per frame, not per row: the two files are flushed together, and a
     // frame is the unit that produced both.
     msgCount_++;

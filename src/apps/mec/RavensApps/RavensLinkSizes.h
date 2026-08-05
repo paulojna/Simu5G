@@ -75,9 +75,10 @@ const int UE_SAMPLE_B = 72;
 // The change decomposes that number into "identity once, observation each" -
 // it does not re-base it, so earlier size figures remain comparable.
 
-// Cell-level radio aggregates in a telemetry frame. Sent ONCE per frame, not
-// once per user - one Agent serves one cell, so these values are shared by
-// every UE in the frame.
+// One reading of the cell's radio state. Sent once per RNIS notification, not
+// once per user - one Agent serves one cell, so a reading is shared by every UE
+// in the frame rather than repeated for each of them. A frame carries as many
+// of these as the RNIS reported since the previous frame.
 //   cell id 4 + timestamp 8 + 9 metrics 36:
 //     dl/ul PRB usage 8, dl/ul non-GBR PDR 8, active UE count 4,
 //     dl/ul mean delay 8, dl/ul total data volume 8
@@ -117,7 +118,9 @@ const int CONFIG_ACK_PAYLOAD_B = 12;
 // no realistic congestion - gives no reason to expect a piece to go missing.
 // The Agent warns when a frame crosses this line purely so it is known how
 // often busy hosts do it, not to prevent it. A frame stays under the line up to
-// roughly 19 UEs when each carries three observations.
+// roughly 19 UEs when each carries three observations:
+//   4470 - 24 header - 3 cell records at 48 = 4302 for users
+//   4302 / (8 group header + 3 samples at 72) = 19 UEs
 const int TELEMETRY_PATH_MTU_B = 4470;
 
 // ---------------------------------------------------------------------------
@@ -130,13 +133,14 @@ const int TELEMETRY_PATH_MTU_B = 4470;
 // RavensEvent is a one-place update here, not a silent mismatch.
 
 // Telemetry frame: one group per UE observed since the last frame, each holding
-// that UE's observations, plus the cell aggregates if the Agent has heard from
-// the RNIS yet (it has not, before the first RNIS reply).
+// that UE's observations, plus one record per RNIS reading over the same
+// interval. Both counts are what was actually collected, so a frame sent before
+// the first RNIS reply honestly carries no cell records at all.
 //
 // Groups are walked rather than multiplied out because they do not all hold the
 // same number of samples: a UE that arrived or left partway through the interval
 // contributes fewer than one that was present throughout.
-inline inet::B telemetryFrameBytes(const ::UeSampleGroupList& groups, bool hasCellRadio)
+inline inet::B telemetryFrameBytes(const ::UeSampleGroupList& groups, int cellSampleCount)
 {
     int payloadBytes = 0;
     for (const auto& group : groups)
@@ -144,7 +148,7 @@ inline inet::B telemetryFrameBytes(const ::UeSampleGroupList& groups, bool hasCe
 
     return inet::B(FRAME_HEADER_B
                    + payloadBytes
-                   + (hasCellRadio ? CELL_RADIO_RECORD_B : 0));
+                   + cellSampleCount * CELL_RADIO_RECORD_B);
 }
 
 // Event frame: only the state changes being reported. Never sent empty.

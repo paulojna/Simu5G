@@ -116,7 +116,16 @@ protected:
     long telemetryFramesSent_ = 0;
     long telemetryFramesOversized_ = 0;
 
-	AccessPointRadioInfoData* accessPointRadioInformation;
+    // Cell readings waiting to go out in the next telemetry frame, oldest first.
+    // The RNIS reports once a second while frames leave less often, so each frame
+    // normally carries several — the same relationship sampleBuffer_ has with the
+    // Location Service, and emptied in the same place.
+    //
+    // A whole record per notification, rather than one record written into over
+    // and over. That is what keeps a value from outliving the reading it came
+    // from: a field the notification does not mention sits at its "not measured"
+    // default in that record, because there is nothing older for it to inherit.
+    std::vector<AccessPointRadioInfoData> cellSampleBuffer_;
 
     virtual int numInitStages() const override { return inet::NUM_INIT_STAGES; }
     virtual void initialize(int stage) override;

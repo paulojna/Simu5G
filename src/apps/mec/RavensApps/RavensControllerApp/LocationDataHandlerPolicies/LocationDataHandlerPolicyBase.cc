@@ -50,6 +50,37 @@ std::string userSampleCsvHeader()
     return header;
 }
 
+CellSample makeCellSample(inet::Ptr<const RavensLinkDataFrameMessage> frame,
+                          const AccessPointRadioInfoData& reading)
+{
+    CellSample sample;
+    sample.frameSentAt         = frame->getTimeStamp();
+    sample.radioTimestamp      = reading.getTimestamp();
+    sample.observedMEH         = frame->getMecHostId();
+    sample.cellId              = reading.getAccessPointId();
+    sample.dlPrbUsageCell      = reading.getDlTotalPrbUsageCell();
+    sample.ulPrbUsageCell      = reading.getUlTotalPrbUsageCell();
+    sample.dlNongbrPdrCell     = reading.getDlNongbrPdrCell();
+    sample.ulNongbrPdrCell     = reading.getUlNongbrPdrCell();
+    sample.avgDlDelay          = reading.getAvgDlDelay();
+    sample.avgUlDelay          = reading.getAvgUlDelay();
+    sample.totalDlDataVolume   = reading.getTotalDlDataVolume();
+    sample.totalUlDataVolume   = reading.getTotalUlDataVolume();
+    sample.numActiveUeDlNongbr = reading.getNumberOfActiveUeDlNongbrCell();
+    return sample;
+}
+
+std::string cellSampleCsvHeader()
+{
+    std::string header;
+    CellSample().forEachField([&header](const char* name, const auto&) {
+        if (!header.empty())
+            header += ',';
+        header += name;
+    });
+    return header;
+}
+
 void LocationDataHandlerPolicyBase::emitUserUpdate(const std::string& address,
                                                    const std::string& lastMeh,
                                                    const std::string& newMeh)

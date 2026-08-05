@@ -249,6 +249,7 @@ corpus generated from an intermediate one.
 - [ ] **Step 3** — Rebuild Agent event detection on stability thresholds
 - [ ] **Step 4** — Batch samples into the telemetry frame
 - [ ] **Step 5** — One canonical sample representation for both consumers
+- [ ] **Step 6** — One cell record per RNIS notification
 - [ ] **MEO round** — not yet broken into steps; see below. Must land before the gate.
 - [ ] **Regenerate the corpus** — 120 runs × 60 min, History profile
 
@@ -669,6 +670,10 @@ own.
    **Not a relocation:** giving it its own block and timestamp would be real structure for a
    number that is a one-line group-by.
 4. **The Agent's four other cell aggregates go stale on an empty host — a live bug, measured.**
+   ***Superseded by Step 6, which removes the fault structurally rather than patching it. The
+   measurement below is kept because it is the evidence the bug was real. The one part of the
+   fix that survives — data volumes reading 0 rather than −1 on a cell with no users — moves
+   into Step 6.***
    `avgDlDelay`, `avgUlDelay`, `totalDlDataVolume` and `totalUlDataVolume` are not RNIS fields;
    the Agent computes them in `handleRNISMessage` by aggregating the notification's per-UE
    section, inside `if (notification.contains("cellUEInfo") …)`. A cell with no users sends no
@@ -695,3 +700,107 @@ own.
 until after the regeneration — it does not affect the History profile and therefore does not
 block the corpus. **Carry forward:** when that work happens, the windowing must mirror the
 offline pipeline exactly, ideally by importing the same module rather than reimplementing it.
+
+---
+
+### Step 6 — One cell record per RNIS notification
+
+**Why:** Step 4 batched user readings but left the cell record as a single snapshot. The RNIS
+subscription runs at 1 s and the frame leaves every 3 s, so **two of every three cell
+measurements are discarded** — the same 3:1 loss Step 4 removed for users, still in place for
+cells, unnoticed because Step 4 was looking at trajectories.
+
+The record is also a single long-lived mutable object that every notification writes into, so a
+field a notification does not mention keeps whatever was there before. That is the measured
+staleness bug: on a host with no users the `cellUEInfo` block is skipped and `AvgDlDelay` still
+reads 11 ms from whenever a UE last passed through. `RadioTimestamp` does not expose it, because
+it is refreshed from the cell-level section that does arrive — the timestamp records when the
+object was last touched, not when each field in it was measured.
+
+Both faults have one cause: **one mutable record shared across time.**
+
+**Change:** The Agent builds a *fresh* record at each RNIS notification and appends it to a
+buffer; the telemetry frame carries the whole buffer, oldest first, and sending empties it —
+the same lifetime `sampleBuffer_` already has for user readings. The long-lived
+`accessPointRadioInformation` object is deleted outright.
+
+Staleness then cannot be expressed: a field the notification did not mention sits at its
+constructor default of −1, "not measured", because there is nothing older for it to inherit.
+Each record carries the timestamp of the notification that produced it, so `RadioTimestamp`
+describes that record rather than when a shared object was last written.
+
+**Aggregating in the Agent instead was considered and rejected.** "Average the three samples"
+is not one operation: PRB usage wants a mean, data volumes are sums, the active-UE count wants
+a max or a last, and PDR and the mean delays are ratios and means-of-means that are wrong
+unless weighted by the populations behind them. It would also be **irreversible** — the 1 s
+values would be gone from the corpus — which contradicts *generate at the finest resolution
+once, derive coarser variants offline*. Sending the records instead costs **96 bytes per
+frame**, against 72 for a single UE sample.
+
+**Also in this step: the cell record gets the same treatment the user sample got in Step 5.**
+It is written from three hand-maintained lists across two files — the CSV header, the CSV row,
+and the JSON block — and they have **already drifted**: the column is `DlPrbUsageCell` while the
+payload key is `dlTotalPrbUsageCell`. Same quantity, two names, so a model trained on the column
+would be served a differently named feature. It gets a `CellSample` record with one field list,
+beside `UserSample`.
+
+**Also in this step: the Controller's copy of the cell radio data is dead and goes.**
+`MECHostData::getApRadioInfo()` has no callers anywhere; `updateMehStateMap` exists only to fill
+it. This is the same dead world model Step 4 removed from `UserState`, surviving for the same
+reason — nobody was looking at it. So there is no question of which record in a frame to store:
+the function and the field are deleted. `mehStateMap` itself stays for the handshake registry.
+*(Noticed while checking: `getMecHostIdFromAccessPointId` is declared but never defined or
+called, and with `updateMehStateMap` gone `mehStateMap` is written but never read, since that
+undefined function was its only intended reader. Left alone — the MEO round plausibly wants
+it — but recorded so it is not rediscovered as a surprise.)*
+
+**Files:**
+- `RavensLinkPacket.msg` — `apRadioInfo` becomes a list of cell records (regenerates
+  `RavensLinkPacket_m.*`)
+- `RavensAgentApp.h` / `.cc` — `cellSampleBuffer_` replaces the owned
+  `accessPointRadioInformation`; `handleRNISMessage` builds and appends a fresh record;
+  `sendDataFrame` ships and clears it
+- `RavensLinkSizes.h` — `telemetryFrameBytes` takes a cell-record count instead of a bool
+- `RavensControllerApp.h` / `.cc` — `updateMehStateMap` deleted
+- `MECHostData.h` / `.cc` — the unread `apRadioInfo` field, its getter and setter deleted
+- `LocationDataHandlerPolicies/LocationDataHandlerPolicyBase.h` / `.cc` — the cell record's
+  shared field list, alongside `UserSample`
+- `SaveDataHistory.cc` — one radio-stats row per cell record instead of one per frame
+- `SendToExternalServer.cc` — `cellMetrics` object becomes a `cellSamples` array
+
+**Done when:**
+- A telemetry frame carries every RNIS notification received since the previous frame, and
+  `RadioTimestamp` varies within a frame the way `LocationTimestamp` already does
+- No field in a cell record can outlive the notification that produced it — verified by
+  confirming that a host with no users reports −1 delays rather than the previous host's values
+- Data volumes read 0, not −1, on a cell with no users: a sum over no users is genuinely zero,
+  where a mean over no users is undefined
+- **A cell with no users produces a row**, rather than being dropped. The Controller's
+  empty-cell-id guard is removed, matching the decision already taken on the RNIS side, where
+  the equivalent gate is disabled with the note that *an empty cell is a state to report, not a
+  reason to go quiet*. An empty cell id now means no stats collector at all — a different and
+  rarer condition, which is worth seeing rather than hiding
+- `radio_stats.csv` gains rows and keeps its columns, as `users.csv` did in Step 4
+- Every column in a radio-stats row and every key in the served cell metrics comes from one
+  field list, and the two agree on names
+- The Agent no longer owns a long-lived `AccessPointRadioInfoData`
+- Nothing in the Controller keeps a copy of the cell radio data
+- Frame sizing accounts for the number of cell records actually carried
+
+**Depends on:** Step 5
+
+**Not this step:** changing which metrics the RNIS reports; the per-UE population mismatch
+noted below.
+
+**Note on the four aggregate fields.** `avgDlDelay`, `avgUlDelay`, `totalDlDataVolume` and
+`totalUlDataVolume` are computed by the Agent, not read from the RNIS, and they look like
+duplicates of per-sample fields — but they are not. They aggregate over the notification's whole
+`cellUEInfo` list, while a per-UE sample exists only for UEs the Location Service has already
+reported; `handleRNISMessage` skips the rest. The aggregate therefore covers a wider population
+than the samples and carries information they do not. That asymmetry is worth stating in the
+write-up, and is the reason these stay while `avgDistanceToAp` went.
+
+**Note on where the resolution actually lands.** Nothing in the Controller consumes cell metrics
+at all — they exist to reach the CSV and the prediction payload. So this step is not about
+giving the Controller a better view of the network; it is about the corpus containing what the
+RNIS actually measured rather than one reading in three.

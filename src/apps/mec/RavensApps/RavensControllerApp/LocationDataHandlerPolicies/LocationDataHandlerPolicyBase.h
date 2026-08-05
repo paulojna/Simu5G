@@ -141,6 +141,73 @@ UserSample makeUserSample(inet::Ptr<const RavensLinkDataFrameMessage> frame,
 // is which.
 std::string userSampleCsvHeader();
 
+// One reading of a host's cell, in the single form every consumer sees. Same
+// arrangement as UserSample above, and for the same reason: the CSV columns and
+// the JSON keys were two hand-written lists, and they had already drifted — the
+// column `CellId` was the key `accessPointId`, `DlPrbUsageCell` was
+// `dlTotalPrbUsageCell`, and three columns had no key at all. A model trained on
+// a column would have been served a differently named field.
+//
+// One reading, not one frame: a frame carries every reading the RNIS reported
+// since the last one, and each becomes a row.
+struct CellSample
+{
+    // When the frame carrying this reading left the Agent, and when the RNIS
+    // measured it. The second is the one that matters — it is now the time of
+    // this reading, rather than the last time a shared record was written to.
+    simtime_t frameSentAt;
+    simtime_t radioTimestamp;
+
+    std::string observedMEH;
+    std::string cellId;
+
+    // Reported by the RNIS for the cell as a whole. -1 means not measured.
+    double dlPrbUsageCell = -1.0;
+    double ulPrbUsageCell = -1.0;
+    double dlNongbrPdrCell = -1.0;
+    double ulNongbrPdrCell = -1.0;
+    int numActiveUeDlNongbr = -1;
+
+    // Computed by the Agent over the reading's per-UE section. They cover every
+    // UE the RNIS reported, while a per-UE sample exists only for UEs the
+    // Location Service had already reported — so these span a wider population
+    // than the samples do, which is why they are carried rather than recomputed.
+    //
+    // On a cell with no users the delays are -1 and the volumes 0: a sum over
+    // nobody is genuinely zero, a mean over nobody is undefined.
+    double avgDlDelay = -1.0;
+    double avgUlDelay = -1.0;
+    double totalDlDataVolume = -1.0;
+    double totalUlDataVolume = -1.0;
+
+    // The one field list, read the same way as UserSample::forEachField.
+    template <typename WriteFn>
+    void forEachField(WriteFn write) const
+    {
+        write("TimestampSent",       frameSentAt);
+        write("RadioTimestamp",      radioTimestamp);
+        write("MEHId",               observedMEH);
+        write("CellId",              cellId);
+        write("DlPrbUsageCell",      dlPrbUsageCell);
+        write("UlPrbUsageCell",      ulPrbUsageCell);
+        write("DlNongbrPdrCell",     dlNongbrPdrCell);
+        write("UlNongbrPdrCell",     ulNongbrPdrCell);
+        write("AvgDlDelay",          avgDlDelay);
+        write("AvgUlDelay",          avgUlDelay);
+        write("TotalDlDataVolume",   totalDlDataVolume);
+        write("TotalUlDataVolume",   totalUlDataVolume);
+        write("NumActiveUeDlNongbr", numActiveUeDlNongbr);
+    }
+};
+
+// Builds the canonical record from one cell reading as it arrived in a telemetry
+// frame. The only place a CellSample is produced.
+CellSample makeCellSample(inet::Ptr<const RavensLinkDataFrameMessage> frame,
+                          const AccessPointRadioInfoData& reading);
+
+// The radio-stats CSV header line, from the same field list as its rows.
+std::string cellSampleCsvHeader();
+
 // abstract class
 class LocationDataHandlerPolicyBase
 {
@@ -157,10 +224,14 @@ class LocationDataHandlerPolicyBase
         // consumer rebuilding a grouping the sender already had.
         virtual void onUserSamples(const std::vector<UserSample>& samples) {}
 
-        // Called once per telemetry frame, after every sample in that frame has
-        // been delivered through onUserSamples(). Carries the frame-level data
-        // only — the cell-level radio aggregates, which are one set of values
-        // shared by every UE on the host, not one per UE.
+        // Every cell reading the frame carries, oldest first. Called once per
+        // frame — the cell is one thing, so there is one sequence, unlike the
+        // per-UE call above.
+        virtual void onCellSamples(const std::vector<CellSample>& samples) {}
+
+        // Called once per telemetry frame, after every sample and every cell
+        // reading in it has been delivered. Marks the end of the frame: it is
+        // where a policy that ships the whole frame in one request sends it.
         virtual void onTelemetryFrame(inet::Ptr<const RavensLinkDataFrameMessage> frame) {}
 
         // Semantic hooks — called by handleEventFrame() at each authoritative decision point.

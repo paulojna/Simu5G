@@ -241,11 +241,11 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
         {
             auto dataFrame = packet->peekAtFront<RavensLinkDataFrameMessage>();
             updateUserStateMap(dataFrame);
-            updateMehStateMap(dataFrame);
-            // Samples first, then the frame-level hook: a policy that ships the
-            // whole frame in one request needs every sample in hand before it
-            // can send, so onTelemetryFrame() doubles as "that was the frame".
+            // Contents first, then the frame-level hook: a policy that ships the
+            // whole frame in one request needs everything in hand before it can
+            // send, so onTelemetryFrame() doubles as "that was the frame".
             dispatchUserSamples(dataFrame);
+            dispatchCellSamples(dataFrame);
             locationDataHandlerPolicy_->onTelemetryFrame(dataFrame);
         }
         else if(received_packet->getType() == EVENT_FRAME)
@@ -599,32 +599,27 @@ void RavensControllerApp::dispatchUserSamples(inet::Ptr<const RavensLinkDataFram
 }
 
 /*
-    Method to update the state of the mehStateMap. It receives a RavensLinkUsersInfoSnapshotMessage message,
-    and updates the radio information for the corresponding MEC Host.
+    Hands the frame's cell readings to the output policy, in one call.
+
+    One call rather than one per reading, because the cell is one thing: a frame
+    holds a single sequence of readings for it, where the user samples hold one
+    sequence per UE.
+
+    The Controller does not read these at all — nothing on this side consumes
+    cell metrics. They pass through so the outputs receive them in the same
+    canonical form the CSV and the payload are both written from.
 */
-void RavensControllerApp::updateMehStateMap(inet::Ptr<const RavensLinkDataFrameMessage> received_packet) {
-    auto usersInfoSnapshot = received_packet;
-    std::string hostId = usersInfoSnapshot->getMecHostId();
+void RavensControllerApp::dispatchCellSamples(inet::Ptr<const RavensLinkDataFrameMessage> received_packet) {
+    const auto& readings = received_packet->getCellSamples();
+    if (readings.empty())
+        return;
 
-    // Check if the snapshot contains AP Radio Info
-    const AccessPointRadioInfoData& apRadioInfo = usersInfoSnapshot->getApRadioInfo();
+    std::vector<CellSample> samples;
+    samples.reserve(readings.size());
+    for (const auto& reading : readings)
+        samples.push_back(makeCellSample(received_packet, reading));
 
-    if (!apRadioInfo.getAccessPointId().empty()) {
-        // Find the host in the map
-        auto it = mehStateMap.find(hostId);
-        if (it != mehStateMap.end()) {
-            // Update the host's radio info
-            it->second.setApRadioInfo(apRadioInfo);
-            EV << "RavensControllerApp::updateMehStateMap - Updated Radio Info for host " << hostId << endl;
-        } else {
-            // Host not found (e.g., didn't join network yet)
-            // We could choose to add it here, but typically we wait for JOIN_NETWORK_REQUEST.
-            // For now, we just log a warning.
-            EV << "RavensControllerApp::updateMehStateMap - WARNING: Received snapshot for unknown host " << hostId << endl;
-        }
-    } else {
-        EV << "RavensControllerApp::updateMehStateMap - No valid AP Radio Info in snapshot for host " << hostId << endl;
-    }
+    locationDataHandlerPolicy_->onCellSamples(samples);
 }
 
 

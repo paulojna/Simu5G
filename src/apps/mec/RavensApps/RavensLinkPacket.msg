@@ -21,7 +21,15 @@ cplusplus {{
     #include "RavensAgentApp/UserData.h"
     #include "RavensAgentApp/AccessPointRadioInfoData.h"
     typedef std::vector<::simu5g::AccessPointData> AccessPointList;
-    typedef simu5g::AccessPointRadioInfoData AccessPointRNISData;
+    // One reading of the cell's radio state, as the RNIS reported it. The
+    // subscription runs once a second while telemetry frames leave less often,
+    // so a frame normally carries several, oldest first.
+    //
+    // Each reading is a whole record with its own timestamp, so it describes
+    // one moment rather than being merged into a running value. That is what
+    // makes a field that was not measured recognisable: it sits at its "not
+    // measured" default in that record instead of holding an older reading.
+    typedef std::vector<::simu5g::AccessPointRadioInfoData> CellSampleList;
     // One UE's observations since the previous telemetry frame. The Location
     // Service ticks once a second while telemetry frames go out less often, so
     // a group normally holds several samples, oldest first.
@@ -47,7 +55,7 @@ cplusplus {{
 
 class AccessPointList { @existingClass; };
 class UeSampleGroupList { @existingClass; };
-class AccessPointRNISData { @existingClass; };
+class CellSampleList { @existingClass; };
 class RavensEventList { @existingClass; };
 
 namespace simu5g;
@@ -76,11 +84,13 @@ class RavensLinkInfrastructureDetailsMessageAck extends RavensLinkPacket
     int agentMode;  // EVENT_ONLY_MODE=0, TELEMETRY_ONLY_MODE=1 (not yet wired), FULL_MODE=2
 }
 
-// Periodic telemetry frame (TELEMETRY_FRAME): every Location Service observation
-// taken since the previous frame, grouped per UE, plus the cell-level radio
-// aggregates. The frame cadence and the sensing rate are deliberately different
-// — the Agent observes every second and reports less often, sending everything
-// it saw in between rather than only the newest value.
+// Periodic telemetry frame (TELEMETRY_FRAME): everything observed since the
+// previous frame — every Location Service reading, grouped per UE, and every
+// RNIS reading of the cell. The frame cadence and the sensing rate are
+// deliberately different: the Agent observes every second and reports less
+// often, sending everything it saw in between rather than only the newest
+// value. Both halves of the frame follow that rule, so a frame is a record of
+// an interval rather than a snapshot of the instant it left.
 //
 // A UE that left partway through the interval still has its buffered samples
 // delivered here: the samples were captured when observed, so the UE's
@@ -94,7 +104,7 @@ class RavensLinkDataFrameMessage extends RavensLinkPacket
 {
     string mecHostId;
     UeSampleGroupList userSamples;
-    AccessPointRNISData apRadioInfo;
+    CellSampleList cellSamples;
 }
 
 // Event frame (EVENT_FRAME): sent when the Agent confirms a UE entering or

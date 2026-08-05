@@ -22,6 +22,7 @@ class SaveDataHistory : public LocationDataHandlerPolicyBase
         int msgCount_ = 0;
         static const int FLUSH_INTERVAL_ = 100;
         virtual void onUserSamples(const std::vector<UserSample>& samples) override;
+        virtual void onCellSamples(const std::vector<CellSample>& samples) override;
         virtual void onTelemetryFrame(inet::Ptr<const RavensLinkDataFrameMessage> frame) override;
         virtual void onUserEntry   (const std::string& userId, const std::string& meh,
                                     int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) override;

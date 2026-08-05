@@ -25,12 +25,10 @@ Define_Module(RavensAgentApp);
 RavensAgentApp::RavensAgentApp(): MecAppBase()
 {
     this->localSnapshotCounter = 0;
-    this->accessPointRadioInformation = nullptr;
 }
 
 RavensAgentApp::~RavensAgentApp()
 {
-	delete accessPointRadioInformation;
 }
 
 void RavensAgentApp::initialize(int stage)
@@ -59,8 +57,6 @@ void RavensAgentApp::initialize(int stage)
 
     entryConfirmSamples_ = par("entryConfirmSamples");
     exitConfirmSamples_ = par("exitConfirmSamples");
-
-	accessPointRadioInformation = new AccessPointRadioInfoData();
 
     // connection to the RAVENS CONTROLLER
     auto *msg = new cMessage("connectRC");
@@ -234,11 +230,12 @@ void RavensAgentApp::sendEventFrame(const RavensEventList& newEvents)
 void RavensAgentApp::sendDataFrame()
 {
     if (agentMode_ != FULL_MODE) {
-        // Nothing will ever drain the buffer in this mode. It is normally empty
-        // already, since samples are only buffered in full mode — but the Agent
-        // starts in full mode and learns its real mode from the handshake reply,
-        // so anything collected before that reply is dropped here.
+        // Nothing will ever drain these buffers in this mode. They are normally
+        // empty already, since observations are only buffered in full mode — but
+        // the Agent starts in full mode and learns its real mode from the
+        // handshake reply, so anything collected before that reply is dropped here.
         sampleBuffer_.clear();
+        cellSampleBuffer_.clear();
         return;
     }
 
@@ -271,19 +268,21 @@ void RavensAgentApp::sendDataFrame()
 
     inet::Packet* packet = new inet::Packet("RavensLinkDataFrameMessage");
     auto chunk = inet::makeShared<RavensLinkDataFrameMessage>();
-    // Size grows with the observations actually carried, not with the number of
-    // UEs: a UE seen three times this interval costs three samples. The cell
-    // aggregates add a fixed block, and are absent until the first RNIS reply
-    // arrives - so the earliest frames of a run are legitimately smaller.
-    inet::B frameBytes = telemetryFrameBytes(groups, accessPointRadioInformation != nullptr);
+    // Size grows with the observations actually carried, on both sides: a UE seen
+    // three times this interval costs three samples, and three RNIS replies cost
+    // three cell records. Before the first RNIS reply arrives there are none, so
+    // the earliest frames of a run are legitimately smaller - which the old bool
+    // could not express, since it was true from initialize() onwards.
+    inet::B frameBytes = telemetryFrameBytes(groups, cellSampleBuffer_.size());
     chunk->setChunkLength(frameBytes);
     chunk->setType(TELEMETRY_FRAME);
     chunk->setRequestId(localSnapshotCounter++);
     chunk->setTimeStamp(simTime());
     chunk->setMecHostId(getMecHostId().c_str());
     chunk->setUserSamples(groups);
-    if (accessPointRadioInformation != nullptr)
-        chunk->setApRadioInfo(*accessPointRadioInformation);
+    chunk->setCellSamples(cellSampleBuffer_);
+    int cellSampleCount = (int)cellSampleBuffer_.size();
+    cellSampleBuffer_.clear();
     packet->insertAtBack(chunk);
     controllerSocket_.send(packet);
     telemetryFramesSent_++;
@@ -297,11 +296,13 @@ void RavensAgentApp::sendDataFrame()
         EV_WARN << mecHostId << " - RavensAgentApp::sendDataFrame - frame of "
                 << frameBytes << " exceeds the " << TELEMETRY_PATH_MTU_B
                 << " B path limit and will be split up: " << groups.size()
-                << " users, " << sampleCount << " samples" << endl;
+                << " users, " << sampleCount << " samples, "
+                << cellSampleCount << " cell readings" << endl;
     }
 
     EV << mecHostId << " - RavensAgentApp::sendDataFrame - sent telemetry frame with "
-       << groups.size() << " users, " << sampleCount << " samples, " << frameBytes << endl;
+       << groups.size() << " users, " << sampleCount << " samples, "
+       << cellSampleCount << " cell readings, " << frameBytes << endl;
 }
 
 
@@ -555,12 +556,19 @@ void RavensAgentApp::connectToRavensController()
  * - Code 201: Confirms successful subscription creation to Layer 2 measurements
  * - Code 200: Processes subscription notifications containing radio metrics
  *
- * When receiving notifications (code 200), extracts and updates:
- * 1. Cell-level radio statistics (AP-level): PRB usage and PDR metrics stored in accessPointRadioInformation
- * 2. Per-user radio statistics (UE-level): delay, PDR, and data volume metrics for each connected user
+ * A notification (code 200) produces two things:
+ * 1. One cell record, built fresh here and appended to cellSampleBuffer_ for the
+ *    next telemetry frame. It holds the cell-level metrics the RNIS reports
+ *    directly (PRB usage, PDR, active UE count) and the delay and data-volume
+ *    aggregates computed here from the notification's per-UE section.
+ * 2. Per-UE radio metrics attached to the users map — delay, PDR, data volume
+ *    and RSRP — which travel with that UE's next Location Service sample.
  *
- * Uses upsert pattern: only updates radio metrics for users already in the users map (created by Location Service).
- * Updates both rnisUpdate and lastUpdated timestamps to track data freshness.
+ * Only UEs already in the users map get their radio metrics attached; the map is
+ * populated by the Location Service, and a UE the RNIS reports first is skipped.
+ * The cell aggregates cover the whole per-UE section either way, so they span a
+ * slightly wider population than the per-UE samples do — which is the reason
+ * they are worth carrying rather than being recomputed downstream.
  */
 void RavensAgentApp::handleRNISMessage(int connId)
 {
@@ -584,26 +592,40 @@ void RavensAgentApp::handleRNISMessage(int connId)
 		if (jsonBody.contains("subscriptionNotification")) {
 			nlohmann::json notification = jsonBody["subscriptionNotification"];
 
+			// A fresh record for this notification, timestamped once, here.
+			//
+			// Everything below writes into this record and nothing else. That is
+			// the whole reason a value can no longer outlive the reading it came
+			// from: a field this notification does not mention keeps the "not
+			// measured" default it was constructed with, because there is no
+			// earlier reading in this object to leave behind. It used to be one
+			// long-lived record that every notification wrote into, so a cell
+			// with no users kept reporting the delay of whoever passed through
+			// last, and the timestamp said when the record was touched rather
+			// than when each field in it was measured.
+			AccessPointRadioInfoData cellSample;
+			cellSample.setTimestamp(simTime());
+
 			// Update AP-level stats
 			if (notification.contains("cellInfo")) {
 				nlohmann::json cellInfo = notification["cellInfo"];
 				if (cellInfo.contains("ecgi")) {
 					std::string cellId = std::to_string(cellInfo["ecgi"]["cellId"].get<int>());
-					accessPointRadioInformation->setAccessPointId(cellId);
+					cellSample.setAccessPointId(cellId);
 					// -1 = not measured (the RNIS omits fields whose collector has no data)
-					accessPointRadioInformation->setDlTotalPrbUsageCell(cellInfo.value("dl_total_prb_usage_cell", -1.0));
-					accessPointRadioInformation->setUlTotalPrbUsageCell(cellInfo.value("ul_total_prb_usage_cell", -1.0));
-					accessPointRadioInformation->setDlNongbrPdrCell(cellInfo.value("dl_nongbr_pdr_cell", -1.0));
-					accessPointRadioInformation->setUlNongbrPdrCell(cellInfo.value("ul_nongbr_pdr_cell", -1.0));
-					accessPointRadioInformation->setNumberOfActiveUeDlNongbrCell(
+					cellSample.setDlTotalPrbUsageCell(cellInfo.value("dl_total_prb_usage_cell", -1.0));
+					cellSample.setUlTotalPrbUsageCell(cellInfo.value("ul_total_prb_usage_cell", -1.0));
+					cellSample.setDlNongbrPdrCell(cellInfo.value("dl_nongbr_pdr_cell", -1.0));
+					cellSample.setUlNongbrPdrCell(cellInfo.value("ul_nongbr_pdr_cell", -1.0));
+					cellSample.setNumberOfActiveUeDlNongbrCell(
 					    cellInfo.value("number_of_active_ue_dl_nongbr_cell", -1));
-					accessPointRadioInformation->setTimestamp(simTime());
 				}
 			}
 
 			// Aggregate per-UE delay and data volume into cell-level stats.
-			// Per-user RNIS fields are not stored — cell aggregates go to accessPointRadioInformation.
-			if (notification.contains("cellUEInfo") && accessPointRadioInformation != nullptr) {
+			// Per-user RNIS fields are also attached to the users map here, which
+			// is why this loop does two jobs at once.
+			if (notification.contains("cellUEInfo")) {
 			    std::vector<nlohmann::json> ueList;
 			    if (notification["cellUEInfo"].is_array()) {
 			        for (auto& ue : notification["cellUEInfo"])
@@ -654,15 +676,30 @@ void RavensAgentApp::handleRNISMessage(int connId)
 			        radioInfo.setRsrp(ue.value("rsrp", -1.0));
 			        userIt->second.setRadioInfo(radioInfo);
 			    }
+			    // A mean needs somebody to average over. With users present but
+			    // none of them reporting a delay, there is no value to report -
+			    // which is a different statement from "the delay was zero".
 			    if (delayCount > 0) {
-			        accessPointRadioInformation->setAvgDlDelay(sumDlDelay / delayCount);
-			        accessPointRadioInformation->setAvgUlDelay(sumUlDelay / delayCount);
+			        cellSample.setAvgDlDelay(sumDlDelay / delayCount);
+			        cellSample.setAvgUlDelay(sumUlDelay / delayCount);
 			    }
-			    accessPointRadioInformation->setTotalDlDataVolume(sumDlVol);
-			    accessPointRadioInformation->setTotalUlDataVolume(sumUlVol);
-			    accessPointRadioInformation->setTimestamp(simTime());
+			    cellSample.setTotalDlDataVolume(sumDlVol);
+			    cellSample.setTotalUlDataVolume(sumUlVol);
 			    EV << mecHostId << " - RavensAgentApp::handleRNISMessage - aggregated " << ueList.size() << " UEs into cell stats" << endl;
 			}
+			else {
+			    // No per-UE section at all means no users in this cell. A sum over
+			    // nobody is genuinely zero, so the volumes are written as zero; a
+			    // mean over nobody is undefined, so the delays stay at -1.
+			    cellSample.setTotalDlDataVolume(0.0);
+			    cellSample.setTotalUlDataVolume(0.0);
+			    EV << mecHostId << " - RavensAgentApp::handleRNISMessage - no users in this cell" << endl;
+			}
+
+			// Buffered only in full mode, like the user samples: nothing drains
+			// this in event-only mode, so it would grow for the whole run.
+			if (agentMode_ == FULL_MODE)
+			    cellSampleBuffer_.push_back(cellSample);
 		}
 	}
 

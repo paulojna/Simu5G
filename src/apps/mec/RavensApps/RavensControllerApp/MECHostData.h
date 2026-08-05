@@ -7,7 +7,6 @@
 #include <map>
 #include "apps/mec/RavensApps/RavensAgentApp/AccessPointData.h"
 #include "apps/mec/RavensApps/RavensAgentApp/UserData.h"
-#include "apps/mec/RavensApps/RavensAgentApp/AccessPointRadioInfoData.h" // Added include
 #include "inet/networklayer/common/L3Address.h"
 
 /*
@@ -22,7 +21,9 @@ class MECHostData {
         inet::L3Address remoteAddress;
         int port;
         std::vector<AccessPointData> accessPoints;
-        AccessPointRadioInfoData apRadioInfo; // Added member
+        // No copy of the host's radio state. The Controller was keeping one and
+        // nothing ever read it — the same dead world model the per-user telemetry
+        // copy was. Cell readings travel from the Agent straight to the outputs.
         // std::unordered_map<std::string, UserData> users;
 
     public:
@@ -38,8 +39,7 @@ class MECHostData {
         inet::L3Address getL3Address() const;
         int getPort() const;
         std::vector<AccessPointData> getAccessPoints() const;
-        AccessPointRadioInfoData getApRadioInfo() const; // Added getter
-        
+
         //std::unordered_map<std::string, UserData> getUsers() const;
         //omnetpp::simtime_t getOriginTimestamp() const;
 
@@ -50,8 +50,7 @@ class MECHostData {
         void setL3Address(inet::L3Address remoteAddress);
         void setPort(int port);
         void setAccessPoints(const std::vector<AccessPointData>& accessPoints);
-        void setApRadioInfo(const AccessPointRadioInfoData& apRadioInfo); // Added setter
-        
+
         // add one setUsers method that is not const
         // void setUsers(std::unordered_map<std::string, UserData>& users);
         // void setUsers(const std::unordered_map<std::string, UserData>& users);

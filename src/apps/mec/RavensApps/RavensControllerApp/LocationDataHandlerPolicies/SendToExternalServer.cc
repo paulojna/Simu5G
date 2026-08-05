@@ -22,6 +22,7 @@ namespace simu5g {
 	{
 		flaskUrl_ = "http://localhost:5001/predict";
 		pendingUsers_ = nlohmann::json::array();
+		pendingCells_ = nlohmann::json::array();
 
 		// Reset Flask state at the start of each simulation run
 		// to prevent stale UE buffers from previous runs
@@ -83,34 +84,39 @@ namespace simu5g {
 		pendingUsers_.push_back(userJson);
 	}
 
-	// End of the frame: add what is shared by every UE in it, then send.
+	// Every cell reading the frame carries, oldest first. One sequence, because
+	// the cell is one thing — unlike the users, who each have their own.
+	//
+	// Same fields and same names as the radio-stats CSV, from the same record.
+	// They used to disagree: the column CellId was the key accessPointId, and
+	// DlPrbUsageCell was dlTotalPrbUsageCell.
+	void SendToExternalServer::onCellSamples(const std::vector<CellSample>& samples)
+	{
+		for (const auto& sample : samples)
+		{
+			nlohmann::json sampleJson;
+			sample.forEachField([&sampleJson](const char* name, const auto& value) {
+				sampleJson[name] = jsonValue(value);
+			});
+			pendingCells_.push_back(sampleJson);
+		}
+	}
+
+	// End of the frame: label it and send.
 	void SendToExternalServer::onTelemetryFrame(inet::Ptr<const RavensLinkDataFrameMessage> frame)
 	{
 		nlohmann::json payload;
 		payload["mecHostId"] = frame->getMecHostId();
 		payload["timestamp"] = frame->getTimeStamp().str();
 
-		// Cell-level radio aggregates — one set of values per frame, shared by
-		// every UE on the host, so they sit beside the users rather than inside them.
-		const AccessPointRadioInfoData& ap = frame->getApRadioInfo();
-		nlohmann::json cellJson;
-		cellJson["accessPointId"]                  = ap.getAccessPointId();
-		cellJson["dlTotalPrbUsageCell"]             = ap.getDlTotalPrbUsageCell();
-		cellJson["ulTotalPrbUsageCell"]             = ap.getUlTotalPrbUsageCell();
-		cellJson["dlNongbrPdrCell"]                 = ap.getDlNongbrPdrCell();
-		cellJson["ulNongbrPdrCell"]                 = ap.getUlNongbrPdrCell();
-		cellJson["numberOfActiveUeDlNongbrCell"]    = ap.getNumberOfActiveUeDlNongbrCell();
-		cellJson["avgDlDelay"]                      = ap.getAvgDlDelay();
-		cellJson["avgUlDelay"]                      = ap.getAvgUlDelay();
-		cellJson["totalDlDataVolume"]               = ap.getTotalDlDataVolume();
-		cellJson["totalUlDataVolume"]               = ap.getTotalUlDataVolume();
-		payload["cellMetrics"] = cellJson;
-		// No avgDistanceToAp: it is the mean of a value every sample in this
-		// same payload already carries, so the server computes it if it wants
-		// it — the same way the offline pipeline does, from the same numbers.
-
+		// No avgDistanceToAp among the cell readings: it is the mean of a value
+		// every sample in this same payload already carries, so the server
+		// computes it if it wants it — the same way the offline pipeline does,
+		// from the same numbers.
 		payload["users"] = std::move(pendingUsers_);
+		payload["cellSamples"] = std::move(pendingCells_);
 		pendingUsers_ = nlohmann::json::array();
+		pendingCells_ = nlohmann::json::array();
 
 		std::cout << simTime() << " - SendToExternalServer - sending to Flask, users: " << payload["users"].size() << std::endl;
 		std::string response = postToFlask(payload);

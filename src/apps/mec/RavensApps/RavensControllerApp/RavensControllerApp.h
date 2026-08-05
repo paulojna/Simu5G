@@ -134,11 +134,13 @@ class RavensControllerApp: public inet::ApplicationBase,
 
         // methods to deal with userStateMap
         void updateUserStateMap(inet::Ptr<const RavensLinkDataFrameMessage> received_packet);
-        void updateMehStateMap(inet::Ptr<const RavensLinkDataFrameMessage> received_packet);
 
         // Turns every observation in a telemetry frame into the canonical sample
         // record and hands it to the output policy, one UE at a time.
         void dispatchUserSamples(inet::Ptr<const RavensLinkDataFrameMessage> received_packet);
+
+        // The same for the frame's cell readings, handed over in one call.
+        void dispatchCellSamples(inet::Ptr<const RavensLinkDataFrameMessage> received_packet);
 
         // Warns about users telemetry has said nothing about for implausibly long,
         // and counts them. Removes nothing: users leave userStateMap only through
