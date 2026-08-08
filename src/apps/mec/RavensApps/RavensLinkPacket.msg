@@ -21,29 +21,21 @@ cplusplus {{
     #include "RavensAgentApp/UserData.h"
     #include "RavensAgentApp/AccessPointRadioInfoData.h"
     typedef std::vector<::simu5g::AccessPointData> AccessPointList;
-    // One reading of the cell's radio state, as the RNIS reported it. The
-    // subscription runs once a second while telemetry frames leave less often,
-    // so a frame normally carries several, oldest first.
+    // The cell's radio state at the tick this frame was built, as the RNIS
+    // reported it. A list rather than a single field because it holds either one
+    // reading or none: the RNIS has not replied yet in the opening frames of a
+    // run, and that absence is worth expressing rather than faking with a
+    // sentinel record.
     //
     // Each reading is a whole record with its own timestamp, so it describes
     // one moment rather than being merged into a running value. That is what
     // makes a field that was not measured recognisable: it sits at its "not
     // measured" default in that record instead of holding an older reading.
     typedef std::vector<::simu5g::AccessPointRadioInfoData> CellSampleList;
-    // One UE's observations since the previous telemetry frame. The Location
-    // Service ticks once a second while telemetry frames go out less often, so
-    // a group normally holds several samples, oldest first.
-    //
-    // Grouping is done by the Agent because the Agent is the only place the
-    // per-UE sequence naturally exists: it is what observed the UE, tick by
-    // tick. Every consumer downstream reads per-UE trajectories, so a flat
-    // list would mean each of them rebuilding a grouping the sender already
-    // had and discarded.
-    struct UeSampleGroup {
-        std::string ueAddress;
-        std::vector<::simu5g::UserData> samples;
-    };
-    typedef std::vector<UeSampleGroup> UeSampleGroupList;
+    // One observation per UE seen at the tick this frame was built. Flat: a
+    // frame carries at most one reading per UE, and UserData holds its own
+    // address, so there is nothing for a per-UE wrapper to save.
+    typedef std::vector<::simu5g::UserData> UserSampleList;
     struct RavensEvent {
          std::string ueAddress;
          int eventType;           // EVENT_ENTRY=0 or EVENT_EXIT=1
@@ -54,7 +46,7 @@ cplusplus {{
 }};
 
 class AccessPointList { @existingClass; };
-class UeSampleGroupList { @existingClass; };
+class UserSampleList { @existingClass; };
 class CellSampleList { @existingClass; };
 class RavensEventList { @existingClass; };
 
@@ -84,26 +76,30 @@ class RavensLinkInfrastructureDetailsMessageAck extends RavensLinkPacket
     int agentMode;  // EVENT_ONLY_MODE=0, TELEMETRY_ONLY_MODE=1 (not yet wired), FULL_MODE=2
 }
 
-// Periodic telemetry frame (TELEMETRY_FRAME): everything observed since the
-// previous frame — every Location Service reading, grouped per UE, and every
-// RNIS reading of the cell. The frame cadence and the sensing rate are
-// deliberately different: the Agent observes every second and reports less
-// often, sending everything it saw in between rather than only the newest
-// value. Both halves of the frame follow that rule, so a frame is a record of
-// an interval rather than a snapshot of the instant it left.
+// Periodic telemetry frame (TELEMETRY_FRAME): a snapshot of the newest tick —
+// one Location Service reading for each UE seen at that tick, plus the cell's
+// newest RNIS reading. A frame describes the instant it left, not the interval
+// before it: readings taken between frames are not carried.
 //
-// A UE that left partway through the interval still has its buffered samples
-// delivered here: the samples were captured when observed, so the UE's
-// departure from the Agent's current-state map does not discard them. Those
-// final observations are the approach to a cell boundary, which is exactly what
-// the handover models need.
+// One reading per frame is what keeps a coarser interval reproducible offline.
+// Subsampling a one-second corpus to every third row yields exactly what a
+// three-second frame carries, so a model trained on coarser data matches what a
+// coarser frame serves, and every coarser dataset can be derived from a single
+// generation pass at one second.
+//
+// Absence from a frame is a gap in observation and nothing more. It never means
+// departure — that stays owned by the event channel. A UE seen between frames
+// but gone by the send tick is simply not reported, and a departing UE's final
+// approach to the cell boundary survives only if it was still present at that
+// tick. At a one-second interval neither costs anything, since every tick is a
+// frame.
 //
 // Only sent when agentMode = FULL_MODE (or TELEMETRY_ONLY_MODE, once wired).
 // Transport: UDP telemetry channel — loss-tolerant.
 class RavensLinkDataFrameMessage extends RavensLinkPacket
 {
     string mecHostId;
-    UeSampleGroupList userSamples;
+    UserSampleList userSamples;
     CellSampleList cellSamples;
 }
 

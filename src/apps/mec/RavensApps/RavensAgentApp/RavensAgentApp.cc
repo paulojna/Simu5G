@@ -13,6 +13,8 @@
 #include "nodes/mec/MECPlatform/MECServices/packets/HttpRequestMessage/HttpRequestMessage.h"
 #include "nodes/mec/MECPlatform/MECServices/packets/HttpResponseMessage/HttpResponseMessage.h"
 
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <map>
 #include <unordered_set>
@@ -54,6 +56,7 @@ void RavensAgentApp::initialize(int stage)
 
     telemetryInterval_ = par("telemetryInterval");
     agentMode_ = FULL_MODE; // default until ACK received
+    recomputeObservationsPerFrame();
 
     entryConfirmSamples_ = par("entryConfirmSamples");
     exitConfirmSamples_ = par("exitConfirmSamples");
@@ -212,77 +215,93 @@ void RavensAgentApp::sendEventFrame(const RavensEventList& newEvents)
     pendingUnsent_.clear();
 }
 
+/*
+    Works out how many Location Service notifications make up one telemetry frame.
+
+    Rounded to a whole number of observations, and never below one: the frame is
+    sent from the notification handler, so a fraction of an observation is not
+    something that can be sent. An interval that is not a whole multiple of the
+    sampling period would otherwise alternate between two counts — three
+    observations, then two — which is the uneven spacing the counting exists to
+    prevent, so it is warned about rather than accepted quietly.
+
+    Resets the counter, so a mid-run change of interval starts a fresh frame
+    rather than finishing the previous one on the new count.
+*/
+void RavensAgentApp::recomputeObservationsPerFrame()
+{
+    double exact = telemetryInterval_.dbl() / locationSamplingPeriodSeconds_;
+    observationsPerFrame_ = std::max(1, (int)std::lround(exact));
+    observationsSinceFrame_ = 0;
+
+    if (std::fabs(exact - observationsPerFrame_) > 1e-9)
+        EV_WARN << mecHostId << " - RavensAgentApp::recomputeObservationsPerFrame - telemetry interval "
+                << telemetryInterval_ << "s is not a whole multiple of the "
+                << locationSamplingPeriodSeconds_ << "s sampling period; sending every "
+                << observationsPerFrame_ << " observations instead, an effective interval of "
+                << (observationsPerFrame_ * locationSamplingPeriodSeconds_) << "s" << endl;
+
+    EV << mecHostId << " - RavensAgentApp::recomputeObservationsPerFrame - "
+       << observationsPerFrame_ << " observation(s) per telemetry frame" << endl;
+}
+
 /**
- * Sends the periodic telemetry frame: everything the Location Service reported
- * since the previous frame, grouped per UE, plus the cell-level radio
- * aggregates.
+ * Sends the periodic telemetry frame: one observation for each UE the Location
+ * Service reported at the most recent tick, plus the cell's newest radio reading.
  *
- * The frame timer and the sensing rate are independent. The Location Service is
- * read every second and each reading is buffered; this function ships the whole
- * buffer and empties it. So the number of frames is unchanged from when only the
- * newest value was sent — there is simply more inside each one, and no
- * observation is discarded for having been taken between two frames.
+ * The frame is a snapshot, not a digest of the interval before it. Ticks that
+ * fall between two frames are not carried, so at an interval longer than the
+ * one-second sensing rate the intervening readings are simply not reported —
+ * which is what makes a coarser interval reproducible by subsampling a
+ * one-second corpus.
  *
- * Emptying the buffer here, and only here, is what lets a departing UE's last
- * observations still be delivered: by the time the UE is erased from the current
- * -state map, its samples already belong to the buffer.
+ * Called only from handleLSMessage(), once every observationsPerFrame_-th
+ * notification, so "the most recent tick" is the tick this call belongs to.
  */
 void RavensAgentApp::sendDataFrame()
 {
-    if (agentMode_ != FULL_MODE) {
-        // Nothing will ever drain these buffers in this mode. They are normally
-        // empty already, since observations are only buffered in full mode — but
-        // the Agent starts in full mode and learns its real mode from the
-        // handshake reply, so anything collected before that reply is dropped here.
-        sampleBuffer_.clear();
-        cellSampleBuffer_.clear();
+    if (agentMode_ != FULL_MODE)
         return;
-    }
 
-    // No average distance to the serving cell is computed here any more. It was
-    // the one value in the cell record that came from the Location Service
-    // rather than the RNIS, and it is exactly recomputable downstream: every
-    // sample in this frame carries its own DistanceToAccessPoint, so the mean is
-    // a group-by — at one-second resolution rather than one value per frame, and
-    // over observations that genuinely share a timestamp.
+    // No average distance to the serving cell travels in the cell record. It was
+    // the one value there that came from the Location Service rather than the
+    // RNIS, and it is exactly recomputable downstream: every sample in this frame
+    // carries its own DistanceToAccessPoint, so the mean is a group-by over
+    // observations that genuinely share a timestamp.
+
+    // One observation per UE present at the latest tick. The users map is exactly
+    // that population — a UE is erased from it the moment the Location Service
+    // stops listing it — so nothing here has to decide who belongs in the frame.
     //
-    // It was also averaging the wrong population. It ran over the current-state
-    // map at send time, which excludes UEs that have already departed, while the
-    // frame below still carries those UEs' observations. The value therefore
-    // matched no group anyone could reconstruct from the frame it travelled in.
-
-    // Hand the buffered observations over to the wire form, one group per UE.
-    // The samples are moved rather than copied — the buffer is being emptied
-    // either way, and a busy host can be holding a few hundred of them.
-    UeSampleGroupList groups;
-    groups.reserve(sampleBuffer_.size());
-    int sampleCount = 0;
-    for (auto& [address, samples] : sampleBuffer_) {
-        sampleCount += (int)samples.size();
-        UeSampleGroup group;
-        group.ueAddress = address;
-        group.samples = std::move(samples);
-        groups.push_back(std::move(group));
-    }
-    sampleBuffer_.clear();
+    // Sorted by address rather than taken in the map's own order, because the map
+    // is hashed and its traversal order is not reproducible between runs. The rows
+    // this frame becomes are compared across runs, so their order has to be
+    // stable.
+    UserSampleList samples;
+    samples.reserve(users.size());
+    for (const auto& [address, observation] : users)
+        samples.push_back(observation);
+    std::sort(samples.begin(), samples.end(),
+              [](const UserData& a, const UserData& b) { return a.getAddress() < b.getAddress(); });
 
     inet::Packet* packet = new inet::Packet("RavensLinkDataFrameMessage");
     auto chunk = inet::makeShared<RavensLinkDataFrameMessage>();
-    // Size grows with the observations actually carried, on both sides: a UE seen
-    // three times this interval costs three samples, and three RNIS replies cost
-    // three cell records. Before the first RNIS reply arrives there are none, so
-    // the earliest frames of a run are legitimately smaller - which the old bool
-    // could not express, since it was true from initialize() onwards.
-    inet::B frameBytes = telemetryFrameBytes(groups, cellSampleBuffer_.size());
+    // Size grows with what the frame actually carries: one record per UE present,
+    // and the cell reading only once the RNIS has replied at least once. The
+    // earliest frames of a run are legitimately smaller for that reason.
+    inet::B frameBytes = telemetryFrameBytes((int)samples.size(), (int)latestCellReading_.size());
     chunk->setChunkLength(frameBytes);
     chunk->setType(TELEMETRY_FRAME);
     chunk->setRequestId(localSnapshotCounter++);
     chunk->setTimeStamp(simTime());
     chunk->setMecHostId(getMecHostId().c_str());
-    chunk->setUserSamples(groups);
-    chunk->setCellSamples(cellSampleBuffer_);
-    int cellSampleCount = (int)cellSampleBuffer_.size();
-    cellSampleBuffer_.clear();
+    chunk->setUserSamples(samples);
+    // Not cleared after sending: the newest reading stays the newest until the
+    // RNIS reports again. Each reading carries its own timestamp, so a frame that
+    // repeats one is recognisable as a repeat rather than mistaken for a fresh
+    // measurement. In practice the RNIS reports every second, so a repeat only
+    // happens if a notification is late.
+    chunk->setCellSamples(latestCellReading_);
     packet->insertAtBack(chunk);
     controllerSocket_.send(packet);
     telemetryFramesSent_++;
@@ -295,14 +314,13 @@ void RavensAgentApp::sendDataFrame()
         telemetryFramesOversized_++;
         EV_WARN << mecHostId << " - RavensAgentApp::sendDataFrame - frame of "
                 << frameBytes << " exceeds the " << TELEMETRY_PATH_MTU_B
-                << " B path limit and will be split up: " << groups.size()
-                << " users, " << sampleCount << " samples, "
-                << cellSampleCount << " cell readings" << endl;
+                << " B path limit and will be split up: " << samples.size()
+                << " users, " << latestCellReading_.size() << " cell readings" << endl;
     }
 
     EV << mecHostId << " - RavensAgentApp::sendDataFrame - sent telemetry frame with "
-       << groups.size() << " users, " << sampleCount << " samples, "
-       << cellSampleCount << " cell readings, " << frameBytes << endl;
+       << samples.size() << " users, " << latestCellReading_.size()
+       << " cell readings, " << frameBytes << endl;
 }
 
 
@@ -420,7 +438,6 @@ void RavensAgentApp::handleHttpMessage(int connId)
 * Data transmission handlers:
 *   - "sendAPDetails": Transmits discovered access point list to the controller
 *   - "sendUserListSub": Subscribes to user list notifications from Location Service
-*   - "sendUserList": Sends periodic user info snapshots to the controller
 *   - "sendL2MeasSub": Subscribes to Layer 2 measurement notifications from RNIS
 */
 void RavensAgentApp::handleSelfMessage(cMessage *msg)
@@ -484,19 +501,6 @@ void RavensAgentApp::handleSelfMessage(cMessage *msg)
         sendUsersListSubscription();
         delete msg;
     }
-    else if(strcmp(msg->getName(), "sendUserList") == 0)
-    {
-        EV << "RavensAgentApp::handleMessage- " << msg->getName() << endl;
-        // Reschedule first, unconditionally: the timer must not die on an interval
-        // where there happened to be nothing to send.
-        cMessage *next = new cMessage("sendUserList");
-        scheduleAt(simTime() + telemetryInterval_, next);
-        // Event frames no longer ride this timer — they are sent from
-        // handleLSMessage the moment a state change is confirmed. Only the
-        // telemetry frame is still on a fixed cadence.
-        sendDataFrame();
-        delete msg;
-    }
     else if(strcmp(msg->getName(), "sendL2MeasSub") == 0)
     {
     	EV << "RavensAgentApp::handleMessage- " << msg->getName() << endl;
@@ -557,10 +561,10 @@ void RavensAgentApp::connectToRavensController()
  * - Code 200: Processes subscription notifications containing radio metrics
  *
  * A notification (code 200) produces two things:
- * 1. One cell record, built fresh here and appended to cellSampleBuffer_ for the
- *    next telemetry frame. It holds the cell-level metrics the RNIS reports
- *    directly (PRB usage, PDR, active UE count) and the delay and data-volume
- *    aggregates computed here from the notification's per-UE section.
+ * 1. One cell record, built fresh here and made the latest reading for the next
+ *    telemetry frame. It holds the cell-level metrics the RNIS reports directly
+ *    (PRB usage, PDR, active UE count) and the delay and data-volume aggregates
+ *    computed here from the notification's per-UE section.
  * 2. Per-UE radio metrics attached to the users map — delay, PDR, data volume
  *    and RSRP — which travel with that UE's next Location Service sample.
  *
@@ -696,10 +700,10 @@ void RavensAgentApp::handleRNISMessage(int connId)
 			    EV << mecHostId << " - RavensAgentApp::handleRNISMessage - no users in this cell" << endl;
 			}
 
-			// Buffered only in full mode, like the user samples: nothing drains
-			// this in event-only mode, so it would grow for the whole run.
+			// Replaces the previous reading rather than joining it: a frame
+			// carries the newest one, so an older reading has no consumer.
 			if (agentMode_ == FULL_MODE)
-			    cellSampleBuffer_.push_back(cellSample);
+			    latestCellReading_.assign(1, cellSample);
 		}
 	}
 
@@ -749,15 +753,19 @@ void RavensAgentApp::handleRNISMessage(int connId)
  *      is done. If the UE was never reported, its eventState_ entry is erased
  *      immediately with no event: the Controller was never told it existed, so
  *      there is nothing to retract, and a later reappearance starts a fresh
- *      streak. Buffered telemetry samples are untouched either way and still
- *      go out with the next frame.
+ *      streak.
  *   All events produced by this tick are batched into a single call to
  *   sendEventFrame(), which is invoked once per tick regardless of whether
  *   this tick produced anything, so a previously unsent event gets a chance
  *   to retry.
+ *   The telemetry frame follows, on every observationsPerFrame_-th notification.
+ *   This is the only place it is sent from: the cadence is counted in
+ *   observations rather than kept on a clock, so what leaves is this tick's
+ *   observations and the gap between frames is an exact number of them.
  *
  * code 201:
- *   Subscription confirmed. Schedules the first frame timer.
+ *   Subscription confirmed. Nothing is started — the first frame is counted out
+ *   of the notifications that follow.
  */
 void RavensAgentApp::handleLSMessage(int connId)
 {
@@ -853,22 +861,6 @@ void RavensAgentApp::handleLSMessage(int connId)
                         users[address] = userData;
                     }
 
-                    // Record this tick as an observation of this UE. The sample is a
-                    // copy taken while the value is current — position from this tick,
-                    // radio values as the RNIS last reported them, each carrying its
-                    // own timestamp so a repeated radio reading stays recognisable as
-                    // a repeat.
-                    //
-                    // Because it is a copy, it no longer depends on the users map
-                    // entry: when this UE later disappears and is erased below, the
-                    // observations it already produced are safe here and still go out.
-                    //
-                    // Skipped in event-only mode, where no telemetry frame will ever
-                    // be sent — that mode exists so a host does no telemetry work at
-                    // all, and buffering samples nothing will drain would undo it.
-                    if (agentMode_ == FULL_MODE)
-                        sampleBuffer_[address].push_back(users[address]);
-
                     // eventState_ tracks stability independently of the users map, so
                     // it is updated the same way whether the UE already existed or not.
                     UeEventState& st = eventState_[address];
@@ -936,13 +928,9 @@ void RavensAgentApp::handleLSMessage(int connId)
                     st.consecutivePresent = 0;
 
                     // Not here as far as anything about the present is concerned — the
-                    // cell averages must not include it. A no-op once the streak is
-                    // under way.
-                    //
-                    // sampleBuffer_ is deliberately left alone: this UE's observations
-                    // from earlier in the interval are still owed to the Controller and
-                    // leave with the next frame. That buffer is emptied when a frame is
-                    // sent, and at no other time.
+                    // cell averages must not include it, and neither must the next
+                    // telemetry frame, which reports the UEs seen at this tick. A
+                    // no-op once the streak is under way.
                     users.erase(it->first);
 
                     if (!st.reported)
@@ -978,6 +966,18 @@ void RavensAgentApp::handleLSMessage(int connId)
                 // Sent every tick, whether or not confirmedEvents is empty, so a
                 // previously unsent frame (channel was down) gets a chance to retry.
                 sendEventFrame(confirmedEvents);
+
+                // Then the telemetry frame, on every observationsPerFrame_-th
+                // notification. Control plane before data plane, as everywhere else.
+                //
+                // Sent from here rather than from a timer of its own so that it
+                // carries this notification's observations rather than the previous
+                // one's, and so that the observations it carries are exactly every
+                // Nth — see observationsPerFrame_.
+                if (++observationsSinceFrame_ >= observationsPerFrame_) {
+                    observationsSinceFrame_ = 0;
+                    sendDataFrame();
+                }
             }
         }
         else
@@ -987,9 +987,10 @@ void RavensAgentApp::handleLSMessage(int connId)
     }
     else if(code == 201)
     {
-        // it means that we sucefully subscribed to the users/list uri and we can start sending user list messages to the controller
-        cMessage *msg = new cMessage("sendUserList");
-        scheduleAt(simTime() + 1, msg);
+        // Subscribed to users/list. Nothing to start here: telemetry frames are
+        // counted out of the notifications this subscription produces, so the
+        // first one goes out on the observationsPerFrame_-th notification.
+        EV << mecHostId << " - RavensAgentApp::handleLSMessage - users/list subscription created" << endl;
     }
     else
     {
@@ -1018,12 +1019,15 @@ void RavensAgentApp::handleProcessedMessage(cMessage *msg)
 void RavensAgentApp::sendUsersListSubscription()
 {
     EV << "RavensAgentApp::sendUsersListSubscription - Sending users/list Subscription" << endl;
+    // The requested frequency is the one constant, not a literal repeated here:
+    // the telemetry frame is counted in these notifications, so a rate asked for
+    // and a rate counted in must be the same number.
     std::string body = "{  \"usersListNotificationSubscription\": {"
                            "\"callbackReference\" : {"
                             "\"callbackData\":\"v0\","
                             "\"notifyURL\":\"ravens.user.list\"},"
                            "\"checkImmediate\": \"true\","
-                            "\"frequency\": 1,"
+                            "\"frequency\": " + std::to_string(locationSamplingPeriodSeconds_) + ","
                             "\"cells\": [0]"
                             "}"
                             "}\r\n";
@@ -1152,6 +1156,9 @@ void RavensAgentApp::socketDataArrived(inet::TcpSocket *socket, inet::Packet *pa
             auto ack = packet->peekAtFront<RavensLinkInfrastructureDetailsMessageAck>();
             telemetryInterval_ = ack->getTelemetryIntervalMs() / 1000.0;
             agentMode_ = ack->getAgentMode();
+            // The interval the Controller sends is the one that counts; the NED
+            // parameter only covers the moments before this reply arrives.
+            recomputeObservationsPerFrame();
             EV << "RavensAgentApp::socketDataArrived(TCP) - INFRASTRUCTURE_DETAILS_ACK: telemetryInterval="
                << telemetryInterval_ << "s, agentMode=" << agentMode_ << endl;
             delete packet;

@@ -52,10 +52,9 @@ struct UserSample
     // window, so the two disagree for a second or two around every handover —
     // that gap is a measurement of control-plane lag, not an error.
     //
-    // Read once per frame, not once per sample: every sample in a frame carries
-    // the same value. The Controller keeps no history of its own past beliefs,
-    // so this is the belief at the only moment it held one about these samples —
-    // when they arrived. It therefore resolves to a frame, not to a second.
+    // The Controller keeps no history of its own past beliefs, so this is the
+    // belief at the only moment it held one about this sample — when the frame
+    // carrying it arrived. It therefore resolves to a frame, not to a second.
     //
     // Empty means the Controller had no record of the UE at all when the frame
     // arrived, which happens in three ways:
@@ -148,8 +147,8 @@ std::string userSampleCsvHeader();
 // `dlTotalPrbUsageCell`, and three columns had no key at all. A model trained on
 // a column would have been served a differently named field.
 //
-// One reading, not one frame: a frame carries every reading the RNIS reported
-// since the last one, and each becomes a row.
+// One reading, not one frame: a frame carries the newest reading the RNIS
+// reported, or none before it has first replied, and each becomes a row.
 struct CellSample
 {
     // When the frame carrying this reading left the Agent, and when the RNIS
@@ -219,14 +218,15 @@ class LocationDataHandlerPolicyBase
         // One UE's observations from the telemetry frame being processed, oldest
         // first. Called once per UE in the frame.
         //
-        // Grouped per UE because that is how the Agent observed them and how
-        // every consumer reads them; flattening here would only mean each
-        // consumer rebuilding a grouping the sender already had.
+        // A frame carries one observation per UE, so this currently always holds
+        // a single element. It stays a sequence because a per-UE sequence is what
+        // consumers want, and because the frame interval is a parameter — one
+        // observation per call is a value of it, not a property of the interface.
         virtual void onUserSamples(const std::vector<UserSample>& samples) {}
 
-        // Every cell reading the frame carries, oldest first. Called once per
-        // frame — the cell is one thing, so there is one sequence, unlike the
-        // per-UE call above.
+        // The cell reading the frame carries, or nothing before the RNIS has
+        // first replied. Called once per frame — the cell is one thing, so there
+        // is one sequence, unlike the per-UE call above.
         virtual void onCellSamples(const std::vector<CellSample>& samples) {}
 
         // Called once per telemetry frame, after every sample and every cell

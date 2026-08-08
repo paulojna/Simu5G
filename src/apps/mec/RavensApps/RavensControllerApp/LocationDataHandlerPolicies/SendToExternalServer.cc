@@ -51,12 +51,14 @@ namespace simu5g {
 	{
 	}
 
-	// One UE's readings from the frame being processed, oldest first.
+	// One UE's readings from the frame being processed, oldest first — a single
+	// reading, since a frame carries one observation per UE.
 	//
-	// The grouping is kept rather than flattened because the prediction server
-	// consumes per-UE sequences. It is meant to hold a window and nothing more —
-	// never to work out which UE or which host a reading belongs to. Sending
-	// sequences already assembled by whoever observed them is what keeps that true.
+	// Still sent as a per-UE sequence rather than a flat list, because the
+	// prediction server consumes per-UE sequences. It is meant to hold a window
+	// and nothing more — never to work out which UE or which host a reading
+	// belongs to. Sending readings already attributed by whoever observed them is
+	// what keeps that true.
 	//
 	// The fields come from the shared record, so this payload carries exactly what
 	// the CSV carries, under exactly the same names. That is the whole reason the
@@ -84,8 +86,9 @@ namespace simu5g {
 		pendingUsers_.push_back(userJson);
 	}
 
-	// Every cell reading the frame carries, oldest first. One sequence, because
-	// the cell is one thing — unlike the users, who each have their own.
+	// The cell reading the frame carries, or nothing before the RNIS has first
+	// replied. One sequence, because the cell is one thing — unlike the users,
+	// who each have their own.
 	//
 	// Same fields and same names as the radio-stats CSV, from the same record.
 	// They used to disagree: the column CellId was the key accessPointId, and

@@ -46,22 +46,19 @@ const int ACK_HEADER_B = 16;
 // Records
 // ---------------------------------------------------------------------------
 
-// One UE's group in a telemetry frame. The UE is identified once, and its
-// observations follow. Sending the identity per group rather than per sample is
-// the only size saving grouping buys - small, but it is the honest encoding: a
-// real protocol would not repeat the address on every observation of the same
-// UE.
-//   address 4 + sample count 1 (+3 padding)
-const int UE_GROUP_HEADER_B = 8;
-
 // One observation of one UE - a single Location Service tick, with whatever the
-// RNIS had reported for that UE at the time. Two halves, one per data source:
+// RNIS had reported for that UE at the time. Three parts:
+//   address           4
 //   Location Service 32: cell id 4, x/y/z 12, bearing 2, speed 2,
 //                        distance to AP 4, timestamp 8
 //   RNIS             34: dl/ul delay 8, dl/ul PDR 8, dl/ul data volume 8,
 //                        RSRP 2, timestamp 8
-// 66 bytes of fields, padded to 72 for 8-byte alignment. No address: it lives
-// in the group header above.
+// 70 bytes of fields, padded to 72 for 8-byte alignment.
+//
+// The address travels in every record because a frame carries at most one
+// observation per UE, so there is no repetition for a per-UE wrapper to remove.
+// It costs nothing here either - 66 bytes of measurements padded to 72 leaves
+// exactly the room the address needs.
 //
 // Both halves are always present: when the RNIS has no value it reports -1
 // rather than omitting the field, so there is no shorter variant of this record.
@@ -70,15 +67,10 @@ const int UE_GROUP_HEADER_B = 8;
 // timestamp rather than being mistaken for a fresh measurement.
 const int UE_SAMPLE_B = 72;
 
-// Sanity check on the split: a group holding exactly one sample costs
-// 8 + 72 = 80 bytes, which is precisely what one user cost before batching.
-// The change decomposes that number into "identity once, observation each" -
-// it does not re-base it, so earlier size figures remain comparable.
-
-// One reading of the cell's radio state. Sent once per RNIS notification, not
-// once per user - one Agent serves one cell, so a reading is shared by every UE
-// in the frame rather than repeated for each of them. A frame carries as many
-// of these as the RNIS reported since the previous frame.
+// One reading of the cell's radio state. One per frame, not one per user - one
+// Agent serves one cell, so a reading is shared by every UE in the frame rather
+// than repeated for each of them. A frame carries the newest reading, or none
+// at all before the RNIS has first replied.
 //   cell id 4 + timestamp 8 + 9 metrics 36:
 //     dl/ul PRB usage 8, dl/ul non-GBR PDR 8, active UE count 4,
 //     dl/ul mean delay 8, dl/ul total data volume 8
@@ -118,9 +110,12 @@ const int CONFIG_ACK_PAYLOAD_B = 12;
 // no realistic congestion - gives no reason to expect a piece to go missing.
 // The Agent warns when a frame crosses this line purely so it is known how
 // often busy hosts do it, not to prevent it. A frame stays under the line up to
-// roughly 19 UEs when each carries three observations:
-//   4470 - 24 header - 3 cell records at 48 = 4302 for users
-//   4302 / (8 group header + 3 samples at 72) = 19 UEs
+// 60 UEs:
+//   4470 - 28 UDP and IP headers - 24 frame header - 48 cell reading = 4370
+//   4370 / 72 per UE = 60 UEs
+//
+// That headroom is a property of this path, not of a deployment. Over Ethernet
+// the limit is 1500, which leaves room for 19.
 const int TELEMETRY_PATH_MTU_B = 4470;
 
 // ---------------------------------------------------------------------------
@@ -132,22 +127,14 @@ const int TELEMETRY_PATH_MTU_B = 4470;
 // returns the same number - the point is that adding a field to UserData or
 // RavensEvent is a one-place update here, not a silent mismatch.
 
-// Telemetry frame: one group per UE observed since the last frame, each holding
-// that UE's observations, plus one record per RNIS reading over the same
-// interval. Both counts are what was actually collected, so a frame sent before
-// the first RNIS reply honestly carries no cell records at all.
-//
-// Groups are walked rather than multiplied out because they do not all hold the
-// same number of samples: a UE that arrived or left partway through the interval
-// contributes fewer than one that was present throughout.
-inline inet::B telemetryFrameBytes(const ::UeSampleGroupList& groups, int cellSampleCount)
+// Telemetry frame: one record per UE observed at this tick, plus the cell's
+// newest radio reading. Both counts are what was actually collected, so a frame
+// sent before the first RNIS reply honestly carries no cell record at all, and
+// a tick on which the Location Service reported nobody carries no UE records.
+inline inet::B telemetryFrameBytes(int userSampleCount, int cellSampleCount)
 {
-    int payloadBytes = 0;
-    for (const auto& group : groups)
-        payloadBytes += UE_GROUP_HEADER_B + (int)group.samples.size() * UE_SAMPLE_B;
-
     return inet::B(FRAME_HEADER_B
-                   + payloadBytes
+                   + userSampleCount * UE_SAMPLE_B
                    + cellSampleCount * CELL_RADIO_RECORD_B);
 }
 
