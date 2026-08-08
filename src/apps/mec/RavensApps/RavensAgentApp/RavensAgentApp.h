@@ -41,8 +41,40 @@ class RavensAgentApp : public MecAppBase, public inet::UdpSocket::ICallback
 protected:
     int localSnapshotCounter;
 
+    // How often the Location Service is asked to report, in seconds. Sent in the
+    // subscription request and used to work out how many observations make up a
+    // telemetry frame, so the two cannot disagree about the sensing rate.
+    //
+    // This is the finest resolution anything downstream can have. One second is
+    // the SUMO step: nothing in the mobility trace changes faster, so asking more
+    // often would observe the same position twice.
+    static constexpr int locationSamplingPeriodSeconds_ = 1;
+
     simtime_t telemetryInterval_;  // received from the Controller in the handshake ACK
     int agentMode_;             // EVENT_ONLY_MODE, TELEMETRY_ONLY_MODE, or FULL_MODE
+
+    // The telemetry cadence, counted in Location Service notifications rather than
+    // held on a clock of its own. A frame goes out on every observationsPerFrame_-th
+    // notification, carrying that notification's observations.
+    //
+    // Counting rather than timing is what makes the cadence exact. Two independent
+    // periodic clocks agree only as long as nothing is late; one notification
+    // arriving after the frame timer would have the frame repeat the previous
+    // observation and skip this one, leaving a duplicate timestamp and a gap in
+    // the trajectory. Counting cannot produce either: the frame is late instead,
+    // and the observations stay evenly spaced.
+    //
+    // Evenly spaced observations are also what lets a coarser dataset be derived
+    // from a finer one offline — every third row of a one-second corpus is exactly
+    // what a three-second cadence carries, which only holds if "every third" is
+    // guaranteed rather than usual.
+    int observationsPerFrame_ = 1;
+    int observationsSinceFrame_ = 0;
+
+    // Works out observationsPerFrame_ from telemetryInterval_. Called wherever that
+    // interval is set — at startup from the NED parameter, and again when the
+    // Controller's handshake reply overrides it.
+    void recomputeObservationsPerFrame();
 
     int entryConfirmSamples_;  // consecutive present LS samples required to confirm ENTRY
     int exitConfirmSamples_;   // consecutive absent LS samples required to confirm EXIT
@@ -90,24 +122,14 @@ protected:
 	std::unordered_map<std::string, size_t> apIndex_;
 
     // Current state: where each UE is right now, overwritten every Location
-    // Service tick. Used for the event detection above and for the cell-level
-    // averages. A UE is erased from here the moment it stops being reported.
+    // Service tick. A UE is erased from here the moment it stops being reported,
+    // so this map holds exactly the UEs seen at the most recent tick.
+    //
+    // That property is what makes it the telemetry source as well as the input
+    // to event detection and the cell-level averages: a frame carries one
+    // observation per UE present now, and a UE missing from the map is a UE that
+    // belongs in no frame.
     std::unordered_map<std::string, UserData> users;
-
-    // Observations waiting to go out in the next telemetry frame, keyed by UE.
-    // The Location Service is read once a second while frames leave less often,
-    // so each UE normally accumulates several samples between frames; sending
-    // them all is what keeps a trajectory continuous instead of subsampled.
-    //
-    // Deliberately separate from the users map above, and with a different
-    // lifetime: a sample is copied in when observed and stays until a frame
-    // carries it away, so erasing a departed UE from users does not discard the
-    // observations it already produced. Those final observations - a UE on its
-    // way out of the cell - are the ones the handover models most need.
-    //
-    // Ordered (not hashed) so groups leave in a stable address order, which
-    // keeps the resulting rows consistent from run to run.
-    std::map<std::string, std::vector<UserData>> sampleBuffer_;
 
     // How many telemetry frames this Agent sent, and how many of those were
     // large enough that the network layer had to split them up. Recorded as
@@ -116,16 +138,16 @@ protected:
     long telemetryFramesSent_ = 0;
     long telemetryFramesOversized_ = 0;
 
-    // Cell readings waiting to go out in the next telemetry frame, oldest first.
-    // The RNIS reports once a second while frames leave less often, so each frame
-    // normally carries several — the same relationship sampleBuffer_ has with the
-    // Location Service, and emptied in the same place.
+    // The newest cell reading, as a list holding one element or none. Empty until
+    // the RNIS first replies, which is why it is a list rather than a plain field:
+    // the opening frames of a run genuinely have no reading, and that is worth
+    // saying rather than faking with a sentinel record.
     //
-    // A whole record per notification, rather than one record written into over
-    // and over. That is what keeps a value from outliving the reading it came
-    // from: a field the notification does not mention sits at its "not measured"
-    // default in that record, because there is nothing older for it to inherit.
-    std::vector<AccessPointRadioInfoData> cellSampleBuffer_;
+    // Replaced whole on each notification, never written into. That is what keeps
+    // a value from outliving the reading it came from: a field the notification
+    // does not mention sits at its "not measured" default, because there is
+    // nothing older for it to inherit.
+    std::vector<AccessPointRadioInfoData> latestCellReading_;
 
     virtual int numInitStages() const override { return inet::NUM_INIT_STAGES; }
     virtual void initialize(int stage) override;

@@ -542,22 +542,22 @@ void RavensControllerApp::reportSilentUsers(){
     refreshes it, every stationary user was retired about a minute after
     arriving and had its application torn down underneath it.
 
-    A user appears once per frame, as one group, however many observations that
-    group holds. So there is no question of which observation "wins": what is
-    recorded is the frame's own timestamp, not any observation's.
+    A user appears at most once per frame, so there is no question of which
+    observation "wins": what is recorded is the frame's own timestamp, not the
+    observation's.
 */
 void RavensControllerApp::updateUserStateMap(inet::Ptr<const RavensLinkDataFrameMessage> received_packet) {
-    for (const auto& group : received_packet->getUserSamples()) {
-        auto userIt = userStateMap.find(group.ueAddress);
+    for (const auto& observation : received_packet->getUserSamples()) {
+        auto userIt = userStateMap.find(observation.getAddress());
         if (userIt == userStateMap.end()) {
             // Not yet confirmed by an entry event — skip, as above.
             EV << "RavensControllerApp::updateUserStateMap - TELEMETRY_FRAME for unknown user "
-               << group.ueAddress << ", skipping (waiting for ENTRY event)" << endl;
+               << observation.getAddress() << ", skipping (waiting for ENTRY event)" << endl;
             continue;
         }
         if (received_packet->getTimeStamp() < userIt->second.timestamp) {
             EV << "RavensControllerApp::updateUserStateMap - Ignored stale update for user "
-               << group.ueAddress << endl;
+               << observation.getAddress() << endl;
             continue;
         }
         userIt->second.timestamp = received_packet->getTimeStamp();
@@ -574,36 +574,40 @@ void RavensControllerApp::updateUserStateMap(inet::Ptr<const RavensLinkDataFrame
     record once removes the possibility instead of relying on both sides being
     kept in step by hand.
 
-    Nothing is held back or reordered. The groups go out in the order the Agent
-    put them in the frame, and the frame is finished when this returns. Any
+    Nothing is held back or reordered. The observations go out in the order the
+    Agent put them in the frame, and the frame is finished when this returns. Any
     windowing a sequence model needs belongs to whoever consumes the samples.
 
-    confirmedMEH is read once per UE, since the Controller's belief cannot change
-    partway through a frame. It is empty when the UE is not in userStateMap at
-    all: an ENTRY takes several consecutive Location Service samples to confirm,
-    so every UE spends its first seconds observed but not yet confirmed, and its
-    telemetry legitimately arrives with nothing to compare against.
+    The hook takes a sequence, and a frame supplies exactly one observation per
+    UE, so every call carries a single element. The shape is kept because it is
+    the shape a consumer wants — a per-UE sequence — and because the frame
+    interval is a parameter: this is one point on it, not a property of the design.
+
+    confirmedMEH is read per UE from the Controller's current belief. It is empty
+    when the UE is not in userStateMap at all: an ENTRY takes several consecutive
+    Location Service samples to confirm, so every UE spends its first seconds
+    observed but not yet confirmed, and its telemetry legitimately arrives with
+    nothing to compare against.
 */
 void RavensControllerApp::dispatchUserSamples(inet::Ptr<const RavensLinkDataFrameMessage> received_packet) {
-    for (const auto& group : received_packet->getUserSamples()) {
-        auto userIt = userStateMap.find(group.ueAddress);
+    for (const auto& observation : received_packet->getUserSamples()) {
+        std::string address = observation.getAddress();
+        auto userIt = userStateMap.find(address);
         std::string confirmedMEH = (userIt != userStateMap.end()) ? userIt->second.currentMEH : "";
 
         std::vector<UserSample> samples;
-        samples.reserve(group.samples.size());
-        for (const auto& observation : group.samples)
-            samples.push_back(makeUserSample(received_packet, group.ueAddress, observation, confirmedMEH));
+        samples.push_back(makeUserSample(received_packet, address, observation, confirmedMEH));
 
         locationDataHandlerPolicy_->onUserSamples(samples);
     }
 }
 
 /*
-    Hands the frame's cell readings to the output policy, in one call.
+    Hands the frame's cell reading to the output policy, in one call.
 
-    One call rather than one per reading, because the cell is one thing: a frame
-    holds a single sequence of readings for it, where the user samples hold one
-    sequence per UE.
+    A sequence rather than a single reading, because a frame carries one or none:
+    nothing is sent for the cell until the RNIS has first replied, and an empty
+    frame section says that plainly.
 
     The Controller does not read these at all — nothing on this side consumes
     cell metrics. They pass through so the outputs receive them in the same
