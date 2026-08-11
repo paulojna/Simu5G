@@ -330,6 +330,8 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
             // is alive and its frame arrived, which is exactly the case the
             // window's host list exists to distinguish.
             std::string reportingMEH = dataFrame->getMecHostId();
+            // Which hosts reported, not how many frames arrived: jitter can land two of a
+            // host's frames in one window, and this list must name each host once.
             if (std::find(windowReportingMEHs_.begin(), windowReportingMEHs_.end(), reportingMEH)
                     == windowReportingMEHs_.end())
                 windowReportingMEHs_.push_back(reportingMEH);
@@ -645,7 +647,7 @@ void RavensControllerApp::reportSilentUsers(){
     pre-empt that confirmation, so the entry event would never be published for
     that user.
 
-    The timestamp being refreshed feeds exactly one thing — the silence
+    The timestamp being refreshed feeds the silence
     diagnostic in reportSilentUsers(), which warns and counts but never acts.
     Without the refresh, a user who entered and then stayed on the same host
     would be reported as silent despite being perfectly alive. That used to be
@@ -707,6 +709,7 @@ void RavensControllerApp::dispatchUserSamples(inet::Ptr<const RavensLinkDataFram
     for (const auto& observation : received_packet->getUserSamples()) {
         std::string address = observation.getAddress();
         auto userIt = userStateMap.find(address);
+        // Did we find this user? If yes, take the host we believe they're on. If no, use an empty string
         std::string confirmedMEH = (userIt != userStateMap.end()) ? userIt->second.currentMEH : "";
 
         std::vector<UserSample> samples;
