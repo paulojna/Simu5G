@@ -1,7 +1,21 @@
-#ifndef RAVENS_CONTROLLER_APP_LOCATIONDATAHANDLERPOLICYBASE_H_
-#define RAVENS_CONTROLLER_APP_LOCATIONDATAHANDLERPOLICYBASE_H_
+#ifndef RAVENS_CONTROLLER_APP_TELEMETRYSAMPLE_H_
+#define RAVENS_CONTROLLER_APP_TELEMETRYSAMPLE_H_
 
-#include "../RavensControllerApp.h"
+// The canonical per-UE and per-cell observation records, and the only functions
+// that build them.
+//
+// These used to live in the telemetry sink base class, back when the sinks were
+// the only consumers. They are here now because the orchestrator receives raw
+// telemetry too, so RavensControlPacket.msg has to name these types — and it
+// cannot include a sink header without dragging in the whole Controller.
+//
+// Nothing about the records changed in the move. The field lists are what the
+// models are trained on, so they are the last thing that should shift while
+// something else is being rearranged.
+
+#include "apps/mec/RavensApps/RavensLinkPacket_m.h"
+#include "apps/mec/RavensApps/RavensAgentApp/UserData.h"
+#include "apps/mec/RavensApps/RavensAgentApp/AccessPointRadioInfoData.h"
 
 #include <string>
 #include <vector>
@@ -9,8 +23,6 @@
 namespace simu5g {
 
 using namespace omnetpp;
-
-class RavensControllerApp;
 
 // One observation of one UE, in the single form every consumer sees.
 //
@@ -207,54 +219,6 @@ CellSample makeCellSample(inet::Ptr<const RavensLinkDataFrameMessage> frame,
 // The radio-stats CSV header line, from the same field list as its rows.
 std::string cellSampleCsvHeader();
 
-// abstract class
-class LocationDataHandlerPolicyBase
-{
-    friend class RavensControllerApp;
+} // namespace simu5g
 
-    protected:
-        RavensControllerApp* controllerApp_;
-
-        // One UE's observations from the telemetry frame being processed, oldest
-        // first. Called once per UE in the frame.
-        //
-        // A frame carries one observation per UE, so this currently always holds
-        // a single element. It stays a sequence because a per-UE sequence is what
-        // consumers want, and because the frame interval is a parameter — one
-        // observation per call is a value of it, not a property of the interface.
-        virtual void onUserSamples(const std::vector<UserSample>& samples) {}
-
-        // The cell reading the frame carries, or nothing before the RNIS has
-        // first replied. Called once per frame — the cell is one thing, so there
-        // is one sequence, unlike the per-UE call above.
-        virtual void onCellSamples(const std::vector<CellSample>& samples) {}
-
-        // Called once per telemetry frame, after every sample and every cell
-        // reading in it has been delivered. Marks the end of the frame: it is
-        // where a policy that ships the whole frame in one request sends it.
-        virtual void onTelemetryFrame(inet::Ptr<const RavensLinkDataFrameMessage> frame) {}
-
-        // Semantic hooks — called by handleEventFrame() at each authoritative decision point.
-        // Default implementations are no-ops; policies override only what they need.
-        virtual void onUserEntry   (const std::string& userId, const std::string& meh,
-                                    int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) {}
-        virtual void onUserHandover(const std::string& userId, const std::string& fromMeh,
-                                    const std::string& toMeh,
-                                    int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) {}
-        virtual void onUserExit    (const std::string& userId, const std::string& fromMeh,
-                                    int samplesSinceChange, omnetpp::simtime_t firstDetectedAt) {}
-
-        // Shared helper: insert_or_assign a UserMEHUpdate into controllerApp_->userUpdates.
-        // Not for SaveDataHistory (log-only).
-        void emitUserUpdate(const std::string& address,
-                            const std::string& lastMeh,
-                            const std::string& newMeh);
-
-    public:
-        LocationDataHandlerPolicyBase(RavensControllerApp* controllerApp) { controllerApp_ = controllerApp; }
-        virtual ~LocationDataHandlerPolicyBase() {}
-};
-
-}
-
-#endif /* RAVENS_CONTROLLER_APP_LOCATIONDATAHANDLERPOLICYBASE_H_ */
+#endif /* RAVENS_CONTROLLER_APP_TELEMETRYSAMPLE_H_ */

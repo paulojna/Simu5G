@@ -31,10 +31,9 @@
 
 #include "nodes/mec/MECOrchestrator/reactionOnUpdateStrategies/RemoveOnExit.h"
 #include "nodes/mec/MECOrchestrator/reactionOnUpdateStrategies/MigrateOnChange.h"
-#include "nodes/mec/MECOrchestrator/reactionOnUpdateStrategies/MigrateOnTime.h"
 #include "nodes/mec/MECOrchestrator/reactionOnUpdateStrategies/MigrateOnPrediction.h"
 
-#include "apps/mec/RavensApps/RavensControllerUpdatePacket_m.h"
+#include "apps/mec/RavensApps/RavensControlPacket_m.h"
 
 #include "nodes/mec/MECOrchestrator/ApplicationDescriptor/ApplicationDescriptor.h"
 
@@ -56,11 +55,6 @@ T* safe_check_and_cast(U* ptr) {
     }
     return result;
 }
-
-// Must match the values in RavensControllerApp.cc (sender side).
-// TODO: replace both copies with a shared enum next to RavensControllerUpdatePacket.
-#define USERS_UPDATE 20
-#define MIGRATION_PLAN 21
 
     Define_Module(MecOrchestrator);
 
@@ -202,27 +196,57 @@ T* safe_check_and_cast(U* ptr) {
             EV << "MecOrchestrator::handleMessage fromRavensController - " << msg->getName() << endl;
 
             inet::Packet *packet = safe_check_and_cast<inet::Packet>(msg);
-            auto received_packet = packet->peekAtFront<RavensControllerUpdatePacket>();
-            std::vector<UserMEHUpdate> UserMEHUpdatedList_toPrint;
-            if (received_packet->getType() == USERS_UPDATE)
+            auto received_packet = packet->peekAtFront<RavensControlPacket>();
+
+            switch (received_packet->getType())
             {
-                auto usersUpdate = packet->peekAtFront<UserMEHUpdatedListMessage>();
-                UserMEHUpdatedList_toPrint = usersUpdate->getUeMehList();
-                for (auto user : UserMEHUpdatedList_toPrint)
-                {
-                    EV << "MecOrchestrator::socketDataArrived - user address: " << user.getAddress() << " last MEH: " << user.getLastMEHId() << " new MEH: " << user.getNewMEHId() << endl;
-                    userMEHMap[user.getAddress()] = {user.getAddress(), user.getNewMEHId()};
-                     reactionOnUpdate_->reactOnUpdate(user);
-                    EV << "MecOrchestrator::socketDataArrived - reactOnUpdate done!" << endl;
-                }
+            case USER_EVENT: {
+                // One confirmed change, and it arrived the moment RAVENS
+                // concluded it. Which of fromMEHId / toMEHId are set follows from
+                // the event type; nothing here infers the event from them.
+                // The chunk is held in a named variable rather than chained,
+                // so the reference below cannot outlive it.
+                auto eventMessage = packet->peekAtFront<UserEventMessage>();
+                const UserEvent& event = eventMessage->getEvent();
+                EV << "MecOrchestrator::handleMessage - " << userEventTypeName(event.eventType)
+                   << " " << event.ueAddress << " '" << event.fromMEHId << "' -> '"
+                   << event.toMEHId << "'" << endl;
+
+                // An exit leaves toMEHId empty, which is what should be recorded:
+                // the user is no longer anywhere.
+                userMEHMap[event.ueAddress] = {event.ueAddress, event.toMEHId};
+                reactionOnUpdate_->reactOnUpdate(event);
+                break;
             }
-            else if (received_packet->getType() == MIGRATION_PLAN)
-            {
-                auto migrationPlan = packet->peekAtFront<MigrationPredictionListMessage>();
-                std::vector<MigrationPrediction> predictions = migrationPlan->getPredictions();
-                std::cout << "[MEO t=" << simTime() << "] MIGRATION_PLAN received with "
-                          << predictions.size() << " predictions" << std::endl;
+
+            case PREDICTION_REPORT: {
+                auto report = packet->peekAtFront<PredictionReportMessage>();
+                const std::vector<MigrationPrediction>& predictions = report->getPredictions();
+                EV << "MecOrchestrator::handleMessage - " << predictions.size()
+                   << " predictions received" << endl;
                 reactionOnUpdate_->reactOnUpdate(predictions);
+                break;
+            }
+
+            case TELEMETRY_REPORT: {
+                // Forwarded on every run that collects telemetry, and consumed
+                // only by a strategy that asked for it — the default
+                // implementation of reactOnTelemetry ignores it. Being sent
+                // regardless is what makes the learning mode a configuration
+                // change rather than a different code path.
+                auto report = packet->peekAtFront<TelemetryReportMessage>();
+                reactionOnUpdate_->reactOnTelemetry(report->getWindowStart(),
+                                                    report->getWindowEnd(),
+                                                    report->getReportingMEHIds(),
+                                                    report->getUserSamples(),
+                                                    report->getCellSamples());
+                break;
+            }
+
+            default:
+                EV << "MecOrchestrator::handleMessage - unknown RAVENS stream type "
+                   << received_packet->getType() << ", ignoring" << endl;
+                break;
             }
         }
 

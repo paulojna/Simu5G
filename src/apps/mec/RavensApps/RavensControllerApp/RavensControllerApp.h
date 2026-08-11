@@ -3,6 +3,8 @@
 
 // RavensLink frame types, agent modes and event subtypes (shared with the Agent)
 #include "apps/mec/RavensApps/RavensLinkProtocol.h"
+// Stream types and user event types (shared with the MEC orchestrator)
+#include "apps/mec/RavensApps/RavensControlProtocol.h"
 
 #include <inet/networklayer/common/L3AddressResolver.h>
 #include <inet/transportlayer/contract/udp/UdpSocket.h>
@@ -12,15 +14,19 @@
 #include <inet/common/packet/PacketFilter.h>
 
 #include "MECHostData.h"
-#include "DataUpdates/UserMEHUpdate.h"
+#include "DataUpdates/UserEvent.h"
 #include "DataUpdates/MigrationPrediction.h"
+#include "DataUpdates/TelemetrySample.h"
 
 #include "../RavensLinkPacket_m.h"
+#include "../RavensControlPacket_m.h"
 #include "../UsersInfoPacket_m.h"
 #include "../RavensAgentApp/UserData.h"
 
+#include <algorithm>
 #include <iostream>
 #include <fstream>
+#include <memory>
 
 namespace simu5g {
 	using namespace omnetpp;
@@ -49,7 +55,7 @@ struct UserState
     bool silenceReported = false; // already warned about implausibly long silence
 };
 
-class LocationDataHandlerPolicyBase;
+class TelemetrySink;
 
 class RavensControllerApp: public inet::ApplicationBase,
                            public inet::UdpSocket::ICallback,
@@ -60,17 +66,10 @@ class RavensControllerApp: public inet::ApplicationBase,
         std::unordered_map<std::string, MECHostData> mehStateMap;
         std::unordered_map<std::string, UserState> userStateMap;
 
-        // update to be sent to the MEO
-        inet::Packet *update;
-
-        // When to start sending the snapshots to the MEO and at which frequency
-        int snapshot_frequency_;
-        int snapshot_starting_time_;
-
         int silenceWarningThreshold_;     // how long telemetry may say nothing about a
                                           // user before that silence is reported (s)
-        int agentMode_;                   // EVENT_ONLY_MODE or FULL_MODE, decided by the
-                                          // configured output policy and pushed to Agents
+        int agentMode_;                   // EVENT_ONLY_MODE or FULL_MODE, decided by whether
+                                          // this run collects telemetry, and pushed to Agents
         long silentUsersReported_ = 0;    // users seen going implausibly silent, recorded
                                           // as a scalar: it should be zero
 
@@ -78,29 +77,34 @@ class RavensControllerApp: public inet::ApplicationBase,
         double exitConfirmationWindow_;   // Controller-private; how long to wait before
                                           // treating a reported EXIT as leaving the system
 
-        // Data structures to be sent to the MEO depending on the mode we are in
-        // PERFORMANCE IMPROVEMENT: Changed from vector to map for O(1) lookup in addUserUpdate()
-        // Original: std::vector<UserMEHUpdate> userUpdates;
-        std::unordered_map<std::string, UserMEHUpdate> userUpdates;
-		std::unordered_map<std::string, MigrationPrediction> migrationPredictions;
+        bool collectTelemetry_;           // whether Agents are asked for telemetry at all
+        double telemetryWindow_;          // how much telemetry goes into one report (s)
+
+        // The window currently being filled, drained whole when it closes. This
+        // is the only outbound buffer left: user events and predictions are sent
+        // the moment they exist. Appending, never keyed — the map this replaced
+        // was keyed by user, so a user that moved twice inside one window lost
+        // its first move.
+        std::vector<UserSample> windowUserSamples_;
+        std::vector<CellSample> windowCellSamples_;
+        std::vector<std::string> windowReportingMEHs_;
+        simtime_t windowStart_;
 
         inet::UdpSocket udpSocket;
         inet::TcpSocket serverSocket_;  // TCP listener on mgmtPort — accepts Agent handshake connections
         inet::SocketMap socketMap;
 
-        friend class LocationDataHandlerPolicyBase;
-        friend class SaveDataHistory;
-        friend class NotifyOnDataChange;
-        friend class SendToExternalServer;
-        
-        LocationDataHandlerPolicyBase* locationDataHandlerPolicy_;
+        // Everything that wants a copy of the observations, besides the
+        // orchestrator. A list, not a choice: recording a run to file and driving
+        // a model from it are unrelated, and both can be on.
+        std::vector<std::unique_ptr<TelemetrySink>> telemetrySinks_;
 
         // to check if we are dealing with a packet from RAVENS Agent or from a UE directly
         inet::PacketFilter ravensLinkPacketFilter;
         inet::PacketFilter uePacketFilter;
 
-        cMessage *calculateAvg_;
-        cMessage *expireHoldsMsg_;   // periodic sweep for elapsed exit confirmation windows
+        cMessage *closeTelemetryWindowMsg_; // periodic close of the telemetry window
+        cMessage *expireHoldsMsg_;          // periodic sweep for elapsed exit confirmation windows
 
     protected:
         virtual void initialize(int stage) override;
@@ -129,14 +133,20 @@ class RavensControllerApp: public inet::ApplicationBase,
         void sendJoinNetworkAck(inet::TcpSocket *socket);
         void sendInfrastructureDetailsAck(inet::TcpSocket *socket);
 
-        // methods to deal with mehStateMap and userStateMap
-        // std::vector<std::pair<std::string, std::string>> detectInactiveUsers();
+        // Sends one confirmed event to the orchestrator, and tells the sinks
+        // about it. Called the moment the event is concluded — there is no
+        // queue and no tick between deciding and reporting.
+        void publishUserEvent(const UserEvent& event, int samplesSinceChange);
+
+        // Closes the current telemetry window and sends it. Scheduled every
+        // telemetryWindow_ seconds; see the parameter for why that length.
+        void closeTelemetryWindow();
 
         // methods to deal with userStateMap
         void updateUserStateMap(inet::Ptr<const RavensLinkDataFrameMessage> received_packet);
 
         // Turns every observation in a telemetry frame into the canonical sample
-        // record and hands it to the output policy, one UE at a time.
+        // record, hands it to the sinks, and adds it to the open window.
         void dispatchUserSamples(inet::Ptr<const RavensLinkDataFrameMessage> received_packet);
 
         // The same for the frame's cell readings, handed over in one call.
@@ -151,19 +161,22 @@ class RavensControllerApp: public inet::ApplicationBase,
         void handleEventFrame(inet::Ptr<const RavensLinkEventMessage> event,
                               inet::L3Address remoteAddress, int srcPort);
 
-        // Sweeps userStateMap for elapsed exit confirmation windows, emits onUserExit, and removes
-        // the user. Called both inline from handleEventFrame (prompt path) and from a
-        // periodic self-message (liveness when no event frames are arriving).
+        // Sweeps userStateMap for elapsed exit confirmation windows, reports the departure,
+        // and removes the user. Called both inline from handleEventFrame (prompt path) and
+        // from a periodic self-message (liveness when no event frames are arriving).
         void expirePendingExits();
-
-        std::string getMecHostIdFromAccessPointId(std::string accessPointId);
 
         void handleSelfMessage(inet::cMessage *msg);
 
     public:
         RavensControllerApp();
         ~RavensControllerApp();
-    
+
+        // Forwards predictions to the orchestrator as they are produced. Public
+        // because PredictionServerClient calls it — the sinks used to reach into
+        // a member map through a friend declaration, which meant four classes
+        // could write the Controller's outbound state.
+        void publishPredictions(const std::vector<MigrationPrediction>& predictions);
 };
 
 }

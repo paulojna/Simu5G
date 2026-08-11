@@ -5,8 +5,7 @@
 /*
  * MigrateOnPrediction Strategy
  *
- * Proactive migration based on ML predictions from Flask.
- * See header for full documentation.
+ * Proactive migration from model predictions. See header for full documentation.
  *
  * Self-message lifecycle:
  *   - Created in reactOnUpdate(vector<MigrationPrediction>)
@@ -43,49 +42,44 @@ MigrateOnPrediction::~MigrateOnPrediction()
     }
     scheduledPredictions_.clear();
 
+    std::cout << "[MigrateOnPrediction] predictions that arrived too late to schedule properly: "
+              << latePredictions_ << std::endl;
+
     // Close migration log
     if (logFile_.is_open()) {
         logFile_.close();
     }
 }
 
-// ─── Reactive path: handle entry/exit from USERS_UPDATE ───
+// ─── Correction path: confirmed events ───
 
-void MigrateOnPrediction::reactOnUpdate(const UserMEHUpdate& update)
+void MigrateOnPrediction::reactOnUpdate(const UserEvent& event)
 {
-    std::cout << "[MigrateOnPrediction t=" << simTime() << "] "
-              << "UE=" << update.getAddress()
-              << " lastMEH='" << update.getLastMEHId() << "'"
-              << " newMEH='" << update.getNewMEHId() << "'" << std::endl;
+    switch (event.eventType) {
 
-    // Scenario 1: Exit — UE left the system
-    if (update.getNewMEHId() == "")
-    {
-        EV << "MigrateOnPrediction::reactOnUpdate - UE " << update.getAddress() << " exited system" << endl;
+    case USER_EXIT: {
+        EV << "MigrateOnPrediction::reactOnUpdate - UE " << event.ueAddress << " exited system" << endl;
 
         // Cancel any scheduled prediction for this user (only exits cancel!)
-        auto it = scheduledPredictions_.find(update.getAddress());
+        auto it = scheduledPredictions_.find(event.ueAddress);
         if (it != scheduledPredictions_.end())
         {
             EV << "MigrateOnPrediction::reactOnUpdate - Cancelling scheduled prediction for exiting UE "
-               << update.getAddress() << endl;
-            std::cout << "[MigrateOnPrediction t=" << simTime()
-                      << "] Cancelled prediction for exiting UE " << update.getAddress() << std::endl;
+               << event.ueAddress << endl;
             owner_->cancelAndDelete(it->second);
             scheduledPredictions_.erase(it);
         }
 
-        // Remove the app from the system
-        api_->removeAppFromSystem(update.getAddress(), update.getLastMEHId());
+        api_->removeAppFromSystem(event.ueAddress, event.fromMEHId);
+        break;
     }
-    // Scenario 2: Entry — new UE detected by RAVENS
-    else if (update.getLastMEHId() == "" && update.getNewMEHId() != "")
-    {
-        EV << "MigrateOnPrediction::reactOnUpdate - New UE " << update.getAddress()
-           << " detected at " << update.getNewMEHId() << endl;
+
+    case USER_ENTRY: {
+        EV << "MigrateOnPrediction::reactOnUpdate - New UE " << event.ueAddress
+           << " detected at " << event.toMEHId << endl;
 
         MigrationResult result = api_->checkIfMigrationIsNeeded(
-            update.getAddress(), update.getNewMEHId(), update.getLastMEHId());
+            event.ueAddress, event.toMEHId, event.fromMEHId);
 
         if (result.success) {
             EV << "MigrateOnPrediction::reactOnUpdate - Migration initiated for new UE, request #"
@@ -93,61 +87,60 @@ void MigrateOnPrediction::reactOnUpdate(const UserMEHUpdate& update)
         } else {
             EV << "MigrateOnPrediction::reactOnUpdate - " << result.errorMessage << endl;
         }
+        break;
     }
-    // Scenario 3: Handover — reactive fallback for unpredicted handovers
-    // Flask needs ~30s of observations before it can predict. During this
-    // warmup period (or when the model fails to predict), handovers go
-    // undetected. This reactive fallback catches them.
-    // checkIfMigrationIsNeeded is idempotent: if Flask already migrated
-    // proactively, the app is already on the correct MEH → "no migration needed".
-    else if (update.getNewMEHId() != "" && update.getLastMEHId() != ""
-             && update.getNewMEHId() != update.getLastMEHId())
-    {
+
+    case USER_HANDOVER: {
+        // A move the model did not predict, or predicted too late to act on.
+        // checkIfMigrationIsNeeded is idempotent: if the app was already moved
+        // proactively, this finds it in the right place and reports that nothing
+        // was needed.
         EV << "MigrateOnPrediction::reactOnUpdate - Reactive fallback: handover detected" << endl;
-        EV << "  UE: " << update.getAddress() << endl;
-        EV << "  From: " << update.getLastMEHId() << " To: " << update.getNewMEHId() << endl;
+        EV << "  UE: " << event.ueAddress << endl;
+        EV << "  From: " << event.fromMEHId << " To: " << event.toMEHId << endl;
 
         MigrationResult result = api_->checkIfMigrationIsNeeded(
-            update.getAddress(), update.getNewMEHId(), update.getLastMEHId());
+            event.ueAddress, event.toMEHId, event.fromMEHId);
 
         if (result.success) {
             EV << "MigrateOnPrediction::reactOnUpdate - Reactive migration initiated, request #"
                << result.requestNumber << endl;
             std::cout << "[MigrateOnPrediction t=" << simTime()
-                      << "] REACTIVE fallback migration for UE " << update.getAddress()
-                      << " from " << update.getLastMEHId() << " to " << update.getNewMEHId() << std::endl;
+                      << "] REACTIVE fallback migration for UE " << event.ueAddress
+                      << " from " << event.fromMEHId << " to " << event.toMEHId << std::endl;
         } else {
-            // Expected when Flask already handled this proactively
+            // Expected when the model already handled this proactively
             EV << "MigrateOnPrediction::reactOnUpdate - " << result.errorMessage << endl;
         }
 
         // Log reactive handover
         if (logFile_.is_open()) {
             logFile_ << simTime() << ","
-                     << update.getAddress() << ","
+                     << event.ueAddress << ","
                      << "REACTIVE_HANDOVER" << ","
-                     << update.getLastMEHId() << ","
-                     << update.getNewMEHId() << ","
+                     << event.fromMEHId << ","
+                     << event.toMEHId << ","
                      << (result.success ? "INITIATED" : "NO_MIGRATION_NEEDED") << std::endl;
         }
+        break;
     }
-    else
-    {
-        EV << "MigrateOnPrediction::reactOnUpdate - No action for UE " << update.getAddress() << endl;
+
+    default:
+        EV << "MigrateOnPrediction::reactOnUpdate - unknown event type " << event.eventType
+           << " for UE " << event.ueAddress << ", ignoring" << endl;
+        break;
     }
 }
 
-// ─── Proactive path: schedule migrations from Flask predictions ───
+// ─── Proactive path: schedule migrations from predictions ───
 
 void MigrateOnPrediction::reactOnUpdate(const std::vector<MigrationPrediction>& predictions)
 {
     EV << "MigrateOnPrediction::reactOnUpdate - Processing " << predictions.size() << " predictions" << endl;
-    std::cout << "[MigrateOnPrediction t=" << simTime() << "] Processing "
-              << predictions.size() << " predictions" << std::endl;
 
     for (const auto& pred : predictions)
     {
-        const std::string& ueAddress = pred.getUeAddress();
+        const std::string& ueAddress = pred.ueAddress;
 
         // Check for existing scheduled prediction for this UE
         auto it = scheduledPredictions_.find(ueAddress);
@@ -156,7 +149,7 @@ void MigrateOnPrediction::reactOnUpdate(const std::vector<MigrationPrediction>& 
             MigrateAppMessage* existingMsg = check_and_cast<MigrateAppMessage*>(it->second);
             std::string existingTarget = existingMsg->getNewMEHId();
 
-            if (existingTarget == pred.getTargetMEHId())
+            if (existingTarget == pred.toMEHId)
             {
                 // Same target — keep existing prediction (better lead time)
                 EV << "MigrateOnPrediction - Keeping existing prediction for UE " << ueAddress
@@ -166,43 +159,48 @@ void MigrateOnPrediction::reactOnUpdate(const std::vector<MigrationPrediction>& 
 
             // Different target — replace with new prediction
             EV << "MigrateOnPrediction - Replacing prediction for UE " << ueAddress
-               << " (target changed: " << existingTarget << " -> " << pred.getTargetMEHId() << ")" << endl;
+               << " (target changed: " << existingTarget << " -> " << pred.toMEHId << ")" << endl;
             owner_->cancelAndDelete(it->second);
             scheduledPredictions_.erase(it);
         }
 
-        // Compute adjusted delay so migration COMPLETES at the predicted time
-        //
-        // targetTime = when the UE will arrive at new AP (prediction timestamp + migration delay)
-        // We want migration to complete by targetTime, so start it migrationTime_ earlier
-        //
-        // adjustedDelay = targetTime - simTime() - migrationTime_
-        //
-        simtime_t targetTime = pred.getTimestamp() + pred.getMigrationDelay();
-        simtime_t adjustedDelay = targetTime - simTime() - migrationTime_;
+        // Start the migration early enough that it *completes* when the user is
+        // expected to arrive, rather than starting then.
+        simtime_t adjustedDelay = pred.expectedAt - simTime() - migrationTime_;
 
-        // Clamp to 0 if prediction arrived late (execute immediately)
-        if (adjustedDelay < 0)
+        // A negative delay means the prediction did not leave enough time to act
+        // on it — the horizon was eaten by the pipeline, or the model simply did
+        // not look far enough ahead. Starting immediately is the best that can be
+        // done, but it is no longer proactive, so it is counted rather than
+        // quietly clamped.
+        if (adjustedDelay < 0) {
+            latePredictions_++;
+            EV_WARN << "MigrateOnPrediction - prediction for " << ueAddress << " arrived "
+                    << -adjustedDelay << "s too late to complete on time, starting now" << endl;
+            if (logFile_.is_open()) {
+                logFile_ << simTime() << "," << ueAddress << "," << "PROACTIVE_MIGRATION" << ","
+                         << pred.fromMEHId << "," << pred.toMEHId << "," << "LATE" << std::endl;
+            }
             adjustedDelay = 0;
+        }
 
         // Create self-message using existing MigrateAppMessage
-        // type: 0 = migration, 1 = exit
         MigrateAppMessage* msg = new MigrateAppMessage("ScheduledMigration");
         msg->setUeAddress(ueAddress.c_str());
-        msg->setNewMEHId(pred.getTargetMEHId().c_str());
-        msg->setOldMEHId(pred.getCurrentMEHId().c_str());
-        msg->setType(pred.isExitPrediction() ? 1 : 0);
+        msg->setNewMEHId(pred.toMEHId.c_str());
+        msg->setOldMEHId(pred.fromMEHId.c_str());
+        msg->setType(pred.isExitPrediction() ? MIGRATE_APP_EXIT : MIGRATE_APP_MOVE);
 
         // Schedule and track
         owner_->scheduleAt(simTime() + adjustedDelay, msg);
         scheduledPredictions_[ueAddress] = msg;
 
-        std::cout << "[MigrateOnPrediction t=" << simTime() << "] Scheduled "
-                  << (pred.isExitPrediction() ? "EXIT" : "MIGRATION")
-                  << " for UE " << ueAddress
-                  << " | target=" << pred.getTargetMEHId()
-                  << " | delay=" << adjustedDelay << "s"
-                  << " | fires at t=" << (simTime() + adjustedDelay) << std::endl;
+        EV << "MigrateOnPrediction - Scheduled "
+           << (pred.isExitPrediction() ? "EXIT" : "MIGRATION")
+           << " for UE " << ueAddress
+           << " | target=" << pred.toMEHId
+           << " | expected at " << pred.expectedAt
+           << " | starts in " << adjustedDelay << "s" << endl;
     }
 }
 
@@ -221,11 +219,9 @@ void MigrateOnPrediction::handleScheduledEvent(cMessage* msg)
     // (message itself will be deleted by MecOrchestrator::handleMessage after this returns)
     scheduledPredictions_.erase(ueAddress);
 
-    if (type == 1)
+    if (type == MIGRATE_APP_EXIT)
     {
         // Predicted exit
-        std::cout << "[MigrateOnPrediction t=" << simTime()
-                  << "] Executing predicted EXIT for UE " << ueAddress << std::endl;
         EV << "MigrateOnPrediction::handleScheduledEvent - Executing predicted EXIT for UE "
            << ueAddress << endl;
 
@@ -239,9 +235,6 @@ void MigrateOnPrediction::handleScheduledEvent(cMessage* msg)
         {
             EV << "MigrateOnPrediction::handleScheduledEvent - Stale prediction for UE "
                << ueAddress << " (expected " << oldMEHId << ", app at " << currentMEH << ")" << endl;
-            std::cout << "[MigrateOnPrediction t=" << simTime()
-                      << "] Stale prediction for UE " << ueAddress
-                      << " (expected " << oldMEHId << ", app at " << currentMEH << ")" << std::endl;
 
             if (logFile_.is_open()) {
                 logFile_ << simTime() << ","
@@ -254,9 +247,6 @@ void MigrateOnPrediction::handleScheduledEvent(cMessage* msg)
             return;
         }
 
-        std::cout << "[MigrateOnPrediction t=" << simTime()
-                  << "] Executing predicted MIGRATION for UE " << ueAddress
-                  << " from " << oldMEHId << " to " << newMEHId << std::endl;
         EV << "MigrateOnPrediction::handleScheduledEvent - Executing predicted MIGRATION for UE "
            << ueAddress << " from " << oldMEHId << " to " << newMEHId << endl;
 
@@ -265,15 +255,9 @@ void MigrateOnPrediction::handleScheduledEvent(cMessage* msg)
         if (!result.success) {
             EV << "MigrateOnPrediction::handleScheduledEvent - Migration failed: "
                << result.errorMessage << endl;
-            std::cout << "[MigrateOnPrediction t=" << simTime()
-                      << "] Migration failed for UE " << ueAddress
-                      << ": " << result.errorMessage << std::endl;
         } else {
             EV << "MigrateOnPrediction::handleScheduledEvent - Migration initiated, request #"
                << result.requestNumber << endl;
-            std::cout << "[MigrateOnPrediction t=" << simTime()
-                      << "] Migration initiated for UE " << ueAddress
-                      << ", request #" << result.requestNumber << std::endl;
         }
 
         // Log proactive migration

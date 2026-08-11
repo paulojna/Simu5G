@@ -3,19 +3,18 @@
 
 #include "ReactionOnUpdate.h"
 
-//#include "nodes/mec/MECPlatformManager/MecPlatformManager.h"
-//#include "nodes/mec/VirtualisationInfrastructureManager/VirtualisationInfrastructureManager.h"
-
 class IOrchestratorApi;
 
 namespace simu5g {
 
+// The reactive mode: acts only on changes that have already happened. Consumes
+// the event stream and nothing else, which makes it the baseline the proactive
+// and learning modes are measured against.
 class MigrateOnChange : public ReactionOnUpdate
 {
   public:
-    using ReactionOnUpdate::ReactionOnUpdate; 
-    virtual void reactOnUpdate(const simu5g::UserMEHUpdate&) override;
-    virtual void reactOnUpdate(const std::vector<simu5g::MigrationPrediction>&) override;
+    using ReactionOnUpdate::ReactionOnUpdate;
+    virtual void reactOnUpdate(const simu5g::UserEvent&) override;
     virtual ~MigrateOnChange(){}
 };
 

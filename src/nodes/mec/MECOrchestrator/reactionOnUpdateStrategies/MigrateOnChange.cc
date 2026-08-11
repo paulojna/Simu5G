@@ -1,83 +1,74 @@
 #include "MigrateOnChange.h"
-  #include "nodes/mec/MECOrchestrator/services/MecAppMigrationManager/MecAppMigrationManager.h"
+#include "nodes/mec/MECOrchestrator/services/MecAppMigrationManager/MecAppMigrationManager.h"
 #include "nodes/mec/MECOrchestrator/MECOMessages/MECOrchestratorMessages_m.h"
 #include "nodes/mec/UALCMP/UALCMPMessages/UALCMPMessages_m.h"
 #include "nodes/mec/UALCMP/UALCMPMessages/UALCMPMessages_types.h"
 
 /*
-* MigrateOnChange Strategy
-*
-* This strategy reacts to RAVENS Controller updates about UE movement.
-* It handles three different scenarios:
-*
-* 1) newMEHId is empty (" ") → UE left the system → Remove app
-*
-* 2) newMEHId and lastMEHId both non-empty AND different → UE migrated between MEHs → Migrate app
-*
-* 3) lastMEHId is empty (" ") but newMEHId is not → RAVENS detecting UE for first time → Check if migration needed
-*    (UE might not have app yet, might be on correct MEH, or need migration)
-*/
+ * MigrateOnChange Strategy
+ *
+ * Reacts to confirmed changes in where a user is, one event at a time:
+ *
+ *   EXIT     -> the user left the system, so remove its app
+ *   HANDOVER -> the user moved between hosts, so migrate its app after it
+ *   ENTRY    -> first sight of the user; it may have no app yet, or already have
+ *               one in the right place, so ask whether a migration is needed at
+ *               all rather than assuming
+ *
+ * This used to be the same three cases inferred from which of two host-name
+ * strings happened to be empty, with a fourth "unexpected update" branch for the
+ * combinations that inference could not account for. The event now says which
+ * one it is, so there is nothing left to infer and no unexpected case.
+ */
 
 namespace simu5g {
 
 using namespace omnetpp;
 
-void MigrateOnChange::reactOnUpdate(const std::vector<MigrationPrediction> &updatedList)
+void MigrateOnChange::reactOnUpdate(const UserEvent &event)
 {
-    // not implemented
-}
+    switch (event.eventType) {
 
-void MigrateOnChange::reactOnUpdate(const UserMEHUpdate &update)
-{
-	std::cout << "[MigrateOnChange t=" << omnetpp::simTime() << "] "
-				<< "UE=" << update.getAddress()
-				<< " lastMEH='" << update.getLastMEHId() << "'"
-				<< " newMEH='" << update.getNewMEHId() << "'" << std::endl;
-
-    // scenario 1 - (described above)
-    if (update.getNewMEHId()=="")
-    {
+    case USER_EXIT:
         EV << "MigrateOnChange::reactOnUpdate - UE left system!" << endl;
-        EV << "  UE: " << update.getAddress() << endl;
-        EV << "  Last MEH: " << update.getLastMEHId() << endl;
+        EV << "  UE: " << event.ueAddress << endl;
+        EV << "  Last MEH: " << event.fromMEHId << endl;
 
-        api_->removeAppFromSystem(update.getAddress(), update.getLastMEHId());
-    }
-    // scenario 2
-    else if(update.getNewMEHId()!="" && update.getLastMEHId()!="" && update.getNewMEHId()!=update.getLastMEHId())
-    {
+        api_->removeAppFromSystem(event.ueAddress, event.fromMEHId);
+        break;
+
+    case USER_HANDOVER: {
         EV << "MigrateOnChange::reactOnUpdate - Migration between MEHs detected" << endl;
-        EV << "  UE: " << update.getAddress() << endl;
-        EV << "  From: " << update.getLastMEHId() << " To: " << update.getNewMEHId() << endl;
+        EV << "  UE: " << event.ueAddress << endl;
+        EV << "  From: " << event.fromMEHId << " To: " << event.toMEHId << endl;
 
-        MigrationResult result = api_->migrateApp(update.getAddress(), update.getNewMEHId(), update.getLastMEHId());
+        MigrationResult result = api_->migrateApp(event.ueAddress, event.toMEHId, event.fromMEHId);
 
-        if (!result.success) 
+        if (!result.success)
         {
             EV << "MigrateOnChange::reactOnUpdate - Migration failed: " << result.errorMessage << endl;
             // Migration failed - UE continues using old MEH endpoint
             // Fallback strategy here?
-        } 
-        else 
+        }
+        else
         {
             EV << "MigrateOnChange::reactOnUpdate - Migration initiated successfully" << endl;
             EV << "  Request Number: " << result.requestNumber << endl;
             EV << "  New Context ID: " << result.contextId << endl;
-            std::cout << "NEW MIGRATION STARTED WITH CONTEXT ID " << result.contextId << " FOR UE " << update.getAddress() << endl;
         }
+        break;
     }
-    // scenario 3
-    else if (update.getLastMEHId()=="" && update.getNewMEHId()!="")
-    {
+
+    case USER_ENTRY: {
         EV << "MigrateOnChange::reactOnUpdate - New UE detected by RAVENS" << endl;
-        EV << "  UE: " << update.getAddress() << endl;
-        EV << "  Target MEH: " << update.getNewMEHId() << endl;
+        EV << "  UE: " << event.ueAddress << endl;
+        EV << "  Target MEH: " << event.toMEHId << endl;
 
         // This method handles three sub-cases:
         // - UE has no app yet → Returns "No migration needed"
         // - UE already on target MEH → Returns "No migration needed"
         // - UE on different MEH → Triggers migration
-        MigrationResult result = api_->checkIfMigrationIsNeeded(update.getAddress(), update.getNewMEHId(), update.getLastMEHId());
+        MigrationResult result = api_->checkIfMigrationIsNeeded(event.ueAddress, event.toMEHId, event.fromMEHId);
 
         if (result.success) {
             EV << "MigrateOnChange::reactOnUpdate - Migration was needed and initiated" << endl;
@@ -87,14 +78,13 @@ void MigrateOnChange::reactOnUpdate(const UserMEHUpdate &update)
             // Could be: no app instantiated yet, or already on correct MEH
             EV << "MigrateOnChange::reactOnUpdate - " << result.errorMessage << endl;
         }
+        break;
     }
-    else
-    {
-        EV << "MigrateOnChange::reactOnUpdate - Unexpected RAVENS update" << endl;
-        EV << "  UE: " << update.getAddress() << endl;
-        EV << "  NewMEH: '" << update.getNewMEHId() << "'" << endl;
-        EV << "  LastMEH: '" << update.getLastMEHId() << "'" << endl;
-        EV << "  No action taken" << endl;
+
+    default:
+        EV << "MigrateOnChange::reactOnUpdate - unknown event type " << event.eventType
+           << " for UE " << event.ueAddress << ", ignoring" << endl;
+        break;
     }
 }
 

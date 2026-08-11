@@ -31,7 +31,7 @@
 #include "nodes/mec/MECPlatform/MEAppPacket_m.h"
 
 // Ravens Controller Updates
-#include "apps/mec/RavensApps/RavensControllerUpdatePacket_m.h"
+#include "apps/mec/RavensApps/RavensControlPacket_m.h"
 
 #include "nodes/mec/MECOrchestrator/ApplicationDescriptor/ApplicationDescriptor.h"
 
