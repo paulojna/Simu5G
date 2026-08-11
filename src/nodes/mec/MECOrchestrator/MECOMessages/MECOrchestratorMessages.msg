@@ -21,8 +21,17 @@ message MECOrchestratorMessage {
     bool success;   
 }
 
+//
+// What a scheduled MigrateAppMessage is for. These were the bare literals 0 and
+// 1, explained by a comment at one of the three places that used them.
+//
+enum MigrateAppType {
+    MIGRATE_APP_MOVE = 0;   // move the app to newMEHId
+    MIGRATE_APP_EXIT = 1;   // the user is leaving; tear the app down
+}
+
 message MigrateAppMessage {
-    int type;
+    int type @enum(MigrateAppType);
     string ueAddress;
     string newMEHId;
     string oldMEHId;
