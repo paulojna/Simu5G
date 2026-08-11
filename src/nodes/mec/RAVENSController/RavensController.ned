@@ -32,8 +32,10 @@ module RavensController
     gates:
         inout ppp[];
 
+        // To the MEC orchestrator. One way: the orchestrator has never sent
+        // anything back, and the return gate that used to be here was unwired at
+        // both ends.
         output hostOutGate;
-        input hostInGate;
 
     submodules:
 
@@ -88,7 +90,6 @@ module RavensController
         ravensControllerApp.socketIn <-- at.out++;
         
         ravensControllerApp.outGate --> hostOutGate;
-        ravensControllerApp.inGate <-- hostInGate;
 
         at.out++ --> udp.appIn;
         at.in++ <-- udp.appOut;

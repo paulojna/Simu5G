@@ -153,7 +153,6 @@ network highwayA11
         server.ppp++ <--> Eth10G <--> router.pppg++;
 
         server.hostOutGate --> mecOrchestrator.fromRavensController;
-        server.hostInGate <-- mecOrchestrator.toRavensController;
 
         // X2 connections
         gnb0.x2++ <--> Eth10G <--> gnb1.x2++;

@@ -27,7 +27,13 @@ simple MecOrchestrator
     parameters:
         @display("i=device/mainframe;bgb=1006.50995,692.76");
         string selectionPolicy = default("LocationBased"); // available policies: "MecHostBased", "MecServiceBased", "AvailableResourcesBased", "LocationBased"
-        string reactionStrategy = default("MigrateOnPrediction"); // available strategies: "RemoveOnExit", "MigrateOnChange", "MigrateOnTime", "MigrateOnPrediction"
+        // Which RAVENS streams the orchestrator acts on. Every strategy hears all
+        // of them; they differ only in what they do with each, which is what
+        // makes them comparable.
+        //   RemoveOnExit        - events, and only departures
+        //   MigrateOnChange     - events (reactive)
+        //   MigrateOnPrediction - events and predictions (proactive)
+        string reactionStrategy = default("MigrateOnPrediction");
         int mecHostIndex = default(10); // to be used with the MecHostBased policybased
         string mecHostList = default("");
         string mecApplicationPackageList = default("");
@@ -46,7 +52,9 @@ simple MecOrchestrator
         output toUALCMP;
         input fromUALCMP;
 
+        // One way. Nothing was ever sent back to the Controller, and the return
+        // gate that used to be declared here had no branch in handleMessage to
+        // receive anything either.
         input fromRavensController;
-        output toRavensController;
 
 }
