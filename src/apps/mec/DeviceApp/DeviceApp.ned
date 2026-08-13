@@ -22,6 +22,14 @@ simple DeviceApp like IApp
     string appProvider = default("");
     string appPackageSource = default("");
 
+    // How long a forwarded start request may wait for the UALCMP's answer
+    // before the DeviceApp gives up on it, resets, and reconnects. Without
+    // this, a request lost in transit (seen: trapped in a gNB handover
+    // buffer) wedges the state machine in "already sent" forever and the UE
+    // never gets an application. Normal responses arrive well under a second,
+    // so the default is generous.
+    double startRequestTimeout @unit(s) = default(5s);
+
     string localAddress = default(""); // may be left empty ("")
     int localPort = default(-1); // port number to listen on
     string connectAddress = default("");  // server address (may be symbolic)

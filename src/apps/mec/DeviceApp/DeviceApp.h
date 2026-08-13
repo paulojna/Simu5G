@@ -66,6 +66,14 @@ class DeviceApp : public omnetpp::cSimpleModule, public inet::TcpSocket::ICallba
 
         omnetpp::cMessage* processedUALCMPMessage;
 
+        // Watchdog for the start sequence (GET app list, POST create): armed
+        // when a request goes out, cancelled when its answer arrives. If it
+        // fires, the conversation went silent — request or response lost in
+        // transit — and the state machine would otherwise absorb every UE
+        // retry as "already sent" forever.
+        omnetpp::cMessage* startTimeoutMsg_;
+        double startRequestTimeout_;
+
         int localPort;
 
         inet::L3Address ueAppAddress;
