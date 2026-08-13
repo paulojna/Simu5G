@@ -3,6 +3,7 @@
 
 #include "nodes/mec/MECOrchestrator/services/MecAppRegistry/MecAppRegistry.h"
 #include "nodes/mec/MECOrchestrator/services/MecAppLifecycleManager/MecAppLifecycleManager.h"
+#include "nodes/mec/MECOrchestrator/services/DecisionLogger/DecisionLogger.h"
 #include "nodes/mec/UALCMP/UALCMPMessages/UALCMPMessages_m.h"
 #include <map>
 #include <string>
@@ -24,7 +25,13 @@ struct MigrationResult {
     std::string newMEHId;
     std::string oldMEHId;
 
-    MigrationResult() 
+    // No action was called for — there is no application, or it is already on
+    // the target host — as opposed to an action that was called for and failed.
+    // The decision log needs the two apart: "nothing to do" is the common,
+    // healthy answer, and counting it as a failure would bury the real ones.
+    bool nothingToDo = false;
+
+    MigrationResult()
     : success(false), contextId(-1), requestNumber(0) {}
 
     MigrationResult(bool success, const std::string& errorMessage, int contextId, unsigned int requestNumber, const std::string& newMEHId, const std::string& oldMEHId) 
@@ -56,7 +63,8 @@ public:
       MecAppLifecycleManager* lifecycleManager,
       std::vector<cModule*>* mecHosts,
       std::unordered_map<std::string, cModule*>* mecHostIndex,  // PERFORMANCE IMPROVEMENT: O(1) lookup
-      cSimpleModule* owner
+      cSimpleModule* owner,
+      DecisionLogger* decisionLogger   // may be null: no decision log configured
     );
 
     virtual ~MecAppMigrationManager();
@@ -92,6 +100,7 @@ private:
     std::vector<cModule*>* mecHosts_;
     std::unordered_map<std::string, cModule*>* mecHostIndex_;  // PERFORMANCE IMPROVEMENT: O(1) lookup
     cSimpleModule* owner_;  // For sending self-messages
+    DecisionLogger* decisionLogger_;  // not owned; null when no log is configured
 
     // Configuration
     double migrationTime_;
@@ -117,17 +126,28 @@ private:
     void forceCompleteMigration(unsigned int requestNumber, const std::string& reason);
 
     /*
+     * Closes out a migration in the decision log: the row a strategy wrote when it
+     * started this one carries the same requestNumber, and joining the two is what
+     * turns "a migration was started" into "a migration finished, and how".
+     *
+     * oldInstanceTerminated is carried because a migration that leaves its old
+     * instance running is a leak that costs resources for the rest of the run, and
+     * it is invisible everywhere else.
+     */
+    void recordMigrationOutcome(const StandByElement& standBy, DecisionOutcome outcome,
+                                bool oldInstanceTerminated, const std::string& reason);
+
+    /*
      * Destroys the migrated-from instance once the UE has switched away from it.
      *
      * Goes to the old host's platform manager directly rather than through
      * MecAppLifecycleManager::stopApplication(), which cannot do this job: it looks the
-     * app up by contextId, and performMigration() already unregistered the old contextId
-     * when it registered the new one. The lookup therefore always missed and the old
-     * instance was never destroyed — one leaked, still-running MEC app per migration,
-     * silent because the failure was only logged.
+     * app up by contextId, and by this point the registry entry already points at the
+     * new instance on the new host — a contextId lookup would terminate the instance
+     * the UE just switched *to*.
      *
      * StandByElement carries oldMecpm and mecUeAppID for exactly this, captured before
-     * the registry was rewritten.
+     * the registry entry was repointed.
      */
     bool terminateOldInstance(const StandByElement& standBy);
 };

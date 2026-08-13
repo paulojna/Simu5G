@@ -56,12 +56,22 @@ T* safe_check_and_cast(U* ptr) {
     return result;
 }
 
+    // RAVENS messages carry user addresses as "acr:<ip>"; the views are keyed
+    // by bare IP. Stripped once, here at the boundary, so the prefix never
+    // appears inside the orchestrator's own state.
+    static std::string stripAcrPrefix(const std::string& ueAddress)
+    {
+        if (ueAddress.rfind("acr:", 0) == 0)
+            return ueAddress.substr(4);
+        return ueAddress;
+    }
+
     Define_Module(MecOrchestrator);
 
     MecOrchestrator::MecOrchestrator()
     {
         mecHostSelectionPolicy_ = nullptr;
-        userMEHMap.clear();
+        userPresence_.clear();
         reactionOnUpdate_ = nullptr;
         // NEW
         mecAppRegistry_ = nullptr;
@@ -105,6 +115,18 @@ T* safe_check_and_cast(U* ptr) {
         getConnectedMecHosts();
         //onboardApplicationPackages();
 
+        // Before the strategies, which record through it from their first event.
+        std::string decisionLogPath = par("decisionLogPath").stringValue();
+        if (!decisionLogPath.empty()) {
+            decisionLogger_ = std::make_unique<DecisionLogger>(decisionLogPath);
+            EV << "MecOrchestrator::initialize - decisions recorded in "
+               << decisionLogger_->getFileName() << endl;
+        }
+        else {
+            EV_WARN << "MecOrchestrator::initialize - decisionLogPath is empty, "
+                    << "this run will not record what it decided" << endl;
+        }
+
         // NEW
         mecAppRegistry_ = std::make_unique<MecAppRegistry>();
         mecAppLifecycleManager_ = std::make_unique<MecAppLifecycleManager>(
@@ -123,7 +145,8 @@ T* safe_check_and_cast(U* ptr) {
               mecAppLifecycleManager_.get(),
               &mecHosts,
               &mecHostIndex_,
-              this
+              this,
+              decisionLogger_.get()
             );
             mecAppMigrationManager_->initialize(migrationTime_, migrationTimeout_);
 
@@ -136,7 +159,8 @@ T* safe_check_and_cast(U* ptr) {
               mecAppLifecycleManager_.get(),
               &mecHosts,
               &mecHostIndex_,
-              this
+              this,
+              decisionLogger_.get()
             );
             mecAppMigrationManager_->initialize(migrationTime_, migrationTimeout_);
 
@@ -213,8 +237,10 @@ T* safe_check_and_cast(U* ptr) {
                    << event.toMEHId << "'" << endl;
 
                 // An exit leaves toMEHId empty, which is what should be recorded:
-                // the user is no longer anywhere.
-                userMEHMap[event.ueAddress] = {event.ueAddress, event.toMEHId};
+                // the user is no longer anywhere. The row stays either way.
+                UserPresence& presence = userPresence_[stripAcrPrefix(event.ueAddress)];
+                presence.currentMEH = event.toMEHId;
+                presence.lastEventAt = event.observedAt;
                 reactionOnUpdate_->reactOnUpdate(event);
                 break;
             }
@@ -235,6 +261,19 @@ T* safe_check_and_cast(U* ptr) {
                 // regardless is what makes the learning mode a configuration
                 // change rather than a different code path.
                 auto report = packet->peekAtFront<TelemetryReportMessage>();
+
+                // Enrich the user view. Telemetry writes only its own two
+                // fields — it never touches currentMEH, which events own. A
+                // user crossing hosts mid-window appears once per observing
+                // host, so the newest sample by its own timestamp wins.
+                for (const auto& sample : report->getUserSamples()) {
+                    UserPresence& presence = userPresence_[stripAcrPrefix(sample.userId)];
+                    if (sample.locationTimestamp >= presence.lastSampleAt) {
+                        presence.lastObservedMEH = sample.observedMEH;
+                        presence.lastSampleAt = sample.locationTimestamp;
+                    }
+                }
+
                 reactionOnUpdate_->reactOnTelemetry(report->getWindowStart(),
                                                     report->getWindowEnd(),
                                                     report->getReportingMEHIds(),
@@ -476,8 +515,8 @@ T* safe_check_and_cast(U* ptr) {
         //std::cout << simTime() << " [MEO] App REMOVE requested for UE: " << ueIp << std::endl;
         inet::L3Address ueL3Address = inet::L3AddressResolver().resolve(ueIp.c_str());
 
-        // remove user from the userMEHMap
-        userMEHMap.erase(ueAddress);
+        // Deliberately no touch of userPresence_ here: where the user is, is
+        // the events' fact; this function only removes the application.
 
         // requestId will be zero so the UALCMP will not try to send a response to the UE when receives the ack from the MEO
         int requestId = 0; // I've changed the starting value of the request counter to 1
@@ -512,6 +551,11 @@ T* safe_check_and_cast(U* ptr) {
 
     MigrationResult MecOrchestrator::migrateApp(std::string ueAddress, std::string newMEHId, std::string oldMEHId) {
         return mecAppMigrationManager_->migrateApp(ueAddress, newMEHId, oldMEHId);
+    }
+
+    void MecOrchestrator::recordDecision(const OrchestrationDecision& decision) {
+        if (decisionLogger_)
+            decisionLogger_->record(decision);
     }
 
     MigrationResult MecOrchestrator::checkIfMigrationIsNeeded(std::string ueAddress, std::string newMEHId, std::string oldMEHId) {

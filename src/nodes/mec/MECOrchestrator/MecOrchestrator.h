@@ -39,6 +39,7 @@
 #include "nodes/mec/MECOrchestrator/services/MecAppLifecycleManager/MecAppLifecycleManager.h"
 #include "nodes/mec/MECOrchestrator/services/MecAppMigrationManager/MecAppMigrationManager.h"
 #include "nodes/mec/MECOrchestrator/services/MecAppRegistry/MecAppRegistry.h"
+#include "nodes/mec/MECOrchestrator/services/DecisionLogger/DecisionLogger.h"
 
 // Interfaces
 #include "nodes/mec/MECOrchestrator/interfaces/IOrchestrationApi.h"
@@ -112,7 +113,27 @@ class MecOrchestrator : public cSimpleModule, public IOrchestratorApi {
   std::unique_ptr<MecAppLifecycleManager> mecAppLifecycleManager_;
   std::unique_ptr<MecAppMigrationManager> mecAppMigrationManager_;
 
-  std::map<std::string, std::pair<std::string, std::string>> userMEHMap;
+  // One row per decision, for offline comparison between modes. Null when
+  // decisionLogPath is left empty, which is the only way to run without it.
+  std::unique_ptr<DecisionLogger> decisionLogger_;
+
+  // The user view: where each user is according to confirmed RAVENS events,
+  // enriched by telemetry when telemetry is on. Keyed by the user's bare IP —
+  // the "acr:" prefix is stripped once where a message enters the orchestrator,
+  // never inside the view. One row per user ever observed; an exit clears
+  // currentMEH but keeps the row: "no longer anywhere" is a fact worth keeping.
+  //
+  // The two field pairs have one writer each and never mix: events own
+  // currentMEH / lastEventAt, telemetry owns lastObservedMEH / lastSampleAt.
+  // Where the user's *application* is lives in mecAppRegistry_, deliberately
+  // apart — during a proactive migration the two legitimately disagree.
+  struct UserPresence {
+      std::string currentMEH;               // empty = exited; written by events only
+      omnetpp::simtime_t lastEventAt = -1;  // observedAt of the event that wrote currentMEH
+      std::string lastObservedMEH;          // telemetry enrichment; empty when telemetry is off
+      omnetpp::simtime_t lastSampleAt = -1;
+  };
+  std::map<std::string, UserPresence> userPresence_;
 
   int contextIdCounter;
 
@@ -148,6 +169,7 @@ public:
                                            std::string newMEHId) override;
   MigrationResult completeMigration(UALCMPMessage *ackMsg) override;
   std::string getAppCurrentMEH(std::string ueAddress) override;
+  void recordDecision(const OrchestrationDecision &decision) override;
 
   double getMigrationTime() const { return migrationTime_; }
 

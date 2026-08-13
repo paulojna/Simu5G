@@ -14,11 +14,22 @@ DecisionLogger::DecisionLogger(const std::string& basePath)
     std::string runNumber = std::to_string(getEnvir()->getConfigEx()->getActiveRunNumber());
     std::string dirPath = basePath + "run_" + runNumber + "/";
 
+    // mkdir creates one level only, so every segment is created in turn: a
+    // configured path two levels below the working directory is normal here, and
+    // creating just the last of them fails with ENOENT.
+    //
     // Shared with the Controller's output when both are given the same base path, so
     // an existing directory is the normal case rather than an error.
-    if (mkdir(dirPath.c_str(), 0775) == -1 && errno != EEXIST) {
-        EV_WARN << "DecisionLogger - could not create directory " << dirPath
-                << ": " << strerror(errno) << endl;
+    for (size_t slash = dirPath.find('/'); slash != std::string::npos; slash = dirPath.find('/', slash + 1)) {
+        std::string segment = dirPath.substr(0, slash);
+        if (segment.empty())    // the leading '/' of an absolute path
+            continue;
+
+        if (mkdir(segment.c_str(), 0775) == -1 && errno != EEXIST) {
+            EV_WARN << "DecisionLogger - could not create directory " << segment
+                    << ": " << strerror(errno) << endl;
+            break;
+        }
     }
 
     fileName_ = dirPath + "run_" + runNumber + "_decisions.csv";

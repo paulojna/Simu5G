@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include "nodes/mec/MECOrchestrator/MECOMessages/MECOrchestratorMessages_m.h"
+#include "nodes/mec/MECOrchestrator/services/DecisionLogger/OrchestrationDecision.h"
 
 namespace simu5g {
 
@@ -19,6 +20,13 @@ class IOrchestratorApi {
         virtual MigrationResult completeMigration(UALCMPMessage* ackMsg) = 0;
 
         virtual std::string getAppCurrentMEH(std::string ueAddress) = 0;
+
+        // Writes one row to the decision log. Every strategy records what it
+        // decided through here, including deciding to do nothing: the modes are
+        // compared on their decisions, so the record has to come out the same
+        // shape whichever strategy produced it. A no-op when no log path is
+        // configured.
+        virtual void recordDecision(const OrchestrationDecision& decision) = 0;
 
         virtual ~IOrchestratorApi() = default;
 };

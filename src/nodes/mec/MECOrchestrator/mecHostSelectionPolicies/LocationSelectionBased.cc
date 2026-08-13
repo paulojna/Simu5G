@@ -9,15 +9,17 @@ cModule* LocationSelectionBased::findBestMecHost(const ApplicationDescriptor &ap
     EV << "LocationSelectionBased::findBestMecHost - finding best MecHost..." << endl;
     cModule *bestHost = nullptr;
 
-    std::string ueToFind = "acr:"+ueAddress.str();
-    auto it = mecOrchestrator_->userMEHMap.find(ueToFind);
+    std::string ueToFind = ueAddress.str();
+    auto it = mecOrchestrator_->userPresence_.find(ueToFind);
 
-	// 1 - check if we have location information so we instantiate the app closest to the UE
-    if(it != mecOrchestrator_->userMEHMap.end())
+	// 1 - check if we have location information so we instantiate the app closest to the UE.
+	// An exited user has a row with an empty currentMEH — no location to go by,
+	// so that case falls through to the resource-based choice like an unknown user.
+    if(it != mecOrchestrator_->userPresence_.end() && !it->second.currentMEH.empty())
     {
-        EV << "LocationSelectionBased::findBestMecHost - We don't have information on [" << ueToFind << "]. Searching for the best MEC host on a AvailableResourcesBased strategy"<< endl;
+        EV << "LocationSelectionBased::findBestMecHost - [" << ueToFind << "] is under [" << it->second.currentMEH << "], trying to place the app there" << endl;
 		// find the closest host
-    	const std::string& closestHostName = it->second.second;
+    	const std::string& closestHostName = it->second.currentMEH;
 
     	// now let's check if the host has enough resources
         for(auto mecHost : mecOrchestrator_->mecHosts)

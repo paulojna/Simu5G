@@ -34,6 +34,13 @@ simple MecOrchestrator
         //   MigrateOnChange     - events (reactive)
         //   MigrateOnPrediction - events and predictions (proactive)
         string reactionStrategy = default("MigrateOnPrediction");
+        // Where the decision log is written: one row per orchestration decision,
+        // under <decisionLogPath>run_<N>/. Point it at the same base path as the
+        // RAVENS Controller and both sides land in the same run directory, so the
+        // decisions join against what the Controller recorded. Empty disables the
+        // log — a run then produces no record of what it decided, which is only
+        // ever right for a throwaway run.
+        string decisionLogPath = default("");
         int mecHostIndex = default(10); // to be used with the MecHostBased policybased
         string mecHostList = default("");
         string mecApplicationPackageList = default("");
