@@ -23,10 +23,26 @@ inline std::string ensureRunDirectory(const std::string& path)
     std::string runNumber = std::to_string(omnetpp::getEnvir()->getConfigEx()->getActiveRunNumber());
     std::string dirPath = path + "run_" + runNumber + "/";
 
-    // Read/write/search for owner and group, read/search for everyone else.
-    // Already existing is the normal case on a re-run, not an error.
-    if (mkdir(dirPath.c_str(), 0775) == -1 && errno != EEXIST)
-        EV << "ensureRunDirectory - could not create " << dirPath << ": " << strerror(errno) << endl;
+    // mkdir creates one level only, so every segment is created in turn: a
+    // configured path two levels below the working directory is normal here,
+    // and creating just the last of them fails with ENOENT.
+    //
+    // Mode is read/write/search for owner and group, read/search for everyone
+    // else. Already existing is the ordinary case on a re-run, not an error.
+    //
+    // Any other failure ends the run. The recorders that call this open their
+    // files immediately afterwards, and an ofstream against a directory that is
+    // not there fails silently — the run would go to completion and produce no
+    // CSV files at all, which is worth far more than the run costs to repeat.
+    for (size_t slash = dirPath.find('/'); slash != std::string::npos; slash = dirPath.find('/', slash + 1)) {
+        std::string segment = dirPath.substr(0, slash);
+        if (segment.empty())    // the leading '/' of an absolute path
+            continue;
+
+        if (mkdir(segment.c_str(), 0775) == -1 && errno != EEXIST)
+            throw omnetpp::cRuntimeError("ensureRunDirectory - could not create %s: %s",
+                                         segment.c_str(), strerror(errno));
+    }
 
     return dirPath;
 }
