@@ -56,16 +56,6 @@ T* safe_check_and_cast(U* ptr) {
     return result;
 }
 
-    // RAVENS messages carry user addresses as "acr:<ip>"; the views are keyed
-    // by bare IP. Stripped once, here at the boundary, so the prefix never
-    // appears inside the orchestrator's own state.
-    static std::string stripAcrPrefix(const std::string& ueAddress)
-    {
-        if (ueAddress.rfind("acr:", 0) == 0)
-            return ueAddress.substr(4);
-        return ueAddress;
-    }
-
     Define_Module(MecOrchestrator);
 
     MecOrchestrator::MecOrchestrator()
@@ -238,7 +228,7 @@ T* safe_check_and_cast(U* ptr) {
 
                 // An exit leaves toMEHId empty, which is what should be recorded:
                 // the user is no longer anywhere. The row stays either way.
-                UserPresence& presence = userPresence_[stripAcrPrefix(event.ueAddress)];
+                UserPresence& presence = userPresence_[canonicalUeAddress(event.ueAddress)];
                 presence.currentMEH = event.toMEHId;
                 presence.lastEventAt = event.observedAt;
                 reactionOnUpdate_->reactOnUpdate(event);
@@ -267,7 +257,7 @@ T* safe_check_and_cast(U* ptr) {
                 // user crossing hosts mid-window appears once per observing
                 // host, so the newest sample by its own timestamp wins.
                 for (const auto& sample : report->getUserSamples()) {
-                    UserPresence& presence = userPresence_[stripAcrPrefix(sample.userId)];
+                    UserPresence& presence = userPresence_[canonicalUeAddress(sample.userId)];
                     if (sample.locationTimestamp >= presence.lastSampleAt) {
                         presence.lastObservedMEH = sample.observedMEH;
                         presence.lastSampleAt = sample.locationTimestamp;

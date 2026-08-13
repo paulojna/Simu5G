@@ -237,7 +237,7 @@ void MigrateOnPrediction::handleScheduledEvent(cMessage* msg)
 
     OrchestrationDecision decision;
     decision.decidedAt = simTime();
-    decision.ueAddress = ueAddress;
+    decision.ueAddress = canonicalUeAddress(ueAddress);
     decision.trigger = DecisionTrigger::Prediction;
     decision.observedAt = scheduled.observedAt;
     decision.expectedAt = scheduled.expectedAt;

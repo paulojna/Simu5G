@@ -1,4 +1,5 @@
 #include "RemoveOnExit.h"
+#include "DecisionRecording.h"
 #include "nodes/mec/MECOrchestrator/MECOMessages/MECOrchestratorMessages_m.h"
 #include "nodes/mec/UALCMP/UALCMPMessages/UALCMPMessages_m.h"
 #include "nodes/mec/UALCMP/UALCMPMessages/UALCMPMessages_types.h"
@@ -21,12 +22,7 @@ void RemoveOnExit::reactOnUpdate(const UserEvent &event)
 
     api_->removeAppFromSystem(event.ueAddress, event.fromMEHId);
 
-    OrchestrationDecision decision;
-    decision.decidedAt = omnetpp::simTime();
-    decision.ueAddress = event.ueAddress;
-    decision.trigger = DecisionTrigger::ConfirmedEvent;
-    decision.observedAt = event.observedAt;
-    decision.fromMEHId = event.fromMEHId;
+    OrchestrationDecision decision = decisionFromEvent(event);
     decision.kind = hadApp ? DecisionKind::Remove : DecisionKind::None;
     decision.outcome = hadApp ? DecisionOutcome::Success : DecisionOutcome::NotNeeded;
     if (!hadApp)
