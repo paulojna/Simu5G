@@ -116,19 +116,6 @@ MigrationResult MecAppMigrationManager::checkIfMigrationIsNeeded(std::string ueA
     return migrateApp(ueAddress, newMEHId, currentMEHId);
 }
 
-std::string MecAppMigrationManager::getAppCurrentMEH(std::string ueAddress)
-{
-    std::string ueIp = ueAddress;
-    if (ueAddress.find("acr:") == 0) {
-        ueIp = ueAddress.substr(4);
-    }
-    auto result = mecAppRegistry_->findAppByUeAddress(ueIp);
-    if (!result.found) {
-        return "";
-    }
-    return result.appEntry->mecHost->getName();
-}
-
 MigrationResult MecAppMigrationManager::migrateApp(std::string ueAddress, std::string newMEHId, std::string oldMEHId)
 {
     EV << "MecAppMigrationManager::migrateApplication - Starting migration" << endl;

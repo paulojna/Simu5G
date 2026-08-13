@@ -100,7 +100,6 @@ public:
     MigrationResult checkIfMigrationIsNeeded(std::string ueAddress, std::string newMEHId, std::string oldMEHId);
     MigrationResult migrateApp(std::string ueAddress, std::string newMEHId, std::string oldMEHId);
     MigrationResult completeMigration(UALCMPMessage* ackMsg);
-    std::string getAppCurrentMEH(std::string ueAddress);
 
    // Timeout handling
     void handleMigrationTimeout(unsigned int requestNumber);

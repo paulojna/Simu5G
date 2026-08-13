@@ -173,6 +173,16 @@ public:
 
   double getMigrationTime() const { return migrationTime_; }
 
+  // What the configured strategy consumes from RAVENS. The Controller asks
+  // these at startup and derives from the answers what it must collect and
+  // what the Agents must send — configuration flows downward from the
+  // orchestrator, so a run whose strategy needs predictions but whose Agents
+  // send no telemetry cannot be expressed at all. Answered from the
+  // reactionStrategy parameter rather than a member, so they are valid even
+  // before this module's own initialize() has run.
+  bool consumesPredictions();
+  bool consumesTelemetry();
+
 protected:
   virtual int numInitStages() const { return inet::NUM_INIT_STAGES; }
   void initialize(int stage);

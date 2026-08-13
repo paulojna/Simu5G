@@ -168,6 +168,19 @@ T* safe_check_and_cast(U* ptr) {
 
     }
 
+    bool MecOrchestrator::consumesPredictions()
+    {
+        return strcmp(par("reactionStrategy"), "MigrateOnPrediction") == 0;
+    }
+
+    bool MecOrchestrator::consumesTelemetry()
+    {
+        // No strategy consumes telemetry yet. The learning strategy (item 4 of
+        // meo-plan.md) will be the first; adding it here is what turns the
+        // Agents' telemetry on for its runs.
+        return false;
+    }
+
     void MecOrchestrator::handleMessage(cMessage *msg)
     {
         if (msg->isSelfMessage())
@@ -549,16 +562,34 @@ T* safe_check_and_cast(U* ptr) {
             decisionLogger_->record(decision);
     }
 
+    // The migration manager only exists under strategies that migrate; a
+    // strategy reaching these without having built one is a wiring mistake,
+    // and the guards turn it into an error naming the strategy instead of a
+    // segfault.
     MigrationResult MecOrchestrator::checkIfMigrationIsNeeded(std::string ueAddress, std::string newMEHId, std::string oldMEHId) {
+        if (!mecAppMigrationManager_)
+            throw cRuntimeError("MecOrchestrator::checkIfMigrationIsNeeded - strategy %s builds no migration manager",
+                                par("reactionStrategy").stringValue());
         return mecAppMigrationManager_->checkIfMigrationIsNeeded(ueAddress, newMEHId, oldMEHId);
     }
 
     MigrationResult MecOrchestrator::completeMigration(UALCMPMessage* ackMsg) {
+        if (!mecAppMigrationManager_)
+            throw cRuntimeError("MecOrchestrator::completeMigration - strategy %s builds no migration manager",
+                                par("reactionStrategy").stringValue());
         return mecAppMigrationManager_->completeMigration(ackMsg);
     }
 
     std::string MecOrchestrator::getAppCurrentMEH(std::string ueAddress) {
-        return mecAppMigrationManager_->getAppCurrentMEH(ueAddress);
+        // An application-view read, answered by the registry, which exists
+        // under every strategy — the migration manager does not (RemoveOnExit
+        // builds none), so routing this read through it crashed collection
+        // runs.
+        std::string ueIp = ueAddress;
+        if (ueAddress.find("acr:") == 0)
+            ueIp = ueAddress.substr(4);
+        auto result = mecAppRegistry_->findAppByUeAddress(ueIp);
+        return result.found ? result.appEntry->mecHost->getName() : "";
     }
 
     const ApplicationDescriptor* MecOrchestrator::getApplicationDescriptorByAppName(std::string& appName) const
