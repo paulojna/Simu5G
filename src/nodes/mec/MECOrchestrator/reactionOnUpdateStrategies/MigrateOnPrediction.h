@@ -40,12 +40,24 @@ namespace simu5g {
  * run is what makes the reactive fallback measurable against the proactive path
  * instead of quietly substituting for it; checkIfMigrationIsNeeded is idempotent,
  * so the loser of the race finds the app already where it wanted it.
+ *
+ * Whether the handover acts at all is the reactiveFallback parameter, which is
+ * what makes this class two comparable sub-profiles rather than one: with it the
+ * run measures predictions backed by a safety net, without it the predictions
+ * alone. Everything else is identical, including what RAVENS sends and what the
+ * decision log records, so the difference between two such runs is the net.
  */
 class MigrateOnPrediction : public ReactionOnUpdate
 {
   private:
     omnetpp::cSimpleModule* owner_;   // MecOrchestrator, needed for scheduleAt/cancelAndDelete
     double migrationTime_;            // time it takes to complete a migration (to offset scheduling)
+
+    // Whether a confirmed handover still moves the application when the model
+    // missed it. See the parameter's own documentation in MecOrchestrator.ned;
+    // in short, on measures predictions with a safety net under them and off
+    // measures the predictions.
+    bool reactiveFallback_;
 
     // A prediction waiting for its moment, and the facts about it that the
     // decision log needs when that moment comes. The self-message carries only
@@ -76,7 +88,8 @@ class MigrateOnPrediction : public ReactionOnUpdate
     long latePredictions_ = 0;
 
   public:
-    MigrateOnPrediction(IOrchestratorApi* api, omnetpp::cSimpleModule* owner, double migrationTime);
+    MigrateOnPrediction(IOrchestratorApi* api, omnetpp::cSimpleModule* owner, double migrationTime,
+                        bool reactiveFallback);
     virtual ~MigrateOnPrediction();
 
     virtual void reactOnUpdate(const simu5g::UserEvent&) override;

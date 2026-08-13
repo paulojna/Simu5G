@@ -155,7 +155,8 @@ T* safe_check_and_cast(U* ptr) {
             mecAppMigrationManager_->initialize(migrationTime_, migrationTimeout_);
 
             reactionOnUpdate_ = new MigrateOnPrediction(
-                static_cast<IOrchestratorApi *>(this), this, migrationTime_);
+                static_cast<IOrchestratorApi *>(this), this, migrationTime_,
+                par("reactiveFallback").boolValue());
         }
         else
             throw cRuntimeError("MecOrchestrator::initialize - Reaction strategy %s not present!", par("reactionStrategy").stringValue());

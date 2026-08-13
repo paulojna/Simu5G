@@ -20,13 +20,23 @@ namespace simu5g {
 
 using namespace omnetpp;
 
-MigrateOnPrediction::MigrateOnPrediction(IOrchestratorApi* api, cSimpleModule* owner, double migrationTime)
-    : ReactionOnUpdate(api), owner_(owner), migrationTime_(migrationTime)
+MigrateOnPrediction::MigrateOnPrediction(IOrchestratorApi* api, cSimpleModule* owner, double migrationTime,
+                                         bool reactiveFallback)
+    : ReactionOnUpdate(api), owner_(owner), migrationTime_(migrationTime),
+      reactiveFallback_(reactiveFallback)
 {
     // Decisions go to the orchestrator's decision log, which every strategy
     // shares. This used to keep a private CSV of its own in the working
     // directory, which put the proactive run's record in a different place and
     // a different shape from every other run's.
+
+    // Which sub-profile this run actually is, from the run's own output: the
+    // two differ in one branch and produce the same rows otherwise, so the
+    // directory name is the only other thing distinguishing them.
+    EV << "MigrateOnPrediction - reactive fallback "
+       << (reactiveFallback_ ? "on: a confirmed handover corrects the model"
+                             : "off: the prediction stream acts alone")
+       << endl;
 }
 
 MigrateOnPrediction::~MigrateOnPrediction()
@@ -105,6 +115,22 @@ void MigrateOnPrediction::reactOnUpdate(const UserEvent& event)
         EV << "MigrateOnPrediction::reactOnUpdate - Reactive fallback: handover detected" << endl;
         EV << "  UE: " << event.ueAddress << endl;
         EV << "  From: " << event.fromMEHId << " To: " << event.toMEHId << endl;
+
+        // With the safety net off, the handover is still recorded — every one of
+        // them, in both sub-profiles — so the two runs are compared on the same
+        // rows and the ones the model missed can be counted here rather than
+        // inferred from what did not happen.
+        if (!reactiveFallback_) {
+            EV << "MigrateOnPrediction::reactOnUpdate - Reactive fallback disabled, "
+               << "handover recorded and not acted on" << endl;
+
+            OrchestrationDecision declined = decisionFromEvent(event);
+            declined.kind = DecisionKind::None;
+            declined.outcome = DecisionOutcome::NotNeeded;
+            declined.reason = "reactive fallback disabled; the prediction stream acts alone";
+            api_->recordDecision(declined);
+            break;
+        }
 
         MigrationResult result = api_->checkIfMigrationIsNeeded(
             event.ueAddress, event.toMEHId, event.fromMEHId);

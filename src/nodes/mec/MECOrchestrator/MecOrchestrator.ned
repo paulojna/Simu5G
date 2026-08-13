@@ -34,6 +34,16 @@ simple MecOrchestrator
         //   MigrateOnChange     - events (reactive)
         //   MigrateOnPrediction - events and predictions (proactive)
         string reactionStrategy = default("MigrateOnPrediction");
+        // MigrateOnPrediction only. Whether a confirmed handover still moves the
+        // application when the model did not predict it, or predicted it too late.
+        //
+        // On, a proactive run is really predictions plus a reactive safety net,
+        // and a result cannot be attributed to either — a useless model still
+        // looks passable because handovers quietly do the work. Off, the model
+        // runs alone and the run measures what it is worth. Handovers are
+        // recorded as decisions in both, so the two are compared on the same
+        // rows, and RAVENS sends exactly the same thing either way.
+        bool reactiveFallback = default(true);
         // Where the decision log is written: one row per orchestration decision,
         // under <decisionLogPath>run_<N>/. Point it at the same base path as the
         // RAVENS Controller and both sides land in the same run directory, so the
