@@ -14,7 +14,24 @@ void RemoveOnExit::reactOnUpdate(const UserEvent &event)
 
     EV << "RemoveOnExit::reactOnUpdate - " << event.ueAddress << " left " << event.fromMEHId
        << ", removing its app" << endl;
+
+    // Asked before the removal, because afterwards there is no way to tell a
+    // user whose application was deleted from one that never had one.
+    bool hadApp = !api_->getAppCurrentMEH(event.ueAddress).empty();
+
     api_->removeAppFromSystem(event.ueAddress, event.fromMEHId);
+
+    OrchestrationDecision decision;
+    decision.decidedAt = omnetpp::simTime();
+    decision.ueAddress = event.ueAddress;
+    decision.trigger = DecisionTrigger::ConfirmedEvent;
+    decision.observedAt = event.observedAt;
+    decision.fromMEHId = event.fromMEHId;
+    decision.kind = hadApp ? DecisionKind::Remove : DecisionKind::None;
+    decision.outcome = hadApp ? DecisionOutcome::Success : DecisionOutcome::NotNeeded;
+    if (!hadApp)
+        decision.reason = "no application to remove";
+    api_->recordDecision(decision);
 }
 
 }

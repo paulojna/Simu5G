@@ -1,4 +1,5 @@
 #include "MigrateOnChange.h"
+#include "DecisionRecording.h"
 #include "nodes/mec/MECOrchestrator/services/MecAppMigrationManager/MecAppMigrationManager.h"
 #include "nodes/mec/MECOrchestrator/MECOMessages/MECOrchestratorMessages_m.h"
 #include "nodes/mec/UALCMP/UALCMPMessages/UALCMPMessages_m.h"
@@ -29,13 +30,25 @@ void MigrateOnChange::reactOnUpdate(const UserEvent &event)
 {
     switch (event.eventType) {
 
-    case USER_EXIT:
+    case USER_EXIT: {
         EV << "MigrateOnChange::reactOnUpdate - UE left system!" << endl;
         EV << "  UE: " << event.ueAddress << endl;
         EV << "  Last MEH: " << event.fromMEHId << endl;
 
+        // Asked before the removal: afterwards there is no telling a user whose
+        // application was deleted from one that never had one.
+        bool hadApp = !api_->getAppCurrentMEH(event.ueAddress).empty();
+
         api_->removeAppFromSystem(event.ueAddress, event.fromMEHId);
+
+        OrchestrationDecision decision = decisionFromEvent(event);
+        decision.kind = hadApp ? DecisionKind::Remove : DecisionKind::None;
+        decision.outcome = hadApp ? DecisionOutcome::Success : DecisionOutcome::NotNeeded;
+        if (!hadApp)
+            decision.reason = "no application to remove";
+        api_->recordDecision(decision);
         break;
+    }
 
     case USER_HANDOVER: {
         EV << "MigrateOnChange::reactOnUpdate - Migration between MEHs detected" << endl;
@@ -47,15 +60,20 @@ void MigrateOnChange::reactOnUpdate(const UserEvent &event)
         if (!result.success)
         {
             EV << "MigrateOnChange::reactOnUpdate - Migration failed: " << result.errorMessage << endl;
-            // Migration failed - UE continues using old MEH endpoint
-            // Fallback strategy here?
+            // Migration failed - UE continues using old MEH endpoint.
+            // Deliberately nothing else: the old instance never stopped serving,
+            // and the failure is now in the decision log. See item 3 of meo-plan.md.
         }
         else
         {
             EV << "MigrateOnChange::reactOnUpdate - Migration initiated successfully" << endl;
             EV << "  Request Number: " << result.requestNumber << endl;
-            EV << "  New Context ID: " << result.contextId << endl;
+            EV << "  Context ID: " << result.contextId << endl;
         }
+
+        OrchestrationDecision decision = decisionFromEvent(event);
+        fillFromMigrationResult(decision, result);
+        api_->recordDecision(decision);
         break;
     }
 
@@ -74,10 +92,13 @@ void MigrateOnChange::reactOnUpdate(const UserEvent &event)
             EV << "MigrateOnChange::reactOnUpdate - Migration was needed and initiated" << endl;
             EV << "  Request Number: " << result.requestNumber << endl;
         } else {
-            // Normal cases: "No migration needed"
-            // Could be: no app instantiated yet, or already on correct MEH
+            // Normal cases: no app instantiated yet, or already on correct MEH
             EV << "MigrateOnChange::reactOnUpdate - " << result.errorMessage << endl;
         }
+
+        OrchestrationDecision decision = decisionFromEvent(event);
+        fillFromMigrationResult(decision, result);
+        api_->recordDecision(decision);
         break;
     }
 
