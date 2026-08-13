@@ -3,7 +3,7 @@
 
 #include "ReactionOnUpdate.h"
 #include <unordered_map>
-#include <fstream>
+#include <string>
 
 namespace simu5g {
 
@@ -20,6 +20,13 @@ namespace simu5g {
  * than starting then. A newer prediction for the same user replaces the older
  * one only if it names a different destination; agreeing predictions leave the
  * earlier one in place, since it has the better lead time.
+ *
+ * A predicted *departure* is recorded and not acted on. Being early buys nothing
+ * there — the confirmed exit frees the same resources a few seconds later — while
+ * being wrong is unrecoverable, since nothing recreates a deleted application and
+ * the user would spend the rest of the run with nowhere to send its requests.
+ * Predicted *moves* are the opposite case, and acting early on them is the whole
+ * point of the strategy.
  *
  * Events are the correction path, and stay on for that reason:
  *   EXIT     -> remove the app, and cancel any prediction still pending for it
@@ -40,8 +47,21 @@ class MigrateOnPrediction : public ReactionOnUpdate
     omnetpp::cSimpleModule* owner_;   // MecOrchestrator, needed for scheduleAt/cancelAndDelete
     double migrationTime_;            // time it takes to complete a migration (to offset scheduling)
 
-    // Map from UE address → scheduled self-message pointer
-    std::unordered_map<std::string, omnetpp::cMessage*> scheduledPredictions_;
+    // A prediction waiting for its moment, and the facts about it that the
+    // decision log needs when that moment comes. The self-message carries only
+    // where to migrate; when it fires, the record still has to say which model
+    // spoke, when the move was expected, and whether the prediction arrived in
+    // time to act on — none of which survive in the message.
+    struct ScheduledPrediction {
+        omnetpp::cMessage* msg = nullptr;
+        omnetpp::simtime_t observedAt = -1;
+        omnetpp::simtime_t expectedAt = -1;
+        std::string modelId;
+        bool late = false;
+    };
+
+    // Map from UE address → the prediction scheduled for it
+    std::unordered_map<std::string, ScheduledPrediction> scheduledPredictions_;
 
     // Predictions that arrived with less lead time than a migration takes, and
     // so had to start immediately instead of at the right moment.
@@ -54,9 +74,6 @@ class MigrateOnPrediction : public ReactionOnUpdate
     // did not, and a run where this equals the number of predictions is a run
     // that was proactive in name only.
     long latePredictions_ = 0;
-
-    // CSV log file for post-simulation analysis of migration types
-    std::ofstream logFile_;
 
   public:
     MigrateOnPrediction(IOrchestratorApi* api, omnetpp::cSimpleModule* owner, double migrationTime);
