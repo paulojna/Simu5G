@@ -2,6 +2,10 @@
 
 #include "apps/mec/RavensApps/RavensLinkSizes.h"
 
+// The Controller derives its duties from what the orchestrator consumes; see
+// the derivation block in initialize().
+#include "nodes/mec/MECOrchestrator/MecOrchestrator.h"
+
 #include "inet/networklayer/common/L3AddressTag_m.h"
 #include "inet/transportlayer/common/L4PortTag_m.h"
 #include "inet/transportlayer/contract/udp/UdpControlInfo_m.h"
@@ -42,6 +46,13 @@ void RavensControllerApp::finish(){
     // reportSilentUsers().
     recordScalar("silentUsersReported", silentUsersReported_);
 
+    // What this run's duties were derived to be. A results directory is named
+    // for what the run was *meant* to be; these scalars are the run's own
+    // record of what it actually did, so a derivation gone wrong is caught
+    // from the output instead of trusted from the directory name.
+    recordScalar("derivedCollectTelemetry", collectTelemetry_ ? 1 : 0);
+    recordScalar("derivedCallModelServer", callModelServer_ ? 1 : 0);
+
     if (udpSocket.isOpen())
         udpSocket.close();
     socketMap.deleteSockets();
@@ -54,7 +65,6 @@ void RavensControllerApp::initialize(int stage){
     silenceWarningThreshold_ = par("silenceWarningThreshold");
     telemetryInterval_ = par("telemetryInterval");
     exitConfirmationWindow_ = par("exitConfirmationWindow");
-    collectTelemetry_ = par("telemetry");
     telemetryWindow_ = par("telemetryWindow");
 
     // start mehStateMap with a maximum size
@@ -64,33 +74,47 @@ void RavensControllerApp::initialize(int stage){
         EV << "RavensControllerApp::initialize - stage " << stage << endl;
     }
 
-    // What the Agents are told to send. Follows from whether this run collects
-    // telemetry at all, and from nothing else — a single mode string used to
-    // decide this together with what happened to the telemetry afterwards and
-    // what the orchestrator heard, which made perfectly reasonable combinations
-    // inexpressible.
-    //
-    // This is the expensive switch, and the only one that changes the simulated
-    // network: telemetry frames cross the modelled link, so a run with them off
-    // has genuinely less signaling traffic, not merely less bookkeeping.
-    agentMode_ = collectTelemetry_ ? FULL_MODE : EVENT_ONLY_MODE;
-
     std::string predictionServerUrl = par("predictionServerUrl").stdstringValue();
     bool recordTelemetry = par("recordTelemetry");
 
-    // Anything that consumes telemetry, in a run that collects none, would simply
-    // never be called — leaving a dead setting and an empty output file with
-    // nothing to explain either. Refusing to start is the only outcome that says
-    // so at the time it can still be fixed.
-    if (!collectTelemetry_) {
-        if (!predictionServerUrl.empty())
-            throw cRuntimeError("RavensControllerApp::initialize - predictionServerUrl is set but "
-                                "telemetry is false: the server would never be called");
-        if (recordTelemetry)
-            throw cRuntimeError("RavensControllerApp::initialize - recordTelemetry is true but "
-                                "telemetry is false: there would be nothing to record. Events are "
-                                "recorded by recordEvents, which is independent of this");
+    // Whether the Agents send telemetry is derived, not configured: they send
+    // exactly when something downstream consumes it. Every possible consumer
+    // is known right here — the telemetry recorder, the model server (called
+    // exactly when the orchestrator's strategy consumes predictions), or the
+    // orchestrator itself. The orchestrator is the authority: it is asked what
+    // it consumes, and the Controller's duties and the Agents' mode follow. A
+    // run whose strategy needs predictions while its Agents send nothing to
+    // predict from can no longer be written, so the startup check that used to
+    // catch that combination is gone along with the switch that allowed it.
+    //
+    // This stays the expensive switch, and the only one that changes the
+    // simulated network: telemetry frames cross the modelled link, so a run
+    // with them off has genuinely less signaling traffic, not merely less
+    // bookkeeping.
+    bool orchestratorWantsTelemetry = false;
+    if (gate("outGate")->isConnected()) {
+        auto *orchestrator = check_and_cast<MecOrchestrator *>(
+            gate("outGate")->getPathEndGate()->getOwnerModule());
+        callModelServer_ = orchestrator->consumesPredictions();
+        orchestratorWantsTelemetry = orchestrator->consumesTelemetry();
     }
+    else {
+        EV_WARN << "RavensControllerApp::initialize - outGate is not connected: no "
+                << "orchestrator downstream, deriving from the recording duties alone" << endl;
+    }
+    collectTelemetry_ = recordTelemetry || callModelServer_ || orchestratorWantsTelemetry;
+    agentMode_ = collectTelemetry_ ? FULL_MODE : EVENT_ONLY_MODE;
+
+    EV << "RavensControllerApp::initialize - derived duties: collectTelemetry=" << collectTelemetry_
+       << " (recordTelemetry=" << recordTelemetry << ", callModelServer=" << callModelServer_
+       << ", orchestratorConsumesTelemetry=" << orchestratorWantsTelemetry << "); Agents in "
+       << (collectTelemetry_ ? "full" : "event-only") << " mode" << endl;
+
+    // The one input the derivation cannot supply: a strategy that consumes
+    // predictions needs a server address to get them from.
+    if (callModelServer_ && predictionServerUrl.empty())
+        throw cRuntimeError("RavensControllerApp::initialize - the orchestrator's strategy "
+                            "consumes predictions but predictionServerUrl is empty");
 
     // Events are cheap to record and are what a run is judged by, so this stays
     // on in configurations that record no telemetry at all.
@@ -102,15 +126,9 @@ void RavensControllerApp::initialize(int stage){
         EV << "RavensControllerApp::initialize - recording telemetry to " << par("path").stringValue() << endl;
         telemetrySinks_.push_back(std::make_unique<CsvTelemetryRecorder>(this, par("path")));
     }
-    if (!predictionServerUrl.empty()) {
+    if (callModelServer_) {
         EV << "RavensControllerApp::initialize - prediction server at " << predictionServerUrl << endl;
         telemetrySinks_.push_back(std::make_unique<PredictionServerClient>(this, predictionServerUrl));
-    }
-
-    if(gate("outGate")->isConnected()){
-        EV << "RavensControllerApp::initialize - outGate is connected" << endl;
-    }else{
-        EV << "RavensControllerApp::initialize - outGate is not connected" << endl;
     }
 
     ravensLinkPacketFilter.setPattern("RavensLink*");

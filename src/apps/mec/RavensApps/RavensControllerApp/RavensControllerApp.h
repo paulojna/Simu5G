@@ -77,7 +77,11 @@ class RavensControllerApp: public inet::ApplicationBase,
         double exitConfirmationWindow_;   // Controller-private; how long to wait before
                                           // treating a reported EXIT as leaving the system
 
-        bool collectTelemetry_;           // whether Agents are asked for telemetry at all
+        bool collectTelemetry_;           // whether Agents are asked for telemetry at all;
+                                          // derived in initialize() from who consumes it,
+                                          // never set directly by configuration
+        bool callModelServer_ = false;    // derived alongside it: true exactly when the
+                                          // orchestrator's strategy consumes predictions
         double telemetryWindow_;          // how much telemetry goes into one report (s)
 
         // The window currently being filled, drained whole when it closes. This

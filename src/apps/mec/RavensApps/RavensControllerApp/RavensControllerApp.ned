@@ -11,16 +11,17 @@ simple RavensControllerApp like IApp
 
         // --- What the Agents are asked for -----------------------------------
         //
-        // The expensive switch, and the only one that changes the simulated
-        // network rather than just what the Controller does afterwards: with
-        // this off the Agents send no telemetry frames at all, so the run
-        // genuinely carries less signaling traffic. Events are always sent.
+        // Not configured here. Whether Agents send telemetry frames is derived
+        // at startup: they send exactly when something downstream consumes
+        // telemetry — recordTelemetry is on, or the orchestrator's strategy
+        // consumes predictions (the model server predicts from telemetry) or
+        // consumes telemetry itself. Otherwise Agents run in event-only mode.
+        // Events are always sent.
         //
-        // These three settings replace a single `mode` string that decided all
-        // of them at once, and so could not express combinations that are
-        // perfectly reasonable — recording a run *and* letting a model drive
-        // migrations being the obvious one.
-        bool telemetry = default(true);
+        // Derived so that a nonsensical run — a proactive strategy whose Agents
+        // send nothing for the model to predict from — cannot be written at
+        // all. The `telemetry` switch that used to live here allowed exactly
+        // that, and a startup check had to catch it; both are gone together.
 
         // --- What is recorded ------------------------------------------------
         //
@@ -40,13 +41,12 @@ simple RavensControllerApp like IApp
         bool recordTelemetry = default(true);
         string path = default("../tust_1to1/results/");
 
-        // Empty means no model server.
+        // Where the model server lives. Only read when the orchestrator's
+        // strategy consumes predictions — that is the one case with a server
+        // to call, and being empty then refuses to start, since no derivation
+        // can invent an address. Set with any other strategy it is ignored:
+        // nothing would consume the predictions.
         string predictionServerUrl = default("");
-
-        // Note: recordTelemetry or predictionServerUrl with telemetry = false
-        // refuses to start. Both consume telemetry, so in a run that collects
-        // none they would never be called, leaving a dead setting and an empty
-        // file with nothing to explain either.
 
         // --- Timing ----------------------------------------------------------
         //
