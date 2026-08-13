@@ -22,7 +22,12 @@ namespace simu5g {
 enum class DecisionTrigger {
     ConfirmedEvent,
     Prediction,
-    AppRequest
+    AppRequest,
+    // A move asked for while another was already in flight for the same user,
+    // held until that one finished and started then. Not ConfirmedEvent: the
+    // move it carries out was asked for earlier and counting it as a fresh
+    // observation would overstate what the event stream asked for.
+    PendingRequest
 };
 
 // What was chosen. None is a decision in its own right and the most important one to
@@ -93,6 +98,7 @@ inline const char *decisionTriggerName(DecisionTrigger trigger)
         case DecisionTrigger::ConfirmedEvent: return "ConfirmedEvent";
         case DecisionTrigger::Prediction:     return "Prediction";
         case DecisionTrigger::AppRequest:     return "AppRequest";
+        case DecisionTrigger::PendingRequest: return "PendingRequest";
     }
     return "Unknown";
 }

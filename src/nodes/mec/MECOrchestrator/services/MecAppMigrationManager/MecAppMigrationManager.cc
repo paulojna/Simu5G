@@ -175,20 +175,39 @@ MigrationResult MecAppMigrationManager::migrateApp(std::string ueAddress, std::s
         unsigned int existingRequest = indexIt->second;
         EV << "MecAppMigrationManager::migrateApp - Migration already in progress for UE: " << ueAddress << endl;
         EV << "  Current migration request: " << existingRequest << endl;
-        EV << "  Queueing new migration: " << oldMEHId << " → " << newMEHId << endl;
+        EV << "  Holding new destination: " << oldMEHId << " → " << newMEHId << endl;
 
-        // Add to pending queue
+        // One slot per user, newest destination wins. A destination this
+        // replaces was already known to be out of date — the user has moved on
+        // from it — so it is dropped rather than kept for later.
+        auto held = pendingMigrations_.find(ueIp);
+        if (held != pendingMigrations_.end() && held->second.newMEHId != newMEHId) {
+            EV << "MecAppMigrationManager::migrateApp - Dropping held destination "
+               << held->second.newMEHId << ", superseded by " << newMEHId << endl;
+
+            if (decisionLogger_) {
+                OrchestrationDecision superseded;
+                superseded.decidedAt = simTime();
+                superseded.ueAddress = held->second.ueAddress;
+                superseded.trigger = DecisionTrigger::PendingRequest;
+                superseded.kind = DecisionKind::None;
+                superseded.outcome = DecisionOutcome::NotNeeded;
+                superseded.fromMEHId = held->second.oldMEHId;
+                superseded.toMEHId = held->second.newMEHId;
+                superseded.reason = "superseded by a newer destination: " + newMEHId;
+                decisionLogger_->record(superseded);
+            }
+        }
+
         PendingMigration pending;
-        pending.ueAddress = ueAddress;
+        pending.ueAddress = ueIp;   // bare IP, the form the decision log uses
         pending.newMEHId = newMEHId;
         pending.oldMEHId = oldMEHId;
         pending.requestTime = simTime();
 
-        pendingMigrations_[ueIp].push(pending);
+        pendingMigrations_[ueIp] = pending;
 
-        EV << "MecAppMigrationManager::migrateApp - Migration queued. Queue size: " << pendingMigrations_[ueIp].size() << endl;
-
-        return MigrationResult(false, "Migration queued - another migration in progress", contextId, 0, newMEHId, oldMEHId);
+        return MigrationResult(false, "Migration held until the one in flight finishes", contextId, 0, newMEHId, oldMEHId);
     }
 
     // Step 2: Find target MEH
@@ -264,28 +283,8 @@ MigrationResult MecAppMigrationManager::completeMigration(UALCMPMessage* ackMsg)
 
     EV << "MecAppMigrationManager::completeMigration - Migration completed successfully" << endl;
 
-    // PENDING MIGRATION - CHECK IF THERE ARE PENDING MIGRATIONS FOR THIS UE
-    auto pendingIt = pendingMigrations_.find(standBy.ueAddress);
-    if (pendingIt != pendingMigrations_.end() && !pendingIt->second.empty()) {
-        PendingMigration nextMigration = pendingIt->second.front();
-        pendingIt->second.pop();
-
-        EV << "MecAppMigrationManager::completeMigration - Processing queued migration" << endl;
-        EV << "  UE: " << nextMigration.ueAddress << endl;
-        EV << "  From: " << nextMigration.oldMEHId << " To: " << nextMigration.newMEHId << endl;
-        EV << "  Queued at: " << nextMigration.requestTime << endl;
-        EV << "  Remaining in queue: " << pendingIt->second.size() << endl;
-
-        // Clean up queue if empty
-        if (pendingIt->second.empty()) {
-            pendingMigrations_.erase(pendingIt);
-        }
-
-        // Start the next migration (recursive call!!)
-        // Note: We call migrateApp which will return a new MigrationResult
-        // but we ignore it here since we're already returning success for the completed migration
-        migrateApp(nextMigration.ueAddress, nextMigration.newMEHId, nextMigration.oldMEHId);
-    }
+    // The flight is over, so a destination held during it can go now.
+    startPendingMigration(standBy.ueAddress);
 
     return MigrationResult(true, "Migration completed", standBy.contextId, requestNumber, "", "");
 }
@@ -611,28 +610,48 @@ void MecAppMigrationManager::forceCompleteMigration(unsigned int requestNumber, 
     standByUeIndex_.erase(standBy.ueAddress);  // PERFORMANCE IMPROVEMENT: Maintain index
     standByList_.erase(it);
 
-    // PENDING MIGRATION - CHECK IF THERE ARE PENDING MIGRATIONS FOR THIS UE
-    auto pendingIt = pendingMigrations_.find(standBy.ueAddress);
-    if (pendingIt != pendingMigrations_.end() && !pendingIt->second.empty()) {
-        PendingMigration nextMigration = pendingIt->second.front();
-        pendingIt->second.pop();
-
-        EV << "MecAppMigrationManager::forceCompleteMigration - Processing queued migration" << endl;
-        EV << "  UE: " << nextMigration.ueAddress << endl;
-        EV << "  From: " << nextMigration.oldMEHId << " To: " << nextMigration.newMEHId << endl;
-        EV << "  Queued at: " << nextMigration.requestTime << endl;
-        EV << "  Remaining in queue: " << pendingIt->second.size() << endl;
-
-        // Clean up queue if empty
-        if (pendingIt->second.empty()) {
-            pendingMigrations_.erase(pendingIt);
-        }
-
-        // Start the next migration
-        migrateApp(nextMigration.ueAddress, nextMigration.newMEHId, nextMigration.oldMEHId);
-    }
+    // The flight is over either way, so a destination held during it can go now.
+    startPendingMigration(standBy.ueAddress);
 
     EV << "MecAppMigrationManager::forceCompleteMigration - Migration force-completed" << endl;
+}
+
+void MecAppMigrationManager::startPendingMigration(const std::string& ueAddress)
+{
+    auto pendingIt = pendingMigrations_.find(ueAddress);
+    if (pendingIt == pendingMigrations_.end())
+        return;
+
+    PendingMigration pending = pendingIt->second;
+    pendingMigrations_.erase(pendingIt);
+
+    EV << "MecAppMigrationManager::startPendingMigration - Held destination for UE "
+       << pending.ueAddress << ": " << pending.newMEHId
+       << " (held since " << pending.requestTime << ")" << endl;
+
+    // Asked again rather than replayed. The application moved while this was
+    // held, so the destination may be where it already sits — which is exactly
+    // the case for a user that went A -> B -> A.
+    MigrationResult result = checkIfMigrationIsNeeded(pending.ueAddress, pending.newMEHId, pending.oldMEHId);
+
+    if (!decisionLogger_)
+        return;
+
+    OrchestrationDecision decision;
+    decision.decidedAt = simTime();
+    decision.ueAddress = pending.ueAddress;
+    decision.trigger = DecisionTrigger::PendingRequest;
+    decision.fromMEHId = pending.oldMEHId;
+    decision.toMEHId = pending.newMEHId;
+    fillFromMigrationResult(decision, result);
+
+    // How long the application spent going somewhere the user had already left.
+    // Without it the log shows the move but not the cost of having waited.
+    std::ostringstream held;
+    held << "held for " << (simTime() - pending.requestTime) << "s behind a migration in flight";
+    decision.reason += decision.reason.empty() ? held.str() : "; " + held.str();
+
+    decisionLogger_->record(decision);
 }
 
 } // namespace simu5g

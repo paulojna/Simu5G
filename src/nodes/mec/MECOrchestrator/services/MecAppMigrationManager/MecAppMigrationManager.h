@@ -7,7 +7,6 @@
 #include "nodes/mec/UALCMP/UALCMPMessages/UALCMPMessages_m.h"
 #include <map>
 #include <string>
-#include <queue>
 #include <vector>
 
 namespace simu5g {
@@ -34,9 +33,36 @@ struct MigrationResult {
     MigrationResult()
     : success(false), contextId(-1), requestNumber(0) {}
 
-    MigrationResult(bool success, const std::string& errorMessage, int contextId, unsigned int requestNumber, const std::string& newMEHId, const std::string& oldMEHId) 
+    MigrationResult(bool success, const std::string& errorMessage, int contextId, unsigned int requestNumber, const std::string& newMEHId, const std::string& oldMEHId)
     : success(success), errorMessage(errorMessage), contextId(contextId), requestNumber(requestNumber), newMEHId(newMEHId), oldMEHId(oldMEHId) {}
 };
+
+// The three answers a migration request can give, in the decision log's
+// vocabulary: started, nothing was called for, or it was called for and failed.
+// Lives here rather than with the strategies because it is a statement about
+// MigrationResult, and the migration manager records outcomes of its own.
+//
+// A request held behind one already in flight lands in Failed, carrying a reason
+// that says so: this request did not start. The move itself is not lost — it is
+// recorded again, as PendingRequest, when the flight ends and it goes.
+inline void fillFromMigrationResult(OrchestrationDecision& decision, const MigrationResult& result)
+{
+    if (result.success) {
+        decision.kind = DecisionKind::Migrate;
+        decision.outcome = DecisionOutcome::Initiated;
+        decision.requestNumber = result.requestNumber;
+    }
+    else if (result.nothingToDo) {
+        decision.kind = DecisionKind::None;
+        decision.outcome = DecisionOutcome::NotNeeded;
+        decision.reason = result.errorMessage;
+    }
+    else {
+        decision.kind = DecisionKind::Migrate;
+        decision.outcome = DecisionOutcome::Failed;
+        decision.reason = result.errorMessage;
+    }
+}
 
 /*
     StandByElement represents a pending migration request for a MEC application. 
@@ -83,6 +109,8 @@ public:
     double getMigrationTimeout() const { return migrationTimeout_; }
 
 private:
+    // A move asked for while one was already in flight for the same user, kept
+    // until that flight ends.
     struct PendingMigration {
         std::string ueAddress;
         std::string newMEHId;
@@ -92,7 +120,14 @@ private:
         PendingMigration() : requestTime(0) {}
     };
 
-    std::map<std::string, std::queue<PendingMigration>> pendingMigrations_;
+    // At most one per user, and a newer request overwrites an older one.
+    //
+    // This was a queue, which is the wrong shape for it: a user crossing three
+    // hosts in quick succession left two targets stacked up, and the application
+    // then visited each in turn — spending a full migration to reach a host the
+    // user had already left. Only the newest destination has ever mattered, and
+    // a slot that holds one cannot accumulate stale ones.
+    std::map<std::string, PendingMigration> pendingMigrations_;
 
     // Dependencies
     MecAppRegistry* mecAppRegistry_;
@@ -136,6 +171,16 @@ private:
      */
     void recordMigrationOutcome(const StandByElement& standBy, DecisionOutcome outcome,
                                 bool oldInstanceTerminated, const std::string& reason);
+
+    /*
+     * Starts the move that was held for this user while another was in flight, if
+     * there is one. Called once a flight ends, by whichever path ended it.
+     *
+     * Asks again rather than replaying the held request: the application has moved
+     * since it was held, and the destination it names may be where the application
+     * now already is — which, for a user that moved A -> B -> A, it is.
+     */
+    void startPendingMigration(const std::string& ueAddress);
 
     /*
      * Destroys the migrated-from instance once the UE has switched away from it.

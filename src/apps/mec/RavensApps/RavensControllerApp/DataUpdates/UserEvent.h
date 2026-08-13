@@ -9,6 +9,18 @@
 
 namespace simu5g {
 
+// RAVENS names users as "acr:<ip>"; everything that stores or reports a user —
+// the orchestrator's views, the decision log — uses the bare IP. Convert once
+// where a message enters, and the prefix never spreads: it was already being
+// stripped by hand at half a dozen call sites, each of them a place where a
+// missed conversion becomes a lookup that silently finds nothing.
+inline std::string canonicalUeAddress(const std::string& ueAddress)
+{
+    if (ueAddress.rfind("acr:", 0) == 0)
+        return ueAddress.substr(4);
+    return ueAddress;
+}
+
 // One confirmed change in where a user is, as the Controller concluded it.
 //
 // Replaces UserMEHUpdate, which described the same thing as a pair of host names
