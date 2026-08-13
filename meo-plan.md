@@ -7,6 +7,12 @@ this one.
 
 Naming rule: descriptive names only. No letter labels.
 
+**Landed so far** (2026-08-13), in the order below: `ensureRunDirectory`; the two views —
+`userPresence_` on the orchestrator and the promoted registry, with `AppState` and retention;
+migration keeping entry identity; the key-space fixes; the decision log wired to all three
+strategies and to both migration completion paths; predicted exits log-only (item 2).
+Remaining: items 3, 4, 5, 6, and the queued-migration policy at the end of this file.
+
 ---
 
 ## Scope
