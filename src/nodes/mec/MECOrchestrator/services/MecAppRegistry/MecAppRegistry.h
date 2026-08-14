@@ -138,6 +138,21 @@ private:
     void removeUeAddressMapping(const std::string& ueAddress);
 };
 
+// The single spelling of each state, for logs and for the learning engine's
+// observation — the same arrangement as userEventTypeName for events. A state
+// written differently in two places is a state that cannot be joined across two
+// files.
+inline const char *appStateName(MecAppRegistry::AppState state)
+{
+    switch (state) {
+        case MecAppRegistry::AppState::Placed:               return "Placed";
+        case MecAppRegistry::AppState::Migrating:            return "Migrating";
+        case MecAppRegistry::AppState::AwaitingConfirmation: return "AwaitingConfirmation";
+        case MecAppRegistry::AppState::Gone:                 return "Gone";
+    }
+    return "Unknown";
+}
+
 } // namespace simu5g
 
 #endif

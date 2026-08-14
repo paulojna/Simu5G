@@ -75,6 +75,7 @@ class UALCMPMessage;
 class MECOrchestratorMessage;
 class SelectionPolicyBase;
 class ReactionOnUpdate;
+class LearningStrategy;
 
 //
 // This module implements the MEC orchestrator of a MEC system.
@@ -98,6 +99,14 @@ class MecOrchestrator : public cSimpleModule, public IOrchestratorApi {
 
   SelectionPolicyBase *mecHostSelectionPolicy_;
   ReactionOnUpdate *reactionOnUpdate_;
+
+  // The same object as reactionOnUpdate_ when the Learning strategy is
+  // configured, null otherwise. Held again under its own type because opening
+  // and closing the engine's episode are not things a strategy does in general,
+  // and a typed pointer says which strategy is running without asking.
+  //
+  // Not owned: reactionOnUpdate_ deletes it.
+  LearningStrategy *learningStrategy_;
 
   //------------------------------------
   // Binder module
@@ -164,11 +173,15 @@ public:
                            std::string oldMEHId) override;
   MigrationResult migrateApp(std::string ueAddress, std::string newMEHId,
                              std::string oldMEHId) override;
+  // Destination second, source third — the order every caller passes and the
+  // order the migration manager reads them in.
   MigrationResult checkIfMigrationIsNeeded(std::string ueAddress,
-                                           std::string oldMEHId,
-                                           std::string newMEHId) override;
+                                           std::string newMEHId,
+                                           std::string oldMEHId) override;
   MigrationResult completeMigration(UALCMPMessage *ackMsg) override;
   std::string getAppCurrentMEH(std::string ueAddress) override;
+  std::vector<AppPlacement> getAppPlacements() override;
+  std::vector<UserPresenceRow> getUserPresence() override;
   void recordDecision(const OrchestrationDecision &decision) override;
 
   double getMigrationTime() const { return migrationTime_; }
@@ -187,6 +200,16 @@ protected:
   virtual int numInitStages() const { return inet::NUM_INIT_STAGES; }
   void initialize(int stage);
   virtual void handleMessage(cMessage *msg);
+
+  // Sends the engine the terminal marker, so the last action's consequence
+  // reaches it instead of being lost with the run.
+  virtual void finish() override;
+
+  // Assembles the hosts, their cells and the cell positions, and opens the
+  // engine's episode with them. Called at the end of initialize: it needs the
+  // MEC host list and the onboarded application descriptors, both of which are
+  // filled earlier in the same stage.
+  void openLearningEpisode();
 
   void handleUALCMPMessage(cMessage *msg);
 

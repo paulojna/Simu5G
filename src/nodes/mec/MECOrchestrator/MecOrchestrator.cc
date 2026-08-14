@@ -32,6 +32,7 @@
 #include "nodes/mec/MECOrchestrator/reactionOnUpdateStrategies/RemoveOnExit.h"
 #include "nodes/mec/MECOrchestrator/reactionOnUpdateStrategies/MigrateOnChange.h"
 #include "nodes/mec/MECOrchestrator/reactionOnUpdateStrategies/MigrateOnPrediction.h"
+#include "nodes/mec/MECOrchestrator/reactionOnUpdateStrategies/LearningStrategy.h"
 
 #include "apps/mec/RavensApps/RavensControlPacket_m.h"
 
@@ -40,6 +41,9 @@
 // emulation debug
 #include <iostream>
 #include <curl/curl.h>
+
+#include <set>
+#include <sstream>
 
 namespace simu5g
 {
@@ -63,6 +67,7 @@ T* safe_check_and_cast(U* ptr) {
         mecHostSelectionPolicy_ = nullptr;
         userPresence_.clear();
         reactionOnUpdate_ = nullptr;
+        learningStrategy_ = nullptr;
         // NEW
         mecAppRegistry_ = nullptr;
         mecAppLifecycleManager_ = nullptr;
@@ -158,6 +163,28 @@ T* safe_check_and_cast(U* ptr) {
                 static_cast<IOrchestratorApi *>(this), this, migrationTime_,
                 par("reactiveFallback").boolValue());
         }
+        else if (!strcmp(par("reactionStrategy"), "Learning"))
+        {
+            mecAppMigrationManager_ = std::make_unique<MecAppMigrationManager>(
+              mecAppRegistry_.get(),
+              mecAppLifecycleManager_.get(),
+              &mecHosts,
+              &mecHostIndex_,
+              this,
+              decisionLogger_.get()
+            );
+            mecAppMigrationManager_->initialize(migrationTime_, migrationTimeout_);
+
+            std::string engineUrl = par("learningEngineUrl").stdstringValue();
+            if (engineUrl.empty())
+                throw cRuntimeError("MecOrchestrator::initialize - the Learning strategy has no "
+                                    "policy without an engine; set learningEngineUrl");
+
+            learningStrategy_ = new LearningStrategy(
+                static_cast<IOrchestratorApi *>(this), engineUrl,
+                par("learningEngineTimeout").doubleValue());
+            reactionOnUpdate_ = learningStrategy_;
+        }
         else
             throw cRuntimeError("MecOrchestrator::initialize - Reaction strategy %s not present!", par("reactionStrategy").stringValue());
 
@@ -166,19 +193,31 @@ T* safe_check_and_cast(U* ptr) {
 
         mecAppLifecycleManager_->onboardApplicationPackages(par("mecApplicationPackageList").stringValue());
 
+        // Last, because it reads both the MEC host list and the descriptors
+        // onboarded just above.
+        if (learningStrategy_ != nullptr)
+            openLearningEpisode();
     }
 
     bool MecOrchestrator::consumesPredictions()
     {
-        return strcmp(par("reactionStrategy"), "MigrateOnPrediction") == 0;
+        if (strcmp(par("reactionStrategy"), "MigrateOnPrediction") == 0)
+            return true;
+
+        // The learning ablation, and the only reason this is a question rather
+        // than a property of the strategy name: the same strategy runs with the
+        // prediction stream and without it, and this answer is what turns the
+        // Controller's model server on for the runs that want it.
+        return strcmp(par("reactionStrategy"), "Learning") == 0
+               && par("learningUsesPredictions").boolValue();
     }
 
     bool MecOrchestrator::consumesTelemetry()
     {
-        // No strategy consumes telemetry yet. The learning strategy (item 4 of
-        // meo-plan.md) will be the first; adding it here is what turns the
-        // Agents' telemetry on for its runs.
-        return false;
+        // The learning strategy is the only one that reads raw telemetry: its
+        // decision step is the window, and the samples in it are most of what
+        // the engine sees.
+        return strcmp(par("reactionStrategy"), "Learning") == 0;
     }
 
     void MecOrchestrator::handleMessage(cMessage *msg)
@@ -469,6 +508,100 @@ T* safe_check_and_cast(U* ptr) {
         return bestHost;
     }
 
+    void MecOrchestrator::openLearningEpisode()
+    {
+        std::vector<HostTopology> hosts;
+        std::vector<CellTopology> cells;
+        std::set<std::string> namedCells;
+
+        for (cModule *mecHost : mecHosts)
+        {
+            HostTopology host;
+            host.host = mecHost->getName();
+            host.maxRam = mecHost->hasPar("maxRam") ? mecHost->par("maxRam").doubleValue() : 0;
+
+            // A host with no base stations covers no cells of its own, which is
+            // what the cloud fallback is: it is never the closest host, only the
+            // one left when no edge host can allocate. MECHost.ned defaults
+            // bsList to empty and MecServiceBase reads it the same way.
+            std::string bsList = mecHost->hasPar("bsList") ? mecHost->par("bsList").stdstringValue() : "";
+            host.isCloud = bsList.empty();
+
+            std::stringstream names(bsList);
+            std::string cellName;
+            while (std::getline(names, cellName, ','))
+            {
+                // bsList is written by hand in the ini, so "gnb1, gnb2" is as
+                // likely as "gnb1,gnb2".
+                size_t first = cellName.find_first_not_of(" \t");
+                if (first == std::string::npos)
+                    continue;
+                cellName = cellName.substr(first, cellName.find_last_not_of(" \t") - first + 1);
+
+                host.cells.push_back(cellName);
+                if (!namedCells.insert(cellName).second)
+                    continue;
+
+                cModule *cellModule = getSimulation()->getModuleByPath(cellName.c_str());
+                if (cellModule == nullptr)
+                    throw cRuntimeError("MecOrchestrator::openLearningEpisode - %s names cell %s, "
+                                        "which is not a module", host.host.c_str(), cellName.c_str());
+
+                // Where the physical layer itself reads a base station's
+                // position from, so this is the same coordinate system the
+                // Location Service reports users in — and the same metres. A
+                // cell without one would put every distance the engine computes
+                // at the origin, silently, so it is an error rather than a
+                // default.
+                const char *x = cellModule->getDisplayString().getTagArg("p", 0);
+                const char *y = cellModule->getDisplayString().getTagArg("p", 1);
+                if (x == nullptr || *x == '\0' || y == nullptr || *y == '\0')
+                    throw cRuntimeError("MecOrchestrator::openLearningEpisode - cell %s has no "
+                                        "position in its display string", cellName.c_str());
+
+                CellTopology cell;
+                cell.cell = cellName;
+                cell.x = atof(x);
+                cell.y = atof(y);
+                cells.push_back(cell);
+            }
+
+            hosts.push_back(host);
+        }
+
+        // No telemetry interval here: it is the Controller's parameter, not this
+        // module's, and every step already carries the window it covers — so the
+        // engine reads the interval off windowEnd minus windowStart rather than
+        // being told a second copy that could disagree.
+        nlohmann::json config;
+        config["migrationTime"]   = migrationTime_;
+        config["usesPredictions"] = par("learningUsesPredictions").boolValue();
+
+        // What one application costs, so the engine can work each host's
+        // occupancy out of the application view it already receives instead of
+        // being told a number that is a fixed multiple of one it has. Unset
+        // when the descriptors do not name exactly one application: the
+        // arithmetic only holds while every user runs the same thing.
+        config["ramPerApp"] = -1.0;
+        const std::map<std::string, ApplicationDescriptor> *descriptors = getAllApplicationDescriptors();
+        if (descriptors != nullptr && descriptors->size() == 1)
+            config["ramPerApp"] = descriptors->begin()->second.getVirtualResources().ram;
+        else
+            EV_WARN << "MecOrchestrator::openLearningEpisode - not exactly one application "
+                    << "descriptor, so ramPerApp is unset" << endl;
+
+        EV << "MecOrchestrator::openLearningEpisode - " << hosts.size() << " hosts, "
+           << cells.size() << " cells" << endl;
+
+        learningStrategy_->openEpisode(hosts, cells, config);
+    }
+
+    void MecOrchestrator::finish()
+    {
+        if (learningStrategy_ != nullptr)
+            learningStrategy_->closeEpisode();
+    }
+
     void MecOrchestrator::getConnectedMecHosts()
     {
         // getting the list of mec hosts associated to this mec system from parameter
@@ -590,6 +723,44 @@ T* safe_check_and_cast(U* ptr) {
             ueIp = ueAddress.substr(4);
         auto result = mecAppRegistry_->findAppByUeAddress(ueIp);
         return result.found ? result.appEntry->mecHost->getName() : "";
+    }
+
+    std::vector<AppPlacement> MecOrchestrator::getAppPlacements() {
+        // Every entry, Gone ones included — unlike the registry's lookups, which
+        // treat Gone as not found because every one of their callers means a live
+        // application. Here the deletion is itself part of what the caller is
+        // reporting.
+        std::vector<AppPlacement> placements;
+        placements.reserve(mecAppRegistry_->getAppCount());
+
+        for (const auto& pair : *mecAppRegistry_) {
+            AppPlacement row;
+            row.ueAddress = pair.second.ueAddress.str();
+            row.mecHost   = pair.second.mecHost != nullptr ? pair.second.mecHost->getName() : "";
+            row.state     = pair.second.state;
+            row.contextId = pair.first;
+            placements.push_back(row);
+        }
+        return placements;
+    }
+
+    std::vector<UserPresenceRow> MecOrchestrator::getUserPresence() {
+        // One row per user ever observed, exited users included: their row holds
+        // an empty currentMEH and the timestamp of the event that emptied it,
+        // which is the fact that they left.
+        std::vector<UserPresenceRow> rows;
+        rows.reserve(userPresence_.size());
+
+        for (const auto& pair : userPresence_) {
+            UserPresenceRow row;
+            row.ueAddress       = pair.first;
+            row.currentMEH      = pair.second.currentMEH;
+            row.lastEventAt     = pair.second.lastEventAt;
+            row.lastObservedMEH = pair.second.lastObservedMEH;
+            row.lastSampleAt    = pair.second.lastSampleAt;
+            rows.push_back(row);
+        }
+        return rows;
     }
 
     const ApplicationDescriptor* MecOrchestrator::getApplicationDescriptorByAppName(std::string& appName) const
