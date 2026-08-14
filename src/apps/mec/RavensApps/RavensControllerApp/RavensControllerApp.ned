@@ -48,6 +48,38 @@ simple RavensControllerApp like IApp
         // nothing would consume the predictions.
         string predictionServerUrl = default("");
 
+        // How long the model server has to answer before the request is
+        // abandoned (s).
+        //
+        // A policy, not a constant. It is the point at which a run decides a
+        // slow server is a failed one, and that trade is real: too short and a
+        // model that thinks hard is recorded as unreachable, too long and every
+        // stall costs wall-clock on a call that blocks the whole simulation.
+        // Abandoning serves this window no predictions and the run continues —
+        // counted, so a run's own output shows how often it happened.
+        double predictionServerTimeout = default(5);
+
+        // How long the model takes to answer (s), as simulated time.
+        //
+        // The request to the model server costs no simulated time: the call
+        // blocks the process, so it costs wall-clock while a run executes, but
+        // the simulation clock does not move. Without this, inference is free in
+        // the only clock the results are measured in — in exactly the arm whose
+        // argument is that information costs something to acquire.
+        //
+        // Measured wall-clock is deliberately not used instead: it depends on
+        // the machine and on whether the server was warm, and a run would not
+        // reproduce elsewhere. Declared here, it is part of the configuration a
+        // result is read against.
+        //
+        // Volatile, so it can be a constant or a distribution — exponential(0.08)
+        // for a server under varying load — without a code change. A drawn value
+        // may overtake an earlier one, and the delivery path expects that.
+        //
+        // Defaults to 0, which is what every run before this parameter existed
+        // did. It is a value to measure and set, not one to leave.
+        volatile double inferenceTime = default(0);
+
         // --- Timing ----------------------------------------------------------
         //
         // How often an Agent sends telemetry frames (s). Pushed to Agents in the

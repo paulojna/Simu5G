@@ -85,8 +85,31 @@ class TelemetrySink
 
         // Called once per telemetry frame, after every sample and every cell
         // reading in it has been delivered. Marks the end of the frame: it is
-        // where a sink that ships the whole frame in one request sends it.
+        // where a sink that keeps per-frame bookkeeping does it.
         virtual void onTelemetryFrame(inet::Ptr<const RavensLinkDataFrameMessage> frame) {}
+
+        // One telemetry window, closed: everything that arrived in the last
+        // telemetryWindow seconds, from every host, already attributed.
+        //
+        // The same window the orchestrator receives, handed to the sinks at the
+        // same moment, so that a sink shipping observations elsewhere ships what
+        // the orchestrator saw rather than a differently cut version of it.
+        //
+        // Note the shape, which is not one row per user: a window holds one row
+        // per (user, observing host), so a user crossing between hosts mid-window
+        // appears twice with different observedMEH — and those are the most
+        // informative rows in the set. reportingMEHs is carried rather than
+        // inferred from the rows because a host that reported nothing and a host
+        // whose frame was lost are different facts, and telemetry rides UDP.
+        //
+        // Called even when the window is empty, for the same reason the window
+        // message is sent when empty: a consumer stepping through windows needs
+        // the step to exist.
+        virtual void onTelemetryWindow(omnetpp::simtime_t windowStart,
+                                       omnetpp::simtime_t windowEnd,
+                                       const std::vector<std::string>& reportingMEHs,
+                                       const std::vector<UserSample>& userSamples,
+                                       const std::vector<CellSample>& cellSamples) {}
 
         // A confirmed change in where a user is, at the moment the Controller
         // concludes it — the same event, and the same instant, as the one going
@@ -99,6 +122,15 @@ class TelemetrySink
         // sure. Useful for judging the detector, meaningless to anyone acting on
         // the result, and so deliberately not carried in UserEvent itself.
         virtual void onUserEvent(const UserEvent& event, int samplesSinceChange) {}
+
+        // The run is ending. A sink that counted something across the run
+        // records it here.
+        //
+        // It exists because a sink's own destructor is too late: the sinks are
+        // owned by the Controller and destroyed with it, which happens after
+        // finish(), and recordScalar() on a module that is on its way out
+        // records nothing. Called from finish() while the module is still whole.
+        virtual void onRunFinished() {}
 
         friend class RavensControllerApp;
 
