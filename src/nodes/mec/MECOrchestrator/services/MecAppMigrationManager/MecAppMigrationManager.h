@@ -3,10 +3,10 @@
 
 #include "nodes/mec/MECOrchestrator/services/MecAppRegistry/MecAppRegistry.h"
 #include "nodes/mec/MECOrchestrator/services/MecAppLifecycleManager/MecAppLifecycleManager.h"
+#include "nodes/mec/MECOrchestrator/services/DecisionLogger/DecisionLogger.h"
 #include "nodes/mec/UALCMP/UALCMPMessages/UALCMPMessages_m.h"
 #include <map>
 #include <string>
-#include <queue>
 #include <vector>
 
 namespace simu5g {
@@ -24,12 +24,45 @@ struct MigrationResult {
     std::string newMEHId;
     std::string oldMEHId;
 
-    MigrationResult() 
+    // No action was called for — there is no application, or it is already on
+    // the target host — as opposed to an action that was called for and failed.
+    // The decision log needs the two apart: "nothing to do" is the common,
+    // healthy answer, and counting it as a failure would bury the real ones.
+    bool nothingToDo = false;
+
+    MigrationResult()
     : success(false), contextId(-1), requestNumber(0) {}
 
-    MigrationResult(bool success, const std::string& errorMessage, int contextId, unsigned int requestNumber, const std::string& newMEHId, const std::string& oldMEHId) 
+    MigrationResult(bool success, const std::string& errorMessage, int contextId, unsigned int requestNumber, const std::string& newMEHId, const std::string& oldMEHId)
     : success(success), errorMessage(errorMessage), contextId(contextId), requestNumber(requestNumber), newMEHId(newMEHId), oldMEHId(oldMEHId) {}
 };
+
+// The three answers a migration request can give, in the decision log's
+// vocabulary: started, nothing was called for, or it was called for and failed.
+// Lives here rather than with the strategies because it is a statement about
+// MigrationResult, and the migration manager records outcomes of its own.
+//
+// A request held behind one already in flight lands in Failed, carrying a reason
+// that says so: this request did not start. The move itself is not lost — it is
+// recorded again, as PendingRequest, when the flight ends and it goes.
+inline void fillFromMigrationResult(OrchestrationDecision& decision, const MigrationResult& result)
+{
+    if (result.success) {
+        decision.kind = DecisionKind::Migrate;
+        decision.outcome = DecisionOutcome::Initiated;
+        decision.requestNumber = result.requestNumber;
+    }
+    else if (result.nothingToDo) {
+        decision.kind = DecisionKind::None;
+        decision.outcome = DecisionOutcome::NotNeeded;
+        decision.reason = result.errorMessage;
+    }
+    else {
+        decision.kind = DecisionKind::Migrate;
+        decision.outcome = DecisionOutcome::Failed;
+        decision.reason = result.errorMessage;
+    }
+}
 
 /*
     StandByElement represents a pending migration request for a MEC application. 
@@ -56,7 +89,8 @@ public:
       MecAppLifecycleManager* lifecycleManager,
       std::vector<cModule*>* mecHosts,
       std::unordered_map<std::string, cModule*>* mecHostIndex,  // PERFORMANCE IMPROVEMENT: O(1) lookup
-      cSimpleModule* owner
+      cSimpleModule* owner,
+      DecisionLogger* decisionLogger   // may be null: no decision log configured
     );
 
     virtual ~MecAppMigrationManager();
@@ -66,7 +100,6 @@ public:
     MigrationResult checkIfMigrationIsNeeded(std::string ueAddress, std::string newMEHId, std::string oldMEHId);
     MigrationResult migrateApp(std::string ueAddress, std::string newMEHId, std::string oldMEHId);
     MigrationResult completeMigration(UALCMPMessage* ackMsg);
-    std::string getAppCurrentMEH(std::string ueAddress);
 
    // Timeout handling
     void handleMigrationTimeout(unsigned int requestNumber);
@@ -75,6 +108,8 @@ public:
     double getMigrationTimeout() const { return migrationTimeout_; }
 
 private:
+    // A move asked for while one was already in flight for the same user, kept
+    // until that flight ends.
     struct PendingMigration {
         std::string ueAddress;
         std::string newMEHId;
@@ -84,7 +119,14 @@ private:
         PendingMigration() : requestTime(0) {}
     };
 
-    std::map<std::string, std::queue<PendingMigration>> pendingMigrations_;
+    // At most one per user, and a newer request overwrites an older one.
+    //
+    // This was a queue, which is the wrong shape for it: a user crossing three
+    // hosts in quick succession left two targets stacked up, and the application
+    // then visited each in turn — spending a full migration to reach a host the
+    // user had already left. Only the newest destination has ever mattered, and
+    // a slot that holds one cannot accumulate stale ones.
+    std::map<std::string, PendingMigration> pendingMigrations_;
 
     // Dependencies
     MecAppRegistry* mecAppRegistry_;
@@ -92,6 +134,7 @@ private:
     std::vector<cModule*>* mecHosts_;
     std::unordered_map<std::string, cModule*>* mecHostIndex_;  // PERFORMANCE IMPROVEMENT: O(1) lookup
     cSimpleModule* owner_;  // For sending self-messages
+    DecisionLogger* decisionLogger_;  // not owned; null when no log is configured
 
     // Configuration
     double migrationTime_;
@@ -117,17 +160,38 @@ private:
     void forceCompleteMigration(unsigned int requestNumber, const std::string& reason);
 
     /*
+     * Closes out a migration in the decision log: the row a strategy wrote when it
+     * started this one carries the same requestNumber, and joining the two is what
+     * turns "a migration was started" into "a migration finished, and how".
+     *
+     * oldInstanceTerminated is carried because a migration that leaves its old
+     * instance running is a leak that costs resources for the rest of the run, and
+     * it is invisible everywhere else.
+     */
+    void recordMigrationOutcome(const StandByElement& standBy, DecisionOutcome outcome,
+                                bool oldInstanceTerminated, const std::string& reason);
+
+    /*
+     * Starts the move that was held for this user while another was in flight, if
+     * there is one. Called once a flight ends, by whichever path ended it.
+     *
+     * Asks again rather than replaying the held request: the application has moved
+     * since it was held, and the destination it names may be where the application
+     * now already is — which, for a user that moved A -> B -> A, it is.
+     */
+    void startPendingMigration(const std::string& ueAddress);
+
+    /*
      * Destroys the migrated-from instance once the UE has switched away from it.
      *
      * Goes to the old host's platform manager directly rather than through
      * MecAppLifecycleManager::stopApplication(), which cannot do this job: it looks the
-     * app up by contextId, and performMigration() already unregistered the old contextId
-     * when it registered the new one. The lookup therefore always missed and the old
-     * instance was never destroyed — one leaked, still-running MEC app per migration,
-     * silent because the failure was only logged.
+     * app up by contextId, and by this point the registry entry already points at the
+     * new instance on the new host — a contextId lookup would terminate the instance
+     * the UE just switched *to*.
      *
      * StandByElement carries oldMecpm and mecUeAppID for exactly this, captured before
-     * the registry was rewritten.
+     * the registry entry was repointed.
      */
     bool terminateOldInstance(const StandByElement& standBy);
 };

@@ -31,7 +31,7 @@
 #include "nodes/mec/MECPlatform/MEAppPacket_m.h"
 
 // Ravens Controller Updates
-#include "apps/mec/RavensApps/RavensControllerUpdatePacket_m.h"
+#include "apps/mec/RavensApps/RavensControlPacket_m.h"
 
 #include "nodes/mec/MECOrchestrator/ApplicationDescriptor/ApplicationDescriptor.h"
 
@@ -39,6 +39,7 @@
 #include "nodes/mec/MECOrchestrator/services/MecAppLifecycleManager/MecAppLifecycleManager.h"
 #include "nodes/mec/MECOrchestrator/services/MecAppMigrationManager/MecAppMigrationManager.h"
 #include "nodes/mec/MECOrchestrator/services/MecAppRegistry/MecAppRegistry.h"
+#include "nodes/mec/MECOrchestrator/services/DecisionLogger/DecisionLogger.h"
 
 // Interfaces
 #include "nodes/mec/MECOrchestrator/interfaces/IOrchestrationApi.h"
@@ -74,6 +75,7 @@ class UALCMPMessage;
 class MECOrchestratorMessage;
 class SelectionPolicyBase;
 class ReactionOnUpdate;
+class LearningStrategy;
 
 //
 // This module implements the MEC orchestrator of a MEC system.
@@ -98,6 +100,14 @@ class MecOrchestrator : public cSimpleModule, public IOrchestratorApi {
   SelectionPolicyBase *mecHostSelectionPolicy_;
   ReactionOnUpdate *reactionOnUpdate_;
 
+  // The same object as reactionOnUpdate_ when the Learning strategy is
+  // configured, null otherwise. Held again under its own type because opening
+  // and closing the engine's episode are not things a strategy does in general,
+  // and a typed pointer says which strategy is running without asking.
+  //
+  // Not owned: reactionOnUpdate_ deletes it.
+  LearningStrategy *learningStrategy_;
+
   //------------------------------------
   // Binder module
   Binder *binder_;
@@ -112,7 +122,27 @@ class MecOrchestrator : public cSimpleModule, public IOrchestratorApi {
   std::unique_ptr<MecAppLifecycleManager> mecAppLifecycleManager_;
   std::unique_ptr<MecAppMigrationManager> mecAppMigrationManager_;
 
-  std::map<std::string, std::pair<std::string, std::string>> userMEHMap;
+  // One row per decision, for offline comparison between modes. Null when
+  // decisionLogPath is left empty, which is the only way to run without it.
+  std::unique_ptr<DecisionLogger> decisionLogger_;
+
+  // The user view: where each user is according to confirmed RAVENS events,
+  // enriched by telemetry when telemetry is on. Keyed by the user's bare IP —
+  // the "acr:" prefix is stripped once where a message enters the orchestrator,
+  // never inside the view. One row per user ever observed; an exit clears
+  // currentMEH but keeps the row: "no longer anywhere" is a fact worth keeping.
+  //
+  // The two field pairs have one writer each and never mix: events own
+  // currentMEH / lastEventAt, telemetry owns lastObservedMEH / lastSampleAt.
+  // Where the user's *application* is lives in mecAppRegistry_, deliberately
+  // apart — during a proactive migration the two legitimately disagree.
+  struct UserPresence {
+      std::string currentMEH;               // empty = exited; written by events only
+      omnetpp::simtime_t lastEventAt = -1;  // observedAt of the event that wrote currentMEH
+      std::string lastObservedMEH;          // telemetry enrichment; empty when telemetry is off
+      omnetpp::simtime_t lastSampleAt = -1;
+  };
+  std::map<std::string, UserPresence> userPresence_;
 
   int contextIdCounter;
 
@@ -143,18 +173,43 @@ public:
                            std::string oldMEHId) override;
   MigrationResult migrateApp(std::string ueAddress, std::string newMEHId,
                              std::string oldMEHId) override;
+  // Destination second, source third — the order every caller passes and the
+  // order the migration manager reads them in.
   MigrationResult checkIfMigrationIsNeeded(std::string ueAddress,
-                                           std::string oldMEHId,
-                                           std::string newMEHId) override;
+                                           std::string newMEHId,
+                                           std::string oldMEHId) override;
   MigrationResult completeMigration(UALCMPMessage *ackMsg) override;
   std::string getAppCurrentMEH(std::string ueAddress) override;
+  std::vector<AppPlacement> getAppPlacements() override;
+  std::vector<UserPresenceRow> getUserPresence() override;
+  void recordDecision(const OrchestrationDecision &decision) override;
 
   double getMigrationTime() const { return migrationTime_; }
+
+  // What the configured strategy consumes from RAVENS. The Controller asks
+  // these at startup and derives from the answers what it must collect and
+  // what the Agents must send — configuration flows downward from the
+  // orchestrator, so a run whose strategy needs predictions but whose Agents
+  // send no telemetry cannot be expressed at all. Answered from the
+  // reactionStrategy parameter rather than a member, so they are valid even
+  // before this module's own initialize() has run.
+  bool consumesPredictions();
+  bool consumesTelemetry();
 
 protected:
   virtual int numInitStages() const { return inet::NUM_INIT_STAGES; }
   void initialize(int stage);
   virtual void handleMessage(cMessage *msg);
+
+  // Sends the engine the terminal marker, so the last action's consequence
+  // reaches it instead of being lost with the run.
+  virtual void finish() override;
+
+  // Assembles the hosts, their cells and the cell positions, and opens the
+  // engine's episode with them. Called at the end of initialize: it needs the
+  // MEC host list and the onboarded application descriptors, both of which are
+  // filled earlier in the same stage.
+  void openLearningEpisode();
 
   void handleUALCMPMessage(cMessage *msg);
 

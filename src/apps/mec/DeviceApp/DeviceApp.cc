@@ -35,11 +35,13 @@ DeviceApp::DeviceApp()
 {
     UALCMPMessage = nullptr;
     processedUALCMPMessage = nullptr;
+    startTimeoutMsg_ = nullptr;
 }
 
 DeviceApp::~DeviceApp()
 {
     cancelAndDelete(processedUALCMPMessage);
+    cancelAndDelete(startTimeoutMsg_);
 }
 
 
@@ -98,6 +100,11 @@ void DeviceApp::handleUALCMPMessage()
 
                     //send request
                     appState = CREATING;
+
+                    // Second round trip of the start sequence — re-arm the
+                    // watchdog for the POST's answer.
+                    cancelEvent(startTimeoutMsg_);
+                    scheduleAt(simTime() + startRequestTimeout_, startTimeoutMsg_);
                     return;
                 }
                 else
@@ -171,6 +178,8 @@ void DeviceApp::handleUALCMPMessage()
                     ueAppSocket_.sendTo(packet, ueAppAddress, ueAppPort);
 
                     appState = APPCREATED;
+                    // Start sequence concluded — the watchdog's job is done.
+                    cancelEvent(startTimeoutMsg_);
                     return;
                 }
                 else if(response->getCode() == 500)
@@ -201,6 +210,9 @@ void DeviceApp::handleUALCMPMessage()
                     ueAppSocket_.sendTo(packet, ueAppAddress, ueAppPort);
 
                     appState = IDLE;
+                    // Concluded, by refusal — the UE app decides whether to
+                    // retry; the watchdog covers conversations, not outcomes.
+                    cancelEvent(startTimeoutMsg_);
                     return;
                 }
                 else
@@ -343,7 +355,23 @@ void DeviceApp::handleUALCMPMessage()
 }
 
 void DeviceApp::handleSelfMessage(cMessage *msg){
-    if(strcmp(msg->getName(), "connect") == 0)
+    if(msg == startTimeoutMsg_)
+    {
+        // The start conversation with the UALCMP went silent: request or
+        // response lost in transit (seen: trapped in a gNB handover buffer),
+        // or the TCP connection wedged. Reset and reconnect; reconnecting
+        // renews the socket, so a wedged connection is abandoned rather than
+        // waited on. The UE app retries its start on its own — retries are
+        // NACKed ("LCM proxy not connected") until the new connection is up,
+        // which the UE app also answers by retrying, and the first retry
+        // after that re-enters sendStartAppContext normally.
+        EV_WARN << "DeviceApp::handleSelfMessage - no UALCMP answer to the start request within "
+                << startRequestTimeout_ << "s, resetting and reconnecting" << endl;
+        appState = IDLE;
+        connectToUALCMP();
+        // startTimeoutMsg_ is a reusable member message: not deleted here.
+    }
+    else if(strcmp(msg->getName(), "connect") == 0)
     {
         connectToUALCMP();
         delete msg;
@@ -383,6 +411,9 @@ void DeviceApp::initialize(int stage){
 
     processedUALCMPMessage = new cMessage("processedUALCMPMessage");
 
+    startTimeoutMsg_ = new cMessage("startRequestTimeout");
+    startRequestTimeout_ = par("startRequestTimeout");
+
 //    appProvider = par("appProvider").stringValue();
     appPackageSource = par("appPackageSource").stringValue();
 
@@ -413,9 +444,13 @@ void DeviceApp::handleMessage(omnetpp::cMessage *msg)
     {
         UALCMPSocket_.processMessage(msg);
     }
-
-//    delete msg;
-
+    else
+    {
+        // Belongs to neither socket — e.g. a straggler from a UALCMP
+        // connection the start timeout abandoned via renewSocket(). Nothing
+        // will ever process it.
+        delete msg;
+    }
 }
 
 
@@ -491,6 +526,12 @@ void DeviceApp::sendStartAppContext(inet::Ptr<const DeviceAppPacket> pk)
     {
         Http::sendGetRequest(&UALCMPSocket_, host.c_str(), uri.c_str(), params.str().c_str());
         appState = START;
+
+        // Watchdog: if the answer never comes back, the timeout resets this
+        // state machine — otherwise it absorbs every UE retry as "already
+        // sent" and the UE never gets an application.
+        cancelEvent(startTimeoutMsg_);
+        scheduleAt(simTime() + startRequestTimeout_, startTimeoutMsg_);
     }
     else if(UALCMPSocket_.getState() != inet::TcpSocket::CONNECTED)
     {

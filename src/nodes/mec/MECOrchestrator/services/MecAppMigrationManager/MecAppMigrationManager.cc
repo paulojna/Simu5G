@@ -17,12 +17,14 @@ MecAppMigrationManager::MecAppMigrationManager(
     MecAppLifecycleManager* lifecycleManager,
     std::vector<cModule*>* mecHosts,
     std::unordered_map<std::string, cModule*>* mecHostIndex,
-    cSimpleModule* owner):
+    cSimpleModule* owner,
+    DecisionLogger* decisionLogger):
     mecAppRegistry_(mecRegistry),
     mecAppLifecycleManager_(lifecycleManager),
     mecHosts_(mecHosts),
     mecHostIndex_(mecHostIndex),
     owner_(owner),
+    decisionLogger_(decisionLogger),
     requestCounter_(1) {}  // Start at 1 (0 reserved for non-migration operations)
 
 MecAppMigrationManager::~MecAppMigrationManager() 
@@ -93,7 +95,9 @@ MigrationResult MecAppMigrationManager::checkIfMigrationIsNeeded(std::string ueA
     if (!result.found) {
         // App not yet instantiated - this is expected for new UEs
         EV << "MecAppMigrationManager::checkIfMigrationIsNeeded - App not found, waiting for UE request" << endl;
-        return MigrationResult(false, "No migration needed", -1, 0, newMEHId, oldMEHId);
+        MigrationResult noApp(false, "No application for this user", -1, 0, newMEHId, oldMEHId);
+        noApp.nothingToDo = true;
+        return noApp;
     }
 
     // App exists - check if it's already on the target MEH
@@ -101,26 +105,15 @@ MigrationResult MecAppMigrationManager::checkIfMigrationIsNeeded(std::string ueA
 
     if (currentMEHId == newMEHId) {
         EV << "MecAppMigrationManager::checkIfMigrationIsNeeded - App already on target MEH" << endl;
-        return MigrationResult(false, "No migration needed", result.contextId, 0, newMEHId, oldMEHId);
+        MigrationResult alreadyThere(false, "App already on target MEH", result.contextId, 0, newMEHId, oldMEHId);
+        alreadyThere.nothingToDo = true;
+        return alreadyThere;
     }
 
     // Migration is needed - trigger it
     EV << "MecAppMigrationManager::checkIfMigrationIsNeeded - Migration needed from " << currentMEHId << " to " << newMEHId << endl;
 
     return migrateApp(ueAddress, newMEHId, currentMEHId);
-}
-
-std::string MecAppMigrationManager::getAppCurrentMEH(std::string ueAddress)
-{
-    std::string ueIp = ueAddress;
-    if (ueAddress.find("acr:") == 0) {
-        ueIp = ueAddress.substr(4);
-    }
-    auto result = mecAppRegistry_->findAppByUeAddress(ueIp);
-    if (!result.found) {
-        return "";
-    }
-    return result.appEntry->mecHost->getName();
 }
 
 MigrationResult MecAppMigrationManager::migrateApp(std::string ueAddress, std::string newMEHId, std::string oldMEHId)
@@ -139,7 +132,9 @@ MigrationResult MecAppMigrationManager::migrateApp(std::string ueAddress, std::s
     auto lookupResult = mecAppRegistry_->findAppByUeAddress(ueIp);
     if (!lookupResult.found) {
         EV << "MecAppMigrationManager::migrateApplication - App not found for UE: " << ueAddress << endl;
-        return MigrationResult(false, "App not found for UE: " + ueAddress, -1, 0, newMEHId, oldMEHId);
+        MigrationResult noApp(false, "No application for this user", -1, 0, newMEHId, oldMEHId);
+        noApp.nothingToDo = true;
+        return noApp;
     }
 
     int contextId = lookupResult.contextId;
@@ -149,7 +144,9 @@ MigrationResult MecAppMigrationManager::migrateApp(std::string ueAddress, std::s
     std::string currentMEHId = appEntry->mecHost->getName();
     if (currentMEHId == newMEHId) {
         EV << "MecAppMigrationManager::migrateApp - App already on target MEH: " << newMEHId << endl;
-        return MigrationResult(false, "App already on target MEH", contextId, 0, newMEHId, oldMEHId);
+        MigrationResult alreadyThere(false, "App already on target MEH", contextId, 0, newMEHId, oldMEHId);
+        alreadyThere.nothingToDo = true;
+        return alreadyThere;
     }
 
 
@@ -165,20 +162,39 @@ MigrationResult MecAppMigrationManager::migrateApp(std::string ueAddress, std::s
         unsigned int existingRequest = indexIt->second;
         EV << "MecAppMigrationManager::migrateApp - Migration already in progress for UE: " << ueAddress << endl;
         EV << "  Current migration request: " << existingRequest << endl;
-        EV << "  Queueing new migration: " << oldMEHId << " → " << newMEHId << endl;
+        EV << "  Holding new destination: " << oldMEHId << " → " << newMEHId << endl;
 
-        // Add to pending queue
+        // One slot per user, newest destination wins. A destination this
+        // replaces was already known to be out of date — the user has moved on
+        // from it — so it is dropped rather than kept for later.
+        auto held = pendingMigrations_.find(ueIp);
+        if (held != pendingMigrations_.end() && held->second.newMEHId != newMEHId) {
+            EV << "MecAppMigrationManager::migrateApp - Dropping held destination "
+               << held->second.newMEHId << ", superseded by " << newMEHId << endl;
+
+            if (decisionLogger_) {
+                OrchestrationDecision superseded;
+                superseded.decidedAt = simTime();
+                superseded.ueAddress = held->second.ueAddress;
+                superseded.trigger = DecisionTrigger::PendingRequest;
+                superseded.kind = DecisionKind::None;
+                superseded.outcome = DecisionOutcome::NotNeeded;
+                superseded.fromMEHId = held->second.oldMEHId;
+                superseded.toMEHId = held->second.newMEHId;
+                superseded.reason = "superseded by a newer destination: " + newMEHId;
+                decisionLogger_->record(superseded);
+            }
+        }
+
         PendingMigration pending;
-        pending.ueAddress = ueAddress;
+        pending.ueAddress = ueIp;   // bare IP, the form the decision log uses
         pending.newMEHId = newMEHId;
         pending.oldMEHId = oldMEHId;
         pending.requestTime = simTime();
 
-        pendingMigrations_[ueIp].push(pending);
+        pendingMigrations_[ueIp] = pending;
 
-        EV << "MecAppMigrationManager::migrateApp - Migration queued. Queue size: " << pendingMigrations_[ueIp].size() << endl;
-
-        return MigrationResult(false, "Migration queued - another migration in progress", contextId, 0, newMEHId, oldMEHId);
+        return MigrationResult(false, "Migration held until the one in flight finishes", contextId, 0, newMEHId, oldMEHId);
     }
 
     // Step 2: Find target MEH
@@ -236,10 +252,17 @@ MigrationResult MecAppMigrationManager::completeMigration(UALCMPMessage* ackMsg)
 
     // Destroy the instance the UE has just switched away from. Goes straight to the old
     // host rather than through the lifecycle manager — see terminateOldInstance().
-    if (!terminateOldInstance(standBy)) {
+    bool oldInstanceTerminated = terminateOldInstance(standBy);
+    if (!oldInstanceTerminated) {
         EV << "MecAppMigrationManager::completeMigration - Old instance termination failed for request "
            << requestNumber << endl;
     }
+
+    // Confirmed: the UE is on the new endpoint, the entry is Placed again —
+    // on the new host, where recordMigration already points it.
+    mecAppRegistry_->setAppState(standBy.contextId, MecAppRegistry::AppState::Placed);
+
+    recordMigrationOutcome(standBy, DecisionOutcome::Success, oldInstanceTerminated, "");
 
     // Remove from standByList and index
     standByUeIndex_.erase(standBy.ueAddress);  // PERFORMANCE IMPROVEMENT: Maintain index
@@ -247,30 +270,39 @@ MigrationResult MecAppMigrationManager::completeMigration(UALCMPMessage* ackMsg)
 
     EV << "MecAppMigrationManager::completeMigration - Migration completed successfully" << endl;
 
-    // PENDING MIGRATION - CHECK IF THERE ARE PENDING MIGRATIONS FOR THIS UE
-    auto pendingIt = pendingMigrations_.find(standBy.ueAddress);
-    if (pendingIt != pendingMigrations_.end() && !pendingIt->second.empty()) {
-        PendingMigration nextMigration = pendingIt->second.front();
-        pendingIt->second.pop();
-
-        EV << "MecAppMigrationManager::completeMigration - Processing queued migration" << endl;
-        EV << "  UE: " << nextMigration.ueAddress << endl;
-        EV << "  From: " << nextMigration.oldMEHId << " To: " << nextMigration.newMEHId << endl;
-        EV << "  Queued at: " << nextMigration.requestTime << endl;
-        EV << "  Remaining in queue: " << pendingIt->second.size() << endl;
-
-        // Clean up queue if empty
-        if (pendingIt->second.empty()) {
-            pendingMigrations_.erase(pendingIt);
-        }
-
-        // Start the next migration (recursive call!!)
-        // Note: We call migrateApp which will return a new MigrationResult
-        // but we ignore it here since we're already returning success for the completed migration
-        migrateApp(nextMigration.ueAddress, nextMigration.newMEHId, nextMigration.oldMEHId);
-    }
+    // The flight is over, so a destination held during it can go now.
+    startPendingMigration(standBy.ueAddress);
 
     return MigrationResult(true, "Migration completed", standBy.contextId, requestNumber, "", "");
+}
+
+void MecAppMigrationManager::recordMigrationOutcome(const StandByElement& standBy,
+                                                    DecisionOutcome outcome,
+                                                    bool oldInstanceTerminated,
+                                                    const std::string& reason)
+{
+    if (!decisionLogger_)
+        return;
+
+    OrchestrationDecision decision;
+    decision.decidedAt = simTime();
+    decision.ueAddress = standBy.ueAddress;
+    decision.kind = DecisionKind::Migrate;
+    decision.outcome = outcome;
+    decision.requestNumber = standBy.request;
+
+    // Where the application ended up, read from the entry rather than assumed.
+    auto lookup = mecAppRegistry_->findAppByContextId(standBy.contextId);
+    if (lookup.found && lookup.appEntry->mecHost)
+        decision.toMEHId = lookup.appEntry->mecHost->getName();
+
+    decision.reason = reason;
+    if (!oldInstanceTerminated) {
+        decision.reason += decision.reason.empty() ? "" : "; ";
+        decision.reason += "old instance was not terminated";
+    }
+
+    decisionLogger_->record(decision);
 }
 
 bool MecAppMigrationManager::terminateOldInstance(const StandByElement& standBy)
@@ -383,6 +415,11 @@ MigrationResult MecAppMigrationManager::performMigration(int contextId, cModule*
     // Increment request counter
     unsigned int requestNumber = requestCounter_++;
 
+    // In flight from here: new instance being brought up, UE not yet
+    // retargeted. On any failure below this reverts to Placed — the old
+    // instance never stopped serving.
+    mecAppRegistry_->setAppState(contextId, MecAppRegistry::AppState::Migrating);
+
     EV << "MecAppMigrationManager::performMigration - Migration details:" << endl;
     EV << "  Old MEH: " << oldMEHId << endl;
     EV << "  New MEH: " << newMEHId << endl;
@@ -410,6 +447,7 @@ MigrationResult MecAppMigrationManager::performMigration(int contextId, cModule*
     // Get MEC Platform Manager from target MEH
     cModule* newMecpm = targetMEH->getSubmodule("mecPlatformManager");
     if (!newMecpm) {
+        mecAppRegistry_->setAppState(contextId, MecAppRegistry::AppState::Placed);
         return MigrationResult(false, "MEC Platform Manager not found on target MEH", contextId, 0, newMEHId, oldMEHId);
     }
 
@@ -419,42 +457,24 @@ MigrationResult MecAppMigrationManager::performMigration(int contextId, cModule*
     MecAppInstanceInfo* appInfo = mecpm->instantiateMEApp(createAppMsg);
 
     if (!appInfo || !appInfo->status) {
+        mecAppRegistry_->setAppState(contextId, MecAppRegistry::AppState::Placed);
         return MigrationResult(false, "Instantiation on new MEH failed", contextId, 0, newMEHId, oldMEHId);
     }
 
     EV << "MecAppMigrationManager::performMigration - App instantiated on new MEH" << endl;
     EV << "  New endpoint: " << appInfo->endPoint.addr.str() << ":" << appInfo->endPoint.port << endl;
 
-    // Step 2: Update registry with new app instance
-    MecAppRegistry::AppEntry newAppEntry;
-    newAppEntry.contextId = newContextId;
-    newAppEntry.appDId = appDesc.getAppDId();
-    newAppEntry.mecAppName = appDesc.getAppName();
-    newAppEntry.mecUeAppID = oldAppEntry->mecUeAppID;
-    newAppEntry.mecHost = targetMEH;
-    newAppEntry.vim = targetMEH->getSubmodule("vim");
-    newAppEntry.mecpm = newMecpm;
-    newAppEntry.ueSymbolicAddress = oldAppEntry->ueSymbolicAddress;
-    newAppEntry.ueAddress = oldAppEntry->ueAddress;
-    newAppEntry.uePort = oldAppEntry->uePort;
-    newAppEntry.mecAppAddress = appInfo->endPoint.addr;
-    newAppEntry.mecAppPort = appInfo->endPoint.port;
-    newAppEntry.mecAppInstanceId = appInfo->instanceId;
-    newAppEntry.isEmulated = false;
-    newAppEntry.lastAckStartSeqNum = oldAppEntry->lastAckStartSeqNum;
-    newAppEntry.lastAckStopSeqNum = oldAppEntry->lastAckStopSeqNum;
-
-    // Unregister old app entry
-    mecAppRegistry_->unregisterApp(contextId);
-
-    // Register new app entry
-    bool registered = mecAppRegistry_->registerApp(newAppEntry);
-    if (!registered) {
-        EV << "MecAppMigrationManager::performMigration - Failed to register new app entry" << endl;
+    // Step 2: record the move on the same registry entry. Same entry, same
+    // contextId — migration changes where the app runs, not which app it is.
+    // newContextId was only needed for a unique platform-side module name and
+    // is not the registry's identity.
+    if (!mecAppRegistry_->recordMigration(contextId, targetMEH, appInfo)) {
+        EV << "MecAppMigrationManager::performMigration - Failed to update registry" << endl;
         // Try to cleanup the new instance
         DeleteAppMessage* deleteMsg = new DeleteAppMessage();
         deleteMsg->setUeAppID(oldAppEntry->mecUeAppID);
         mecpm->terminateMEApp(deleteMsg);
+        mecAppRegistry_->setAppState(contextId, MecAppRegistry::AppState::Placed);
         return MigrationResult(false, "Failed to update registry", contextId, 0, newMEHId, oldMEHId);
     }
 
@@ -478,7 +498,7 @@ MigrationResult MecAppMigrationManager::performMigration(int contextId, cModule*
     standBy.oldMecpm = oldMecpm;
     standBy.mecUeAppID = oldAppEntry->mecUeAppID;
     standBy.migrationStartTime = simTime();
-    standBy.contextId = contextId;  // Old context ID for termination
+    standBy.contextId = contextId;  // entry identity — the same across the whole migration
     standBy.ueAddress = ueAddress;
 
     standByList_[requestNumber] = standBy;
@@ -487,9 +507,12 @@ MigrationResult MecAppMigrationManager::performMigration(int contextId, cModule*
     // Step 5: Schedule timeout
     scheduleTimeout(requestNumber);
 
+    // New instance up, endpoint recorded, retarget on its way to the UE.
+    mecAppRegistry_->setAppState(contextId, MecAppRegistry::AppState::AwaitingConfirmation);
+
     EV << "MecAppMigrationManager::performMigration - Migration initiated successfully" << endl;
 
-    return MigrationResult(true, "Migration initiated", newContextId, requestNumber, newMEHId, oldMEHId);
+    return MigrationResult(true, "Migration initiated", contextId, requestNumber, newMEHId, oldMEHId);
 }
 
 void MecAppMigrationManager::sendMehChangeRequest(std::string ueIp, std::string newMehAddress, int newPort, unsigned int requestNumber)
@@ -552,7 +575,8 @@ void MecAppMigrationManager::forceCompleteMigration(unsigned int requestNumber, 
     StandByElement standBy = it->second;
 
     // Terminate old instance (same reasoning as completeMigration)
-    if (!terminateOldInstance(standBy)) {
+    bool oldInstanceTerminated = terminateOldInstance(standBy);
+    if (!oldInstanceTerminated) {
         EV << "MecAppMigrationManager::forceCompleteMigration - Termination failed for request "
            << requestNumber << endl;
     }
@@ -560,32 +584,61 @@ void MecAppMigrationManager::forceCompleteMigration(unsigned int requestNumber, 
     // Clean up timeout message if not already fired
     cancelTimeout(requestNumber);
 
+    // Current policy force-completes on timeout — old instance terminated,
+    // entry Placed on the new host. Whether a timeout should instead resolve
+    // to the old host is item 3 of the plan, not this round.
+    mecAppRegistry_->setAppState(standBy.contextId, MecAppRegistry::AppState::Placed);
+
+    // Failed rather than Success: the UE never confirmed, so this migration
+    // completed without knowing the user followed it.
+    recordMigrationOutcome(standBy, DecisionOutcome::Failed, oldInstanceTerminated, reason);
+
     // Remove from standByList and index
     standByUeIndex_.erase(standBy.ueAddress);  // PERFORMANCE IMPROVEMENT: Maintain index
     standByList_.erase(it);
 
-    // PENDING MIGRATION - CHECK IF THERE ARE PENDING MIGRATIONS FOR THIS UE
-    auto pendingIt = pendingMigrations_.find(standBy.ueAddress);
-    if (pendingIt != pendingMigrations_.end() && !pendingIt->second.empty()) {
-        PendingMigration nextMigration = pendingIt->second.front();
-        pendingIt->second.pop();
-
-        EV << "MecAppMigrationManager::forceCompleteMigration - Processing queued migration" << endl;
-        EV << "  UE: " << nextMigration.ueAddress << endl;
-        EV << "  From: " << nextMigration.oldMEHId << " To: " << nextMigration.newMEHId << endl;
-        EV << "  Queued at: " << nextMigration.requestTime << endl;
-        EV << "  Remaining in queue: " << pendingIt->second.size() << endl;
-
-        // Clean up queue if empty
-        if (pendingIt->second.empty()) {
-            pendingMigrations_.erase(pendingIt);
-        }
-
-        // Start the next migration
-        migrateApp(nextMigration.ueAddress, nextMigration.newMEHId, nextMigration.oldMEHId);
-    }
+    // The flight is over either way, so a destination held during it can go now.
+    startPendingMigration(standBy.ueAddress);
 
     EV << "MecAppMigrationManager::forceCompleteMigration - Migration force-completed" << endl;
+}
+
+void MecAppMigrationManager::startPendingMigration(const std::string& ueAddress)
+{
+    auto pendingIt = pendingMigrations_.find(ueAddress);
+    if (pendingIt == pendingMigrations_.end())
+        return;
+
+    PendingMigration pending = pendingIt->second;
+    pendingMigrations_.erase(pendingIt);
+
+    EV << "MecAppMigrationManager::startPendingMigration - Held destination for UE "
+       << pending.ueAddress << ": " << pending.newMEHId
+       << " (held since " << pending.requestTime << ")" << endl;
+
+    // Asked again rather than replayed. The application moved while this was
+    // held, so the destination may be where it already sits — which is exactly
+    // the case for a user that went A -> B -> A.
+    MigrationResult result = checkIfMigrationIsNeeded(pending.ueAddress, pending.newMEHId, pending.oldMEHId);
+
+    if (!decisionLogger_)
+        return;
+
+    OrchestrationDecision decision;
+    decision.decidedAt = simTime();
+    decision.ueAddress = pending.ueAddress;
+    decision.trigger = DecisionTrigger::PendingRequest;
+    decision.fromMEHId = pending.oldMEHId;
+    decision.toMEHId = pending.newMEHId;
+    fillFromMigrationResult(decision, result);
+
+    // How long the application spent going somewhere the user had already left.
+    // Without it the log shows the move but not the cost of having waited.
+    std::ostringstream held;
+    held << "held for " << (simTime() - pending.requestTime) << "s behind a migration in flight";
+    decision.reason += decision.reason.empty() ? held.str() : "; " + held.str();
+
+    decisionLogger_->record(decision);
 }
 
 } // namespace simu5g

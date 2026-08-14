@@ -77,6 +77,12 @@ void RavensAgentApp::finish()
     recordScalar("telemetryFramesSent", telemetryFramesSent_);
     recordScalar("telemetryFramesOversized", telemetryFramesOversized_);
 
+    // The mode this Agent actually ran in, as pushed by the Controller in the
+    // handshake ACK. A results directory is named for what a run was *meant*
+    // to be; this scalar is the run's own record of what this side really did,
+    // so a derivation gone wrong is caught from the output itself.
+    recordScalar("agentModeFull", agentMode_ == FULL_MODE ? 1 : 0);
+
     if(gate("socketOut")->isConnected()){
 
     }

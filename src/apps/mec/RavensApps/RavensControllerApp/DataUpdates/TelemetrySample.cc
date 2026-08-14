@@ -1,5 +1,4 @@
-#include "LocationDataHandlerPolicyBase.h"
-#include "../DataUpdates/UserMEHUpdate.h"
+#include "TelemetrySample.h"
 
 namespace simu5g {
 
@@ -81,15 +80,4 @@ std::string cellSampleCsvHeader()
     return header;
 }
 
-void LocationDataHandlerPolicyBase::emitUserUpdate(const std::string& address,
-                                                   const std::string& lastMeh,
-                                                   const std::string& newMeh)
-{
-    UserMEHUpdate update;
-    update.setAddress(address);
-    update.setLastMEHId(lastMeh);
-    update.setNewMEHId(newMeh);
-    controllerApp_->userUpdates.insert_or_assign(address, update);
-}
-
-}
+} // namespace simu5g

@@ -232,7 +232,6 @@ network tust_1to1
         server.ppp++ <--> Eth10G <--> router.pppg++;
 
         server.hostOutGate --> mecOrchestrator.fromRavensController;
-        server.hostInGate <-- mecOrchestrator.toRavensController;
 
         // X2 connections
         gnb1.x2++ <--> Eth10G {  delay = 0.010s; } <--> gnb2.x2++;

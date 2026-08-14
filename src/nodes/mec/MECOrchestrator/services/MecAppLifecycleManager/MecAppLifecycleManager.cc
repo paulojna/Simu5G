@@ -86,18 +86,15 @@ LifecycleResult MecAppLifecycleManager::startApplication(UALCMPMessage* msg) {
 
     LifecycleResult result;
 
-    // Check if the application is already running
+    // Already running? One lookup in the right key space — check and lookup
+    // are the same call, so they cannot disagree and fall through into a
+    // duplicate instantiation.
     int ueAppID = atoi(createContextAppMsg->getDevAppId());
-    if(mecAppRegistry_->isAppAlreadyRunning(ueAppID, createContextAppMsg->getAppDId())) {
-        EV << "MecAppLifecycleManager::startApplication - Application " << createContextAppMsg->getAppDId() << " already running" << endl;
-        auto result = mecAppRegistry_->findAppByUeAddress(createContextAppMsg->getAppDId());
-        if(result.found) {
-            EV << "MecAppLifecycleManager::startApplication - Application " << createContextAppMsg->getAppDId() << " found" << endl;
-            return LifecycleResult(true, "Application already running", result.contextId, 0.0);
-        }
-        else {
-            EV << "MecAppLifecycleManager::startApplication - Application " << createContextAppMsg->getAppDId() << " not found" << endl;
-        }
+    auto running = mecAppRegistry_->findAppByUeAppId(ueAppID, createContextAppMsg->getAppDId());
+    if(running.found) {
+        EV << "MecAppLifecycleManager::startApplication - Application " << createContextAppMsg->getAppDId()
+           << " already running for UE app " << ueAppID << " (contextId " << running.contextId << ")" << endl;
+        return LifecycleResult(true, "Application already running", running.contextId, 0.0);
     }
 
     std::string appDid;
