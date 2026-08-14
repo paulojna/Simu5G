@@ -27,7 +27,12 @@ enum class DecisionTrigger {
     // held until that one finished and started then. Not ConfirmedEvent: the
     // move it carries out was asked for earlier and counting it as a fresh
     // observation would overstate what the event stream asked for.
-    PendingRequest
+    PendingRequest,
+    // An action returned by the learning engine. Distinct from ConfirmedEvent
+    // and Prediction because it rests on neither: the engine decides from a
+    // whole telemetry window, so its observedAt is the end of that window
+    // rather than the moment of any one observation.
+    LearningAction
 };
 
 // What was chosen. None is a decision in its own right and the most important one to
@@ -99,6 +104,7 @@ inline const char *decisionTriggerName(DecisionTrigger trigger)
         case DecisionTrigger::Prediction:     return "Prediction";
         case DecisionTrigger::AppRequest:     return "AppRequest";
         case DecisionTrigger::PendingRequest: return "PendingRequest";
+        case DecisionTrigger::LearningAction: return "LearningAction";
     }
     return "Unknown";
 }
