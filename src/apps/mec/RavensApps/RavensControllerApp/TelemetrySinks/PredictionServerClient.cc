@@ -1,5 +1,6 @@
 #include "PredictionServerClient.h"
 #include "apps/mec/RavensApps/RavensControllerApp/RavensControllerApp.h"
+#include "nodes/mec/utils/httpUtils/JsonValue.h"
 
 namespace simu5g {
 
@@ -9,15 +10,6 @@ static size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::stri
     output->append((char*)contents, totalSize);
     return totalSize;
 }
-
-// A simulation time has no JSON type of its own. It is written as the decimal
-// string, which is the same text the CSV writes, so a timestamp reads
-// identically whether the model is being trained or served.
-static nlohmann::json jsonValue(omnetpp::simtime_t value) { return value.str(); }
-
-// Everything else goes through as-is: strings, whole numbers, doubles.
-template <typename T>
-static nlohmann::json jsonValue(const T& value) { return value; }
 
 PredictionServerClient::PredictionServerClient(RavensControllerApp* controllerApp, const std::string& baseUrl)
     : TelemetrySink(controllerApp)
