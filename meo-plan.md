@@ -2,16 +2,28 @@
 
 Refactor 2 of three. Refactor 1 (the Controller ↔ orchestrator boundary) is done; see
 [meo-controller-plan.md](meo-controller-plan.md) for what it settled and why. Refactor 3
-(Controller ↔ external model server) is untouched and appears here only where it constrains
-this one.
+(Controller ↔ external model server) is planned in
+[controller-model-plan.md](controller-model-plan.md) and appears here only where it
+constrains this one.
 
 Naming rule: descriptive names only. No letter labels.
 
 **Landed so far** (2026-08-13), in the order below: `ensureRunDirectory`; the two views —
 `userPresence_` on the orchestrator and the promoted registry, with `AppState` and retention;
 migration keeping entry identity; the key-space fixes; the decision log wired to all three
-strategies and to both migration completion paths; predicted exits log-only (item 2).
-Remaining: items 3, 4, 5, 6, and the queued-migration policy at the end of this file.
+strategies and to both migration completion paths; predicted exits log-only (item 2); item 3,
+whose two pieces — "the fallback is the old instance" and a way out of *awaiting confirmation*
+— came with the state machine and the log; and the queued-migration policy at the end of this
+file, now one newest-destination slot per user instead of a queue.
+
+Then item 5, the reactive fallback as a switch on the proactive strategy; item 6, the
+configuration authority, with the profiles as ini sections and each module recording what it
+derived; and item 4's orchestrator side — the two views readable from a strategy, the
+`LearningStrategy` class, the HTTP boundary to the engine, and the `Learning` profile with
+its ablation. **Item 4 is written but has never been built or run, and no engine answers it
+yet**, so the arm exists as a configuration that fails at startup rather than as a result.
+That engine, and the campaign around it, is [model-plan.md](model-plan.md); the experiment
+design it sits inside is [experiments.md](experiments.md).
 
 ---
 
@@ -340,44 +352,80 @@ imply immediate consumption). Each step, the strategy:
 1. assembles the observation — the window's samples, the user view, the application view
    (per user: where the application is and its state), and, when the ablation axis is on,
    the pending predictions;
-2. sends it to the engine and receives actions in the orchestrator's own verbs — per user:
-   *instantiate on a named host*, *migrate to a named host*, *delete*, or nothing — so the
-   engine can say "remove this one from mecHost1, migrate that one to mecHost3, instantiate
-   a third on mecHost4" in a single step;
+2. sends it to the engine and receives actions;
 3. executes them through the same `IOrchestrationApi` calls every other strategy uses, so
-   the decision log and the lifecycle rules apply unchanged;
-4. sends the previous step's reward along with the next observation, so the engine sees
-   action → consequence with a one-step lag instead of a callback per action.
+   the decision log and the lifecycle rules apply unchanged.
 
 One run is one episode: a reset marker at initialization, a terminal marker at the end of the
 run.
 
-**One piece of machinery this action set requires that nothing else in the plan builds:**
-an `instantiate` for a user whose application was previously deleted must tell the UE its
-new endpoint outside a migration. Migration already carries its own notification — the UE
-receives a `DeviceAppChangeMecHostPacket` and `UEPerfApp::handleChangeMecHost` swaps
-`mecAppAddress_` / `mecAppPort_` — but that packet is produced by the migration flow. Here
-the orchestrator (or the DeviceApp, prompted by it) must drive the same packet after
-instantiation, carrying the *instantiated* endpoint out of the application view. Without it,
-a delete-then-instantiate sequence leaves the user transmitting at a dead address, and the
-action silently means nothing.
+**Decided: the action set is one verb — migrate a named user to a named host.** Waiting is
+the absence of an action. `instantiate` and `delete` were considered and dropped, and the
+reasoning is kept because it is the same test that killed shadow mode and predicted exits:
+ask what actually differs between the arms being compared.
 
-**Training is online — decided — so the reward must be computable at runtime.** The natural
-reward, what the user actually experienced, is not available while running: `lostMessages`
-and `responseTime` are UE-side statistics that go to the result file. The reward is
-therefore the proxy computable entirely from the two views the orchestrator already keeps: a
-penalty per step for every user whose application is not on the host observing them, plus a
-cost per action executed. The agent optimizes the proxy while the arm is judged on the real
-metrics, so the reward components are logged per step — if the learning arm underperforms,
-offline evaluation must be able to tell a bad method from a misspecified reward. How
-training runs relate to evaluation runs is settled in [model-plan.md](model-plan.md): train
-on the RL seed pool with exploration on, freeze, evaluate on the shared 30 seeds greedy —
-it constrains the experiment schedule, not this boundary.
+- `delete` buys nothing measurable. It frees resources in scenarios where capacity does not
+  bind, so no outcome changes.
+- It breaks the comparison. The other arms delete only on a confirmed exit; an arm that may
+  delete at will is playing a different game from the baselines it is scored against.
+- It is a hole in the reward. The proxy penalises users whose application is misplaced — so
+  deleting the application removes the penalty, and the cheapest policy under that reward is
+  to delete everyone on the first step.
 
-What lands in this round is the boundary: the strategy class, the observation / action /
-reward shapes, and the `Learning` profile row in item 6. The engine itself, and the training
-campaign around repeated runs, is the external-model work planned in
+`instantiate` existed only to make `delete` reversible, so it went with it. **Removal on a
+confirmed exit stays, executed by the strategy itself exactly as `RemoveOnExit` does it**, so
+deletion remains a rule of the system rather than a decision the agent makes. The engine
+decides *where* applications live, never *whether*.
+
+Dropping the pair also removes the one piece of machinery this item would otherwise have had
+to build: telling a UE its new endpoint outside a migration. Migration carries its own
+notification (`DeviceAppChangeMecHostPacket`, swapped by `UEPerfApp::handleChangeMecHost`),
+and with no re-instantiation there is nothing left needing that packet driven by hand.
+
+**Timing is not a separate verb.** The decision step is the telemetry window, so acting on
+the window before a handover is a proactive migration and acting on the window after it is a
+reactive one. *When* is expressed by which step the engine chooses to act on, which is also
+what makes this arm comparable to the other two rather than a different kind of thing.
+
+**Decided: the reward is computed by the engine, not by the orchestrator.** Both components —
+users whose application is not on the host observing them, and the cost of each action — are
+derivable from the observation the engine already receives, since it carries both views and
+the refused actions. Nothing needs to be held on the simulation side, and no `reward` field
+crosses the boundary.
+
+The reason to put it there rather than here is that reward shaping is the most-tuned thing in
+the project, and a penalty weight should not require rebuilding the simulator. There is also
+a real definitional choice inside it — "the host observing them" is `lastObservedMEH`
+(telemetry, possibly stale or absent) or `currentMEH` (events) — which belongs on the side
+that can be changed freely. The one-step lag the loop was designed around is unaffected: it
+is a property of the loop, not of who does the arithmetic.
+
+The reward stays a *proxy*, for the reason that has not changed: training is online, and what
+the user actually experienced is not available at runtime — `lostMessages` and `responseTime`
+are UE-side statistics that go to the result file. The agent optimises the proxy while the arm
+is judged on the real metrics, so the engine logs the reward components per step; if the
+learning arm underperforms, offline evaluation must be able to tell a bad method from a
+misspecified reward. How training runs relate to evaluation runs is settled in
 [model-plan.md](model-plan.md).
+
+**The boundary is HTTP and JSON**, the same transport and library the Controller already uses
+for the prediction server: `POST {baseUrl}/reset` opens an episode and returns an id the
+server assigns; `POST {baseUrl}/step` carries the observation and answers with actions; the
+terminal marker is a step flagged as such. Three things differ from the prediction client
+deliberately — one curl handle held for the run rather than one per request, a bounded retry
+on transport errors only, and **failure that stops the run**. An unanswered step must never
+read as an empty action list: the two are indistinguishable downstream, and a fabricated
+all-wait paired with a real transition corrupts what the engine learns from it.
+
+Refused actions are recorded as decisions and handed back in the next observation. An action
+that vanishes silently is, to the engine, the same as one it never sent.
+
+What lands in this round is the boundary: the strategy class, the observation and action
+shapes, and the `Learning` profile in item 6. The engine itself, and the training campaign
+around repeated runs, is the external-model work planned in
+[model-plan.md](model-plan.md). What is varied *around* this arm — the oracle baseline, the
+information-freshness sweep, and capacity as a load factor — is in
+[experiments.md](experiments.md).
 
 ### 5. Prediction sub-profiles
 
