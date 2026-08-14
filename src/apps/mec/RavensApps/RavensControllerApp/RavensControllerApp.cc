@@ -31,11 +31,13 @@ static inet::B controlLinkChunkLength() { return inet::B(1500); }
 RavensControllerApp::RavensControllerApp(){
     closeTelemetryWindowMsg_ = nullptr;
     expireHoldsMsg_ = nullptr;
+    deliverPredictionsMsg_ = nullptr;
 }
 
 RavensControllerApp::~RavensControllerApp(){
     cancelAndDelete(closeTelemetryWindowMsg_);
     cancelAndDelete(expireHoldsMsg_);
+    cancelAndDelete(deliverPredictionsMsg_);
 }
 
 void RavensControllerApp::finish(){
@@ -52,6 +54,11 @@ void RavensControllerApp::finish(){
     // from the output instead of trusted from the directory name.
     recordScalar("derivedCollectTelemetry", collectTelemetry_ ? 1 : 0);
     recordScalar("derivedCallModelServer", callModelServer_ ? 1 : 0);
+
+    // Whatever the sinks counted across the run, recorded while this module is
+    // still whole enough to record it.
+    for (auto& sink : telemetrySinks_)
+        sink->onRunFinished();
 
     if (udpSocket.isOpen())
         udpSocket.close();
@@ -128,7 +135,8 @@ void RavensControllerApp::initialize(int stage){
     }
     if (callModelServer_) {
         EV << "RavensControllerApp::initialize - prediction server at " << predictionServerUrl << endl;
-        telemetrySinks_.push_back(std::make_unique<PredictionServerClient>(this, predictionServerUrl));
+        telemetrySinks_.push_back(std::make_unique<PredictionServerClient>(
+            this, predictionServerUrl, par("predictionServerTimeout")));
     }
 
     ravensLinkPacketFilter.setPattern("RavensLink*");
@@ -201,6 +209,18 @@ void RavensControllerApp::handleSelfMessage(cMessage *msg){
         closeTelemetryWindow();
         scheduleAt(simTime() + telemetryWindow_, msg);
     }
+    else if(strcmp(msg->getName(), "deliverPredictions") == 0)
+    {
+        // Everything whose inference time has elapsed. More than one batch can
+        // come due at the same instant, and the timer fires once for all of them.
+        while (!pendingPredictions_.empty() && pendingPredictions_.begin()->first <= simTime()) {
+            publishPredictions(pendingPredictions_.begin()->second);
+            pendingPredictions_.erase(pendingPredictions_.begin());
+        }
+
+        if (!pendingPredictions_.empty())
+            scheduleAt(pendingPredictions_.begin()->first, msg);
+    }
     else if(strcmp(msg->getName(), "expireHolds") == 0)
     {
         // Confirm departures even when no event frame has arrived to drive
@@ -257,15 +277,57 @@ void RavensControllerApp::publishUserEvent(const UserEvent& event, int samplesSi
 }
 
 /*
-    Forwards predictions the moment the model server answers.
+    Holds the model server's answer for as long as the model took to produce it,
+    then sends it on.
 
-    No tick, for a reason particular to this stream: a proactive migration is
-    only useful if it finishes before the user arrives, so the model's horizon
-    has to cover the telemetry interval, its own inference time, this hop, and
-    the twelve seconds a migration takes. Every second spent waiting here is a
-    second further ahead the model must have predicted. The old two-second tick
-    was not just a delay but an unpredictable one — the same handover needed a
-    different horizon depending on where it happened to land between ticks.
+    The wait exists because the request does not cost simulated time. The call
+    blocks the process, which costs wall-clock while a run executes, but no
+    simulated time passes — so without this the model answers instantly in the
+    only clock the results are measured in, and inference is free precisely in
+    the arm whose case rests on what information costs to acquire.
+
+    It cannot be the measured duration of the call instead. That depends on the
+    machine, on whether the server was warm, on what else was running; a run
+    would not reproduce anywhere else. inferenceTime is declared, so it is part
+    of the configuration a result is read against.
+
+    This is not the old two-second tick, which was removed and should not come
+    back. That was quantisation: the same handover needed a different horizon
+    depending on where it happened to fall between ticks. This is a modelled
+    cost, applied to every answer alike.
+*/
+void RavensControllerApp::deliverPredictions(const std::vector<MigrationPrediction>& predictions)
+{
+    if (predictions.empty())
+        return;
+
+    simtime_t dueAt = simTime() + par("inferenceTime").doubleValue();
+    pendingPredictions_.emplace(dueAt, predictions);
+
+    // One timer, always set to the earliest batch still waiting. Re-aimed when
+    // this batch is due sooner than whatever it was already waiting for, which a
+    // volatile inferenceTime makes possible.
+    if (deliverPredictionsMsg_ == nullptr)
+        deliverPredictionsMsg_ = new cMessage("deliverPredictions");
+
+    if (!deliverPredictionsMsg_->isScheduled() || deliverPredictionsMsg_->getArrivalTime() > dueAt) {
+        cancelEvent(deliverPredictionsMsg_);
+        scheduleAt(dueAt, deliverPredictionsMsg_);
+    }
+
+    EV << "RavensControllerApp::deliverPredictions - " << predictions.size()
+       << " predictions held until " << dueAt << endl;
+}
+
+/*
+    Sends predictions to the orchestrator.
+
+    No tick beyond the inference time above, for a reason particular to this
+    stream: a proactive migration is only useful if it finishes before the user
+    arrives, so the model's horizon has to cover the telemetry window, its own
+    inference time, this hop, and the twelve seconds a migration takes. Every
+    second spent waiting here is a second further ahead the model must have
+    predicted.
 */
 void RavensControllerApp::publishPredictions(const std::vector<MigrationPrediction>& predictions)
 {
@@ -324,6 +386,14 @@ void RavensControllerApp::closeTelemetryWindow()
            << windowReportingMEHs_.size() << " hosts" << endl;
     }
 
+    // After the orchestrator's copy is on its way, and before the buffers are
+    // cleared. A sink shipping this window to a server outside the simulation
+    // blocks for as long as that takes, and there is no reason for the
+    // orchestrator's message to wait behind it.
+    for (auto& sink : telemetrySinks_)
+        sink->onTelemetryWindow(windowStart_, simTime(), windowReportingMEHs_,
+                                windowUserSamples_, windowCellSamples_);
+
     windowUserSamples_.clear();
     windowCellSamples_.clear();
     windowReportingMEHs_.clear();
@@ -355,9 +425,10 @@ void RavensControllerApp::socketDataArrived(inet::UdpSocket *socket, inet::Packe
                 windowReportingMEHs_.push_back(reportingMEH);
 
             updateUserStateMap(dataFrame);
-            // Contents first, then the frame-level hook: a sink that ships the
-            // whole frame in one request needs everything in hand before it can
-            // send, so onTelemetryFrame() doubles as "that was the frame".
+            // Contents first, then the frame-level hook, which marks the end of
+            // the frame for a sink keeping per-frame bookkeeping — the CSV
+            // recorder flushes on it. Shipping observations elsewhere hangs off
+            // the window instead, in closeTelemetryWindow().
             dispatchUserSamples(dataFrame);
             dispatchCellSamples(dataFrame);
             for (auto& sink : telemetrySinks_)

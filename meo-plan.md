@@ -25,6 +25,16 @@ yet**, so the arm exists as a configuration that fails at startup rather than as
 That engine, and the campaign around it, is [model-plan.md](model-plan.md); the experiment
 design it sits inside is [experiments.md](experiments.md).
 
+**Refactor 3 has since landed too** (2026-08-14) — all eight items of
+[controller-model-plan.md](controller-model-plan.md). Two of its decisions reach into this
+document. The prediction stream now waits out a declared `inferenceTime` before the
+orchestrator sees it, because the request costs wall-clock but no simulated time and inference
+was free in the clock the results are measured in; a window's predictions therefore arrive
+after that window's telemetry, so the learning strategy reads them at the following step, in
+both halves of the ablation alike. And a prediction's `observedAt` is now the newest
+observation of *its own user* rather than the frame's timestamp, which needed no change here —
+nothing on this side computes with it. Like item 4, none of it has been built or run.
+
 ---
 
 ## Scope

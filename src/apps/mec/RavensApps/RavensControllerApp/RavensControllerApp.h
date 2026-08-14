@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <iostream>
 #include <fstream>
+#include <map>
 #include <memory>
 
 namespace simu5g {
@@ -110,6 +111,21 @@ class RavensControllerApp: public inet::ApplicationBase,
         cMessage *closeTelemetryWindowMsg_; // periodic close of the telemetry window
         cMessage *expireHoldsMsg_;          // periodic sweep for elapsed exit confirmation windows
 
+        // Predictions waiting out the model's inference time, keyed by when they
+        // are due. See deliverPredictions() for why they wait at all.
+        //
+        // A multimap rather than one pending batch: inferenceTime is volatile, so
+        // it may be drawn from a distribution, and a short draw can legitimately
+        // overtake a long one. Keyed by due time, the earliest is always the next
+        // one out however they were scheduled.
+        std::multimap<simtime_t, std::vector<MigrationPrediction>> pendingPredictions_;
+
+        // One timer for all of them, always set to the earliest due time, rather
+        // than one message per batch. Keeps the teardown the same as every other
+        // timer here — a single cancelAndDelete — instead of a set of in-flight
+        // messages to chase.
+        cMessage *deliverPredictionsMsg_;
+
     protected:
         virtual void initialize(int stage) override;
         virtual void finish() override;
@@ -176,10 +192,17 @@ class RavensControllerApp: public inet::ApplicationBase,
         RavensControllerApp();
         ~RavensControllerApp();
 
-        // Forwards predictions to the orchestrator as they are produced. Public
+        // Takes predictions from the model server and hands them to the
+        // orchestrator once the model's inference time has elapsed. Public
         // because PredictionServerClient calls it — the sinks used to reach into
         // a member map through a friend declaration, which meant four classes
         // could write the Controller's outbound state.
+        //
+        // A sink cannot do the waiting itself: scheduling belongs to a module,
+        // and a sink is not one.
+        void deliverPredictions(const std::vector<MigrationPrediction>& predictions);
+
+        // Sends them on. Called by deliverPredictions() when the wait is over.
         void publishPredictions(const std::vector<MigrationPrediction>& predictions);
 };
 

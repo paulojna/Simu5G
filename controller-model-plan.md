@@ -12,6 +12,17 @@ The models themselves — what they are, how they are trained, which seeds they 
 
 Naming rule: descriptive names only. No letter labels.
 
+**Landed (2026-08-14).** All eight items below, in three passes: items 3, 7 and 8 (one curl
+handle held for the run, the protocol version, `/reset` failing loudly); item 2 (the failure
+counters and the timeout parameter); then item 1 with items 4, 5 and 6 folded into the same
+payload change. Two decisions were made while implementing that are not in the items — the
+inference time and the per-user `observedAt` — and both are recorded under *Decided while
+implementing* below.
+
+`PROTOCOL_VERSION` is 2. **Nothing has been built or run**, and no server speaks version 2
+yet, so a proactive run currently stops at startup on the version handshake — which is the
+handshake working.
+
 ---
 
 ## Scope
@@ -164,11 +175,69 @@ warning — the one place this boundary should refuse to proceed.
 
 ---
 
+## Decided while implementing
+
+Neither of these is in the items above. Both were found by asking what a window actually
+means, which is a question the per-frame shape never raised.
+
+### Inference time is declared, because the call does not cost simulated time
+
+This corrects what this document used to say. It read that the call is left blocking *because*
+inference time is a real term in the horizon budget and letting simulated time run during the
+call would hide it. That is backwards. `curl_easy_perform` blocks the process: it costs
+wall-clock while a run executes, and the simulation clock does not move. Inference was
+therefore free in the only clock the results are measured in — in the one arm whose case rests
+on information costing something to acquire.
+
+The fix is not to measure the call. Wall-clock depends on the machine, on whether the server
+was warm, on what else was running, so a run would not reproduce anywhere else. It is a
+declared parameter, `inferenceTime`, volatile so it can be a constant or a distribution. The
+Controller holds the answer for that long before the orchestrator sees it
+(`deliverPredictions`), because scheduling belongs to a module and a sink is not one.
+
+This is not the two-second tick that was removed and should not come back. That was
+quantisation — the same handover needed a different horizon depending on where it fell between
+ticks. This is a modelled cost applied to every answer alike.
+
+**It defaults to 0, which is what every run before it did, and no configuration sets it yet.**
+Until one does, inference is still free. The value has to be measured from the real server.
+
+**Consequence for the learning arm, which is a property rather than a compromise:** a window's
+predictions now reach the orchestrator after the window message they were derived from, so
+they are read at the *next* decision step. That is the truth — inference has not finished when
+the window closes — and it is identical in both halves of the ablation.
+
+### `observedAt` is per user, not per window
+
+A window is not an instant. It holds a second's worth of rows from every host, so the user
+whose host reported just after the window opened is a great deal staler than the one whose
+host reported just before it closed. Stamping both with the window's end understates the first
+by up to a whole interval, and which user that happens to depends only on where its host's
+frame fell in the window — so it is not even a bias that could be subtracted out afterwards.
+
+Each prediction therefore carries the newest `locationTimestamp` of *its own user*, kept in
+`newestObservation_` and built while the request is packed. `locationTimestamp` rather than
+`frameSentAt`, which is identical for every row in a frame and says when the Agent shipped the
+batch rather than when the position was measured.
+
+The map is kept for the run rather than the window, because the server holds its own per-user
+history and can answer about a user the current window did not contain. "Three seconds old" is
+exactly what the orchestrator should be told there; resetting each window could only say
+"unknown". A user no window has ever carried keeps `observedAt = -1` and is warned about — the
+server answering about somebody the simulation never showed it.
+
+**This needed no orchestrator change.** `observedAt` is carried and logged there, never
+computed with: the timing arithmetic in `MigrateOnPrediction` uses `expectedAt`, and
+`ScheduledPrediction` was already one entry per user. Nothing assumed the predictions in one
+reply shared a timestamp.
+
+---
+
 ## What is deliberately not changed
 
-- **The blocking call.** Inference time is a real term in whether a proactive migration
-  finishes before the user arrives, and letting simulated time run during it would hide the
-  thing the arm measures.
+- **The blocking call.** It stays synchronous so that a run cannot proceed past a window whose
+  predictions have not arrived, which would make the order of the streams depend on the
+  server's speed. What it does *not* do is model inference time — see above.
 - **The field list.** `UserSample` and `CellSample` are what the models are trained on; a
   renamed column is a retrained model. Item 4 changes the *response* vocabulary, not the
   request's.
@@ -177,22 +246,59 @@ warning — the one place this boundary should refuse to proceed.
 
 ---
 
-## Suggested order
+## The wire, as it now stands
 
-1. **Items 3, 7 and 8** — connection reuse, the version field, and `/reset` becoming an error.
-   Small, independent of the payload work, and item 7 has to exist before the wire changes or
-   the first mismatch is undiagnosable.
-2. **Item 2** — the failure counter and the timeout parameter. Before any campaign, because it
-   is what proves a proactive run was actually proactive.
-3. **Item 1** — per-window batching, with items 4, 5 and 6 folded into the same payload change.
-   One breaking change, one server update, one version bump, rather than four.
-4. Re-run one short proactive configuration and compare the decision log against a run from
-   before the change: the same seeds should produce the same *decisions*, only fewer and
-   larger requests.
+Protocol version 2, checked at `/reset`. Recorded here because the other end of this boundary
+lives in another repository and is written against this section.
 
-Step 4 matters more than usual here. Item 1 changes what the model sees — a window rather than
-a host's slice — so predictions may legitimately differ, and a plan that cannot tell "the model
-now sees more" from "the payload broke" will not be able to say which happened.
+`POST /reset` carries `{"protocolVersion": 2}` and must answer HTTP 200 with a body containing
+`protocolVersion`. Anything else ends the run: unreachable, non-200, a body that is not JSON,
+no version field, or a version that is not 2. The acknowledgement is required rather than
+checked-if-present — a server that says nothing about the version predates the handshake, and
+reading its silence as agreement would leave exactly the mismatch the handshake exists to catch.
+
+`POST /predict`, once per telemetry window:
+
+```json
+{
+  "windowStart": 10.0,
+  "windowEnd": 11.0,
+  "reportingMEHs": ["mecHost1", "mecHost2"],
+  "userSamples": [ { "TimestampSent": …, "LocationTimestamp": …, "UEId": …, "MEHId": …, … } ],
+  "cellSamples": [ { "TimestampSent": …, "RadioTimestamp": …, "MEHId": …, "CellId": …, … } ]
+}
+```
+
+Flat rows, keys exactly as `forEachField` writes them, no top-level host id. One row per
+(user, observing host) — a user crossing hosts mid-window appears twice, which is the point.
+`reportingMEHs` separates a host that saw nobody from a host whose frame was lost. A window
+with no rows is still sent: the server advances its per-user history by window, and a skipped
+one reads as time not passing.
+
+The reply is an array; `UEId`, `MEHId`, `NextMEHId` and `ExpectedAt` are required, `Confidence`
+and `ModelId` optional and defaulting to unstated. An empty `NextMEHId` is a predicted exit.
+**With nothing to predict the server returns `[]`, not an empty body** — it answered, so it
+owes an array, and silence is counted as a malformed reply.
+
+**The simulator shapes nothing.** Grouping rows into per-user sequences, windowing, derived
+features: all of it belongs to the server, which does the same work offline when it trains.
+Two implementations of "which rows belong to this user, in what order" is how a training set
+and a served payload drift apart with nothing at runtime revealing it.
+
+---
+
+## What is left
+
+1. **Set `inferenceTime`.** No configuration does, so it is 0 and inference is still free.
+   Needs a measurement of the real server, then a value in the proactive and learning profiles.
+2. **The server, at version 2.** Being rewritten with the new model.
+3. **Build, then compare one short proactive run against a decision log from before.** The same
+   seeds should produce the same *decisions*, only fewer and larger requests.
+
+Step 3 matters more than usual. Item 1 changed what the model sees — a window rather than a
+host's slice — so predictions may legitimately differ, and a check that cannot tell "the model
+now sees more" from "the payload broke" will not be able to say which happened. Compare the
+decision logs, not the outcomes.
 
 ---
 
@@ -206,3 +312,8 @@ is why it comes before the payload change rather than with it.
 the per-user sequences the model consumes, so a trained model should carry over — but that is a
 belief, not a fact, until a run confirms it. Check it on the offline test split before spending
 simulation time on it.
+
+**`inferenceTime` left at 0 is a silent version of the problem it was added for.** A run
+configured that way is not wrong, it is just measuring a model server that answers instantly,
+and nothing in the output says so — the parameter is recorded in the run's configuration and
+nowhere else. Worth reading off the configuration before comparing lead times across runs.
