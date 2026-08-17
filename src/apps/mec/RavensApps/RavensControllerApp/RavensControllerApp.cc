@@ -14,6 +14,7 @@
 #include "TelemetrySinks/CsvEventRecorder.h"
 #include "TelemetrySinks/CsvTelemetryRecorder.h"
 #include "TelemetrySinks/PredictionServerClient.h"
+#include "TelemetrySinks/OracleTraceSource.h"
 
 #define MAX_MEH_STATE_MAP_SIZE 15
 
@@ -32,12 +33,14 @@ RavensControllerApp::RavensControllerApp(){
     closeTelemetryWindowMsg_ = nullptr;
     expireHoldsMsg_ = nullptr;
     deliverPredictionsMsg_ = nullptr;
+    oracleTraceMsg_ = nullptr;
 }
 
 RavensControllerApp::~RavensControllerApp(){
     cancelAndDelete(closeTelemetryWindowMsg_);
     cancelAndDelete(expireHoldsMsg_);
     cancelAndDelete(deliverPredictionsMsg_);
+    cancelAndDelete(oracleTraceMsg_);
 }
 
 void RavensControllerApp::finish(){
@@ -54,6 +57,12 @@ void RavensControllerApp::finish(){
     // from the output instead of trusted from the directory name.
     recordScalar("derivedCollectTelemetry", collectTelemetry_ ? 1 : 0);
     recordScalar("derivedCallModelServer", callModelServer_ ? 1 : 0);
+
+    // Where this run's predictions came from. Without it an oracle run and a
+    // proactive one differ, in their own output, only in scalars the trace
+    // source happens to add — and a proactive run whose server was down would
+    // look much the same. Stated outright, the two are never confused.
+    recordScalar("derivedReplayOracleTrace", oracleTraceSource_ != nullptr ? 1 : 0);
 
     // Whatever the sinks counted across the run, recorded while this module is
     // still whole enough to record it.
@@ -84,31 +93,50 @@ void RavensControllerApp::initialize(int stage){
     std::string predictionServerUrl = par("predictionServerUrl").stdstringValue();
     bool recordTelemetry = par("recordTelemetry");
 
+    // The oracle arm replaces the model server rather than adding to it: setting
+    // a trace file is how a run says its predictions come from a recording. The
+    // two are exclusive by construction, so nothing downstream ever has to
+    // reconcile two prediction streams arriving at once — and, below, an oracle
+    // run needs no telemetry at all, since nothing is predicting from it.
+    std::string oracleTraceFile = par("oracleTraceFile").stdstringValue();
+    bool replayOracleTrace = !oracleTraceFile.empty();
+
     // Whether the Agents send telemetry is derived, not configured: they send
     // exactly when something downstream consumes it. Every possible consumer
     // is known right here — the telemetry recorder, the model server (called
-    // exactly when the orchestrator's strategy consumes predictions), or the
-    // orchestrator itself. The orchestrator is the authority: it is asked what
-    // it consumes, and the Controller's duties and the Agents' mode follow. A
-    // run whose strategy needs predictions while its Agents send nothing to
-    // predict from can no longer be written, so the startup check that used to
-    // catch that combination is gone along with the switch that allowed it.
+    // exactly when the orchestrator's strategy consumes predictions and those
+    // predictions come from a server), or the orchestrator itself. The
+    // orchestrator is the authority: it is asked what it consumes, and the
+    // Controller's duties and the Agents' mode follow. A run whose strategy
+    // needs predictions while its Agents send nothing to predict from can no
+    // longer be written, so the startup check that used to catch that
+    // combination is gone along with the switch that allowed it.
     //
     // This stays the expensive switch, and the only one that changes the
     // simulated network: telemetry frames cross the modelled link, so a run
     // with them off has genuinely less signaling traffic, not merely less
     // bookkeeping.
     bool orchestratorWantsTelemetry = false;
+    bool orchestratorWantsPredictions = false;
+
+    // Only the oracle source reads this, to check its lead time against what the
+    // orchestrator will do with it. Taken from the orchestrator rather than
+    // declared again here: two copies of a migration's duration would eventually
+    // disagree, and the one that matters is the one migrations are timed by.
+    double orchestratorMigrationTime = 0;
+
     if (gate("outGate")->isConnected()) {
         auto *orchestrator = check_and_cast<MecOrchestrator *>(
             gate("outGate")->getPathEndGate()->getOwnerModule());
-        callModelServer_ = orchestrator->consumesPredictions();
+        orchestratorWantsPredictions = orchestrator->consumesPredictions();
         orchestratorWantsTelemetry = orchestrator->consumesTelemetry();
+        orchestratorMigrationTime = orchestrator->par("migrationTime").doubleValue();
     }
     else {
         EV_WARN << "RavensControllerApp::initialize - outGate is not connected: no "
                 << "orchestrator downstream, deriving from the recording duties alone" << endl;
     }
+    callModelServer_ = orchestratorWantsPredictions && !replayOracleTrace;
     collectTelemetry_ = recordTelemetry || callModelServer_ || orchestratorWantsTelemetry;
     agentMode_ = collectTelemetry_ ? FULL_MODE : EVENT_ONLY_MODE;
 
@@ -118,10 +146,21 @@ void RavensControllerApp::initialize(int stage){
        << (collectTelemetry_ ? "full" : "event-only") << " mode" << endl;
 
     // The one input the derivation cannot supply: a strategy that consumes
-    // predictions needs a server address to get them from.
+    // predictions needs somewhere to get them from, and only configuration knows
+    // which of the two it is.
     if (callModelServer_ && predictionServerUrl.empty())
         throw cRuntimeError("RavensControllerApp::initialize - the orchestrator's strategy "
-                            "consumes predictions but predictionServerUrl is empty");
+                            "consumes predictions but predictionServerUrl is empty and no "
+                            "oracleTraceFile is set");
+
+    // The mirror of it. A trace nobody reads is a run configured as the oracle
+    // arm that would produce a reactive result under an oracle's name — the same
+    // class of silent mismatch the telemetry derivation was built to make
+    // unwritable, so it is refused here in the same way.
+    if (replayOracleTrace && !orchestratorWantsPredictions)
+        throw cRuntimeError("RavensControllerApp::initialize - oracleTraceFile is set but the "
+                            "orchestrator's strategy does not consume predictions; the trace "
+                            "would be replayed to nobody");
 
     // Events are cheap to record and are what a run is judged by, so this stays
     // on in configurations that record no telemetry at all.
@@ -137,6 +176,20 @@ void RavensControllerApp::initialize(int stage){
         EV << "RavensControllerApp::initialize - prediction server at " << predictionServerUrl << endl;
         telemetrySinks_.push_back(std::make_unique<PredictionServerClient>(
             this, predictionServerUrl, par("predictionServerTimeout")));
+    }
+    if (replayOracleTrace) {
+        EV << "RavensControllerApp::initialize - replaying the oracle trace " << oracleTraceFile << endl;
+        auto source = std::make_unique<OracleTraceSource>(
+            this, oracleTraceFile, par("oracleLeadTime").doubleValue(), orchestratorMigrationTime);
+
+        // Held apart as well as owned by the sink list, because this one has to
+        // be driven: it produces on its own schedule instead of reacting to
+        // telemetry, and only a module can hold a timer.
+        oracleTraceSource_ = source.get();
+        telemetrySinks_.push_back(std::move(source));
+
+        oracleTraceMsg_ = new cMessage("oracleTrace");
+        scheduleAt(oracleTraceSource_->nextDueTime(), oracleTraceMsg_);
     }
 
     ravensLinkPacketFilter.setPattern("RavensLink*");
@@ -220,6 +273,18 @@ void RavensControllerApp::handleSelfMessage(cMessage *msg){
 
         if (!pendingPredictions_.empty())
             scheduleAt(pendingPredictions_.begin()->first, msg);
+    }
+    else if(strcmp(msg->getName(), "oracleTrace") == 0)
+    {
+        // The recorded moves that have come due. Deliberately not routed through
+        // deliverPredictions(): that applies the model's inference time, and an
+        // oracle does not have one. The lead time already in the trace is the
+        // whole of this arm's timing.
+        oracleTraceSource_->releaseDue();
+
+        simtime_t next = oracleTraceSource_->nextDueTime();
+        if (next >= SIMTIME_ZERO)
+            scheduleAt(next, msg);
     }
     else if(strcmp(msg->getName(), "expireHolds") == 0)
     {

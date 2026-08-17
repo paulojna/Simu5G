@@ -80,6 +80,45 @@ simple RavensControllerApp like IApp
         // did. It is a value to measure and set, not one to leave.
         volatile double inferenceTime = default(0);
 
+        // --- The oracle arm --------------------------------------------------
+        //
+        // A CSV of the moves that actually happened, recorded by an earlier
+        // CollectHistory run and replayed here as predictions. Set, it takes the
+        // place of the model server: the orchestrator consumes predictions
+        // exactly as it does under Proactive, and cannot tell where they came
+        // from. Empty — the normal case — and none of this exists.
+        //
+        // Columns: carIndex,expectedAt,fromCell,toCell. One row per handover,
+        // both cells non-zero; attach and detach are left to RAVENS, which still
+        // reports entries and exits in this arm as in every other.
+        //
+        // Keyed by car index rather than by address, and this is not a
+        // convenience. A UE's IP is addressBase + its OMNeT++ module id, and
+        // module ids count every module ever created — including the MEC
+        // applications the orchestrator creates and deletes as the run goes on.
+        // Two arms therefore give the same car different addresses. The Veins car
+        // index comes from SUMO insertion order and is identical across arms, so
+        // it is the only identity that survives the trip between runs.
+        //
+        // The file must come from the same repetition as the run replaying it;
+        // build the path from ${repetition} and the pairing cannot drift.
+        string oracleTraceFile = default("");
+
+        // How far ahead of each move its prediction is delivered (s).
+        //
+        // Bounded on both sides. Below the orchestrator's migrationTime the
+        // migration cannot finish before the user arrives, so the arm stops being
+        // an upper bound and latePredictions counts every row. Above
+        // migrationTime plus the shortest gap between two moves of one car, the
+        // second prediction reaches MigrateOnPrediction while the first is still
+        // pending and cancels it — one entry per user is all that strategy keeps
+        // — and the car skips a host it should have visited.
+        //
+        // The default sits just above the 12s default migrationTime, which is the
+        // safe end: it cannot trip the ceiling whatever the trace looks like. Read
+        // the shortest dwell off the trace before raising it.
+        double oracleLeadTime @unit("s") = default(13s);
+
         // --- Timing ----------------------------------------------------------
         //
         // How often an Agent sends telemetry frames (s). Pushed to Agents in the
