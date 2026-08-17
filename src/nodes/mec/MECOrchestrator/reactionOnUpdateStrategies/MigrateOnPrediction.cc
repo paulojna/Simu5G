@@ -46,11 +46,19 @@ MigrateOnPrediction::~MigrateOnPrediction()
         owner_->cancelAndDelete(scheduled.msg);
     }
     scheduledPredictions_.clear();
+}
 
-    // Also visible per decision in the log: a row whose reason says the
-    // prediction was late. This total is the quick read of the same fact.
-    std::cout << "[MigrateOnPrediction] predictions that arrived too late to schedule properly: "
-              << latePredictions_ << std::endl;
+// What the prediction stream was worth in the one respect a decision log makes
+// awkward to total up.
+//
+// Also visible per decision — a row whose reason says the prediction was late —
+// but as a scalar it can be read across thirty repetitions without parsing every
+// log. Zero is the expected value for the oracle arm, which delivers every move
+// with a second of slack over migrationTime: a non-zero count there means the
+// lead time is misconfigured or the trace no longer describes the run.
+void MigrateOnPrediction::onRunFinished()
+{
+    owner_->recordScalar("latePredictions", latePredictions_);
 }
 
 // ─── Correction path: confirmed events ───

@@ -600,6 +600,12 @@ T* safe_check_and_cast(U* ptr) {
     {
         if (learningStrategy_ != nullptr)
             learningStrategy_->closeEpisode();
+
+        // Whatever the strategy counted across the run, recorded while this
+        // module is still whole enough to record it. A strategy's own destructor
+        // runs after finish(), by which point recordScalar() writes nothing.
+        if (reactionOnUpdate_ != nullptr)
+            reactionOnUpdate_->onRunFinished();
     }
 
     void MecOrchestrator::getConnectedMecHosts()

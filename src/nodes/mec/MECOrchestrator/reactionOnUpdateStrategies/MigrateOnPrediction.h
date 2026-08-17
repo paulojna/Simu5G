@@ -95,6 +95,7 @@ class MigrateOnPrediction : public ReactionOnUpdate
     virtual void reactOnUpdate(const simu5g::UserEvent&) override;
     virtual void reactOnUpdate(const std::vector<simu5g::MigrationPrediction>&) override;
     virtual void handleScheduledEvent(omnetpp::cMessage* msg) override;
+    virtual void onRunFinished() override;
 };
 
 }
