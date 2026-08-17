@@ -44,6 +44,15 @@ class ReactionOnUpdate
                                   const std::vector<CellSample>& cellSamples) {}
 
     virtual void handleScheduledEvent(omnetpp::cMessage*) {} // default no-op for strategies that don't schedule events
+
+    // The run is ending. A strategy that counted something across it records it
+    // here, not in its destructor: strategies are destroyed with the
+    // orchestrator, which happens after finish(), and recordScalar() on a module
+    // already being torn down records nothing. Called from
+    // MecOrchestrator::finish() while the module is still whole — the same
+    // reason TelemetrySink::onRunFinished exists on the Controller side.
+    virtual void onRunFinished() {}
+
     virtual ~ReactionOnUpdate() {}
 };
 

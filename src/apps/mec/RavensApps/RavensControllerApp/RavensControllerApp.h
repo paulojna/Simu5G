@@ -57,6 +57,7 @@ struct UserState
 };
 
 class TelemetrySink;
+class OracleTraceSource;
 
 class RavensControllerApp: public inet::ApplicationBase,
                            public inet::UdpSocket::ICallback,
@@ -125,6 +126,16 @@ class RavensControllerApp: public inet::ApplicationBase,
         // timer here — a single cancelAndDelete — instead of a set of in-flight
         // messages to chase.
         cMessage *deliverPredictionsMsg_;
+
+        // The oracle arm's prediction source, when this run is one. Non-owning:
+        // the object lives in telemetrySinks_ with every other sink, and this
+        // only exists because the trace has to be driven by a timer, which is
+        // the one thing a sink cannot do for itself.
+        //
+        // Null in every other run, which is also how the timer below stays
+        // unscheduled.
+        OracleTraceSource *oracleTraceSource_ = nullptr;
+        cMessage *oracleTraceMsg_;
 
     protected:
         virtual void initialize(int stage) override;

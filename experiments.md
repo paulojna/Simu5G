@@ -52,7 +52,7 @@ the first paragraph from an assertion about other people's work into a number in
 
 | Arm | Strategy | Consumes | Role |
 |---|---|---|---|
-| `Oracle` | reactive, ground-truth fed | the recorded true association | upper bound; the assumption the literature makes |
+| `Oracle` | `MigrateOnPrediction` | events + the recorded true future moves | upper bound |
 | `Reactive` | `MigrateOnChange` | events | baseline under real observation |
 | `Proactive` | `MigrateOnPrediction` | events + predictions | prediction as horizon compensation |
 | `Learning` | learning strategy | events + telemetry (+ predictions, ablated) | learned trust in the prediction |
@@ -63,18 +63,25 @@ configuration change, never a profile of its own.
 
 ### The oracle arm is new work
 
-**Purpose: measure the cost of the information plane in this system, rather than arguing
-about it.** The orchestrator acts on the true UE-to-gNB association, with no reporting delay,
-no confirmation window, no window granularity and no loss. That is precisely the assumption
-being criticised, run here.
+**Purpose: bound from above what any amount of information could buy, so the other arms are
+measured against an achievable ceiling rather than against each other.** The orchestrator is
+told each move before it happens, with exactly enough lead that the migration *completes* as
+the user arrives: no reporting delay, no confirmation window, no window granularity, no loss,
+and no model error. `Oracle − Proactive` is then the price of model error, and
+`Oracle − Reactive` the price of the whole information plane, model included.
 
-The gap between `Oracle` and `Reactive` is then the measured price of acquiring information,
-under otherwise identical policy. **Both run the same reactive rule** — `MigrateOnChange`,
-unchanged — so only the freshness of what they react to differs. If the policy differs too,
-the arm measures two things at once and neither can be read off the result.
+**It is not a new strategy.** It runs `MigrateOnPrediction`, unchanged, fed from a file
+instead of from the model server. Nothing in the orchestrator distinguishes the two, which is
+what makes the comparison a comparison of one variable.
+
+*Considered and dropped: a `ReactiveGroundTruth` arm — `MigrateOnChange` fed the true
+association with zero staleness — which would have split `Oracle − Reactive` into acquisition
+cost and anticipation cost separately. Defensible, and dropped to keep the campaign to four
+arms. Recorded so it is not re-proposed without a reason.*
 
 **The source is the recorded association.** During `CollectHistory` runs each UE's serving base
-station is written to the vector file; the oracle arm replays that trace as its event stream.
+station is written to the vector file; an offline script turns that into one row per handover,
+and the oracle arm replays those rows as predictions.
 
 **Why a recorded trace is valid ground truth for a different run:** mobility is exogenous. Cars
 drive their routes whatever the orchestrator does, and handovers follow from radio and position
@@ -82,17 +89,37 @@ rather than from where an application happens to run — the same property that 
 proactive run's event stream clean ground truth (meo-plan item 1). So an association trace taken
 under `CollectHistory` holds for every arm on the same route file.
 
-**What has to be added first: the association is not recorded today.** `masterId_` in
-`LtePhyUe` / `LtePhyUeD2D` holds the UE's serving base station and is updated on handover, but
-nothing emits it, and there is no `servingCell` statistic anywhere in the tree. It needs a
-signal emitted on association and on every handover, declared as a vector statistic in the UE's
-NED, and the scenario's blanket vector filtering opened up for that name — an unrecorded
-statistic reads as one that never changed.
+**Trace and run must be the same repetition.** Mobility is reproduced by seed, so a trace
+collected under repetition *N* describes only repetition *N*. The trace path is built from
+`${repetition}` so the pairing is structural rather than remembered.
 
-*A variant was considered and dropped: reading each host's Location Service directly, skipping
-only the Agent, Controller and confirmation window. It isolates the aggregation cost while
-holding data quality constant, but it is not what this arm is for — recorded so it is not
-re-proposed.*
+**Identity is the car index, never the IP.** A UE's address is derived from its OMNeT++ module
+id (`HostAutoConfigurator.cc:52`, `addressBase + host->getId()`), and module ids are a global
+monotonic counter over every module ever created — including the MEC applications the
+orchestrator creates and deletes at runtime. Different arms therefore assign *different IPs to
+the same car*. The Veins car index is stable across arms (`nextNodeVectorIndex++`, driven by
+SUMO insertion order), so the trace keys on it and the address is resolved inside the run that
+uses it. The same rule applies to the analysis: never join two runs by UE IP.
+
+**Lead time sits in a window.** `MigrateOnPrediction` schedules a migration to complete at
+`expectedAt`, so the trace must arrive at least `migrationTime` (12 s) early or the migration
+starts late and `latePredictions` counts it. It must *not* arrive so early that a second move
+for the same user overtakes the first: `scheduledPredictions_` holds one pending entry per
+user, and a second prediction with a different target cancels the first before it fires. So
+`leadTime ∈ [migrationTime, migrationTime + shortest dwell in the trace]`, and the trace
+script reports that shortest dwell so the ceiling is known per route file.
+
+**What was already there.** `servingCell` is emitted on attach (`LtePhyUe.cc:225`), on handover
+(`LtePhyUe.cc:522`, `NRPhyUe.cc:458`) and on every mobility update (`LtePhyUe.cc:739`), is
+declared `record=vector` in `LtePhyUe.ned:32-33`, and the scenario already unblocks it
+(`omnetpp.ini:59`). All of it upstream. Note that each car carries two PHY modules — the LTE
+`phy` records a flat 0 — so the trace must select `nrPhy`.
+
+**A run proves its own validity.** Three scalars on the Controller: `oracleMovesReplayed`,
+`oracleMovesUnresolved` (a car that did not exist when its move was due — must be 0), and
+`latePredictions` on the orchestrator (must be 0). `reactiveFallback` stays on, matching
+`Proactive`; a correct oracle never needs it, so a fallback that fires is a signal the trace
+disagreed with the run rather than a silently absorbed error.
 
 **Risk, and it is real:** if `Oracle` barely beats `Reactive`, the free-information assumption
 is benign in these scenarios and the framing above loses its force. Worth knowing before the
