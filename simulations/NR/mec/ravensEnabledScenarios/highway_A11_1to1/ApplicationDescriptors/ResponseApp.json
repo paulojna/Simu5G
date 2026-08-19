@@ -6,7 +6,7 @@
 "appDescription" : "appDescription_",
 "virtualComputeDescriptor" :{
     "virtualDisk": 10,
-    "virtualCpu" : 70000,
+    "virtualCpu" : 500,
     "virtualMemory":10
     },
     "appServiceRequired": [
